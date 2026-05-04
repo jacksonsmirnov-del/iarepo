@@ -1,0 +1,31 @@
+RewriteEngine On
+
+# ── CORS Preflight ───────────────────────────────
+RewriteCond %{REQUEST_METHOD} OPTIONS
+RewriteRule .* - [R=200,L]
+
+# ── Pretty URLs ──────────────────────────────────
+# /view/123 → viewer/index.php?id=123
+RewriteRule ^view/(\d+)$ viewer/index.php?id=$1 [L,QSA]
+
+# ── Security: block .env.php ─────────────────────
+<FilesMatch "^\.env\.php$">
+    Require all denied
+</FilesMatch>
+
+# ── CORS Headers ─────────────────────────────────
+<IfModule mod_headers.c>
+    # Allow Campus domains
+    SetEnvIf Origin "^https://(claseprivada\.com|staging\.claseprivada\.com|resources\.claseprivada\.com)" CORS_ORIGIN=$0
+    Header always set Access-Control-Allow-Origin "%{CORS_ORIGIN}e" env=CORS_ORIGIN
+    Header always set Access-Control-Allow-Methods "GET, POST, PUT, DELETE, OPTIONS"
+    Header always set Access-Control-Allow-Headers "Authorization, Content-Type"
+    Header always set Access-Control-Allow-Credentials "true"
+    Header always set Access-Control-Max-Age "86400"
+</IfModule>
+
+# ── PHP settings ─────────────────────────────────
+<IfModule mod_php.c>
+    php_value upload_max_filesize 10M
+    php_value post_max_size 12M
+</IfModule>

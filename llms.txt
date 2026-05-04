@@ -1,0 +1,52 @@
+# iarepo — Open Educational Resource Repository
+
+> iarepo.com is a free, open repository of interactive educational resources for teachers worldwide.
+
+## About
+iarepo is a platform where teachers can discover, share, and execute interactive educational resources — simulations, tools, AI-generated models, and more. Think of it as "GitHub for Education."
+
+## Key Features
+- Interactive simulations from PhET, GeoGebra, Desmos
+- HTML5 interactive resources (physics, chemistry, biology, math)
+- AI-generated educational models and prompts
+- Resource viewer with sandbox execution
+- Fork and adapt resources for your own classroom
+- REST API for programmatic access
+
+## Categories
+- Physics: simulations for mechanics, waves, electromagnetism, thermodynamics
+- Chemistry: molecular structures, reactions, pH, states of matter
+- Mathematics: graphing, geometry, calculus, linear algebra
+- Biology: natural selection, genetics, neuroscience
+- General / Tools: LaTeX guides, presentation tools
+
+## Educational Levels
+- Primary (ages 6-12)
+- Secondary (ages 12-16)
+- IB (International Baccalaureate)
+- University
+- General
+
+## Resource Types
+- `html` — Interactive HTML5/JS/CSS resources executed in-browser
+- `url` — External simulations (PhET, GeoGebra, Desmos)
+- `embed` — Embeddable widgets
+- `python` — Python code (Pyodide execution planned)
+- `prompt` — AI prompts for educational content generation
+
+## API
+- Browse resources: GET https://iarepo.com/api/resources.php
+- View a resource: https://iarepo.com/view/{id}
+- Search: GET https://iarepo.com/api/resources.php?search=waves
+- Filter by category: GET https://iarepo.com/api/resources.php?category=1
+- Filter by level: GET https://iarepo.com/api/resources.php?level=secondary
+
+## Sources
+All external resources are properly attributed:
+- PhET Interactive Simulations (University of Colorado Boulder) — CC-BY-4.0
+- GeoGebra — CC-BY-SA
+- Desmos — Free for educational use
+
+## Contact
+- Website: https://iarepo.com
+- Organization: Clase Privada (https://claseprivada.com)

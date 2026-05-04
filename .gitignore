@@ -1,0 +1,30 @@
+# Environment & secrets
+.env.php
+
+# Dependencies
+vendor/
+node_modules/
+
+# Uploads
+uploads/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Logs
+*.log
+error_log
+*/error_log
+
+# QBank data (copied on server, not in git)
+questionbank/
+past-papers/
+
+# AI / Agents
+.gemini/
+.agents/
+AGENTS.md

@@ -1,0 +1,31 @@
+# iarepo.com — Robots
+User-agent: *
+Allow: /
+Allow: /view/
+Allow: /api/resources.php
+Allow: /llms.txt
+Disallow: /api/check_similarity.php
+Disallow: /setup/
+Disallow: /shared/
+Disallow: /.env.php
+
+# AI Crawlers welcome
+User-agent: GPTBot
+Allow: /
+
+User-agent: Google-Extended
+Allow: /
+
+User-agent: ClaudeBot
+Allow: /
+
+User-agent: anthropic-ai
+Allow: /
+
+User-agent: PerplexityBot
+Allow: /
+
+User-agent: Applebot-Extended
+Allow: /
+
+Sitemap: https://iarepo.com/sitemap.xml
