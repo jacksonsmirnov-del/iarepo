@@ -1,7 +1,15 @@
 <?php
 // ================================================================
 // shared/helpers.php — Common Utility Functions
+//
+// Enhanced with:
+//   - Error codes for machine-readable API errors
+//   - Request ID correlation
+//   - Structured logging via api_log()
 // ================================================================
+
+// Load error handler (auto-registers exception/error handlers)
+require_once __DIR__ . '/error_handler.php';
 
 /**
  * HTML-escape a string for safe output.
@@ -17,20 +25,51 @@ function h(string $s): string {
  */
 function json_ok(array $data = []): never {
     header('Content-Type: application/json; charset=utf-8');
-    echo json_encode(['ok' => true] + $data, JSON_UNESCAPED_UNICODE);
+    $response = ['ok' => true, 'request_id' => request_id()] + $data;
+    echo json_encode($response, JSON_UNESCAPED_UNICODE);
     exit;
 }
 
 /**
  * Send an error JSON response and exit.
  *
- * @param string $msg   Error message
- * @param int    $code  HTTP status code
+ * Produces structured errors:
+ *   {"ok": false, "error": "Human message", "code": "ERROR_CODE", "request_id": "abc123"}
+ *
+ * @param string $msg       Human-readable error message
+ * @param int    $httpCode  HTTP status code (default: 400)
+ * @param string $errorCode Machine-readable error code (default: auto-generated from HTTP code)
  */
-function json_error(string $msg, int $code = 400): never {
-    http_response_code($code);
+function json_error(string $msg, int $httpCode = 400, string $errorCode = ''): never {
+    // Auto-generate error code from HTTP status if not provided
+    if (!$errorCode) {
+        $errorCode = match ($httpCode) {
+            400 => 'BAD_REQUEST',
+            401 => 'UNAUTHORIZED',
+            403 => 'FORBIDDEN',
+            404 => 'NOT_FOUND',
+            405 => 'METHOD_NOT_ALLOWED',
+            409 => 'CONFLICT',
+            429 => 'RATE_LIMITED',
+            500 => 'INTERNAL_ERROR',
+            503 => 'SERVICE_UNAVAILABLE',
+            default => 'ERROR',
+        };
+    }
+
+    // Log server errors (5xx) automatically
+    if ($httpCode >= 500) {
+        api_log('error', $msg, ['http_code' => $httpCode, 'error_code' => $errorCode]);
+    }
+
+    http_response_code($httpCode);
     header('Content-Type: application/json; charset=utf-8');
-    echo json_encode(['ok' => false, 'error' => $msg], JSON_UNESCAPED_UNICODE);
+    echo json_encode([
+        'ok'         => false,
+        'error'      => $msg,
+        'code'       => $errorCode,
+        'request_id' => request_id(),
+    ], JSON_UNESCAPED_UNICODE);
     exit;
 }
 
@@ -42,7 +81,7 @@ function json_error(string $msg, int $code = 400): never {
 function json_body(): array {
     $raw = file_get_contents('php://input');
     $data = json_decode($raw, true);
-    if (!is_array($data)) json_error('Invalid JSON body');
+    if (!is_array($data)) json_error('Invalid JSON body', 400, 'INVALID_JSON');
     return $data;
 }
 

@@ -17,7 +17,7 @@ require_once __DIR__ . '/../shared/auth.php';
 require_once __DIR__ . '/../shared/helpers.php';
 
 $id = (int)($_GET['id'] ?? 0);
-if (!$id) { http_response_code(400); die('Missing resource ID'); }
+if (!$id) { showViewerError(400, 'Missing resource ID', 'No se proporcionó un ID de recurso.'); }
 
 $db = getResourcesDB();
 
@@ -33,8 +33,7 @@ $stmt->execute([$id]);
 $resource = $stmt->fetch();
 
 if (!$resource) {
-    http_response_code(404);
-    die('Resource not found');
+    showViewerError(404, 'Resource not found', 'Este recurso no existe o ha sido eliminado.');
 }
 
 // ── Visibility check ─────────────────────────────────────────
@@ -42,8 +41,7 @@ if (!$resource) {
 if ($resource['visibility'] !== 'community') {
     $user = authenticate();
     if (!$user) {
-        http_response_code(401);
-        die('Authentication required for non-public resources');
+        showViewerError(401, 'Authentication required', 'Necesitas autenticarte para ver este recurso.');
     }
 
     $vis = $resource['visibility'];
@@ -53,23 +51,30 @@ if ($resource['visibility'] !== 'community') {
     // Draft: only author
     if ($vis === 'draft') {
         if ($user['user_id'] != $resource['author_user_id'] ?? -1) {
-            http_response_code(403);
-            die('This resource is private');
+            showViewerError(403, 'Private resource', 'Este recurso es un borrador privado.');
         }
     }
     // Area: same tenant + same area
     elseif ($vis === 'area') {
         if ($userTenant !== $authorTenant) {
-            http_response_code(403);
-            die('This resource is restricted to the author\'s area');
+            showViewerError(403, 'Restricted resource', 'Este recurso está restringido al área del autor.');
         }
     }
     // School: same tenant
     elseif ($vis === 'school') {
         if ($userTenant !== $authorTenant) {
-            http_response_code(403);
-            die('This resource is restricted to the author\'s school');
+            showViewerError(403, 'Restricted resource', 'Este recurso está restringido al colegio del autor.');
         }
+    }
+}
+
+// ── Increment view count ─────────────────────────────────────
+try {
+    $db->prepare("UPDATE resources SET view_count = view_count + 1 WHERE id = ?")->execute([$id]);
+} catch (\Throwable $e) {
+    // Non-critical — don't block the viewer
+    if (function_exists('api_log')) {
+        api_log('warn', 'Failed to increment view_count', ['resource_id' => $id]);
     }
 }
 
@@ -82,7 +87,12 @@ $isPresent = ($mode === 'present');
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title><?= h($resource['title']) ?> — Resources</title>
+    <title><?= h($resource['title']) ?> — iarepo</title>
+    <meta name="description" content="<?= h($resource['title']) ?> — Recurso educativo interactivo en iarepo.com">
+    <meta property="og:title" content="<?= h($resource['title']) ?> — iarepo">
+    <meta property="og:type" content="article">
+    <meta property="og:url" content="https://iarepo.com/view/<?= $id ?>">
+    <link rel="canonical" href="https://iarepo.com/view/<?= $id ?>">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         html, body { height: 100%; overflow: hidden; font-family: system-ui, sans-serif; }
@@ -191,12 +201,12 @@ $isPresent = ($mode === 'present');
             <?php endif; ?>
         </div>
         <div class="actions">
-            <button class="btn btn-present" onclick="goPresent()">📺 Presentar</button>
-            <button class="btn btn-close" onclick="window.close()">✕ Cerrar</button>
+            <button class="btn btn-present" id="btnPresent">📺 Presentar</button>
+            <button class="btn btn-close" id="btnClose">✕ Cerrar</button>
         </div>
     </div>
 
-    <button class="fs-exit" id="fs-exit" onclick="exitPresent()">✕ Salir de pantalla completa</button>
+    <button class="fs-exit" id="fs-exit">✕ Salir de pantalla completa</button>
 
     <?php if ($resource['code_type'] === 'html'): ?>
         <iframe class="viewer-frame"
@@ -233,6 +243,10 @@ $isPresent = ($mode === 'present');
     <script>
         const bar = document.querySelector('.viewer-bar');
         const exitBtn = document.getElementById('fs-exit');
+
+        document.getElementById('btnPresent').addEventListener('click', goPresent);
+        document.getElementById('btnClose').addEventListener('click', () => window.close());
+        exitBtn.addEventListener('click', exitPresent);
 
         function goPresent() {
             const el = document.documentElement;
@@ -274,3 +288,63 @@ $isPresent = ($mode === 'present');
     </script>
 </body>
 </html>
+<?php
+
+// ══════════════════════════════════════════════════════════════
+// HELPER: Professional error page for viewer
+// ══════════════════════════════════════════════════════════════
+function showViewerError(int $httpCode, string $title, string $message): never {
+    http_response_code($httpCode);
+    ?>
+    <!DOCTYPE html>
+    <html lang="es">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title><?= $title ?> — iarepo</title>
+        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+        <style>
+            * { margin: 0; padding: 0; box-sizing: border-box; }
+            body {
+                font-family: 'Inter', system-ui, sans-serif;
+                background: #0f172a; color: #e2e8f0;
+                display: flex; align-items: center; justify-content: center;
+                min-height: 100vh; text-align: center; padding: 24px;
+            }
+            .error-card {
+                max-width: 480px;
+                background: #1e293b;
+                border: 1px solid #334155;
+                border-radius: 16px;
+                padding: 48px 32px;
+                box-shadow: 0 8px 32px rgba(0,0,0,.4);
+            }
+            .error-code {
+                font-size: 4rem; font-weight: 800;
+                background: linear-gradient(135deg, #7c3aed, #06b6d4);
+                -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+                margin-bottom: 12px;
+            }
+            h1 { font-size: 1.3rem; font-weight: 700; margin-bottom: 12px; }
+            p { color: #94a3b8; line-height: 1.6; margin-bottom: 24px; }
+            .back-btn {
+                display: inline-block; padding: 10px 24px;
+                background: linear-gradient(135deg, #7c3aed, #06b6d4);
+                color: white; text-decoration: none; border-radius: 24px;
+                font-weight: 600; font-size: .9rem; transition: transform .2s;
+            }
+            .back-btn:hover { transform: translateY(-2px); }
+        </style>
+    </head>
+    <body>
+        <div class="error-card">
+            <div class="error-code"><?= $httpCode ?></div>
+            <h1><?= htmlspecialchars($title) ?></h1>
+            <p><?= htmlspecialchars($message) ?></p>
+            <a href="/" class="back-btn">← Volver a iarepo</a>
+        </div>
+    </body>
+    </html>
+    <?php
+    exit;
+}

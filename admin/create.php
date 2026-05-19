@@ -69,9 +69,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['title'])) {
         $stmt = $db->prepare("
             INSERT INTO resources (title, description, code_content, code_type, subject_area,
                 lang, level, category_id, source_prompt, source_url, source_name,
-                author_tenant_id, author_user_id, author_display_name,
+                author_tenant_id, author_user_id, author_display_name, author_tenant_name,
                 visibility, content_hash, moderation_status)
-            VALUES (?, ?, ?, ?, '', ?, ?, ?, ?, ?, ?, 0, 1, 'iarepo', ?, ?, 'approved')
+            VALUES (?, ?, ?, ?, '', ?, ?, ?, ?, ?, ?, 0, 1, 'iarepo', '', ?, ?, 'approved')
         ");
         $stmt->execute([
             $title, $description, $code, $codeType,

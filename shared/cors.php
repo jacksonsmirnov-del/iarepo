@@ -4,6 +4,11 @@
 //
 // Call cors() at the top of every API endpoint.
 // Handles preflight OPTIONS requests and sets proper headers.
+//
+// Supports:
+//   - Any *.claseprivada.com subdomain (multi-tenant Campus)
+//   - iarepo.com (main domain)
+//   - Custom origins from .env.php
 // ================================================================
 
 /**
@@ -13,11 +18,13 @@
 function cors(): void {
     $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
 
-    // Allowed origins: any *.claseprivada.com subdomain + exact matches
+    // Default allowed origins
     $allowed = [
         'https://claseprivada.com',
         'https://staging.claseprivada.com',
         'https://resources.claseprivada.com',
+        'https://iarepo.com',
+        'https://www.iarepo.com',
     ];
 
     // Also allow from .env if configured

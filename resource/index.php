@@ -1,0 +1,360 @@
+<?php
+// ================================================================
+// resource/index.php — Resource Detail Page
+//
+// URL: /resource/{id}
+// Shows: preview, metadata, likes, comments, similar resources
+// ================================================================
+
+session_start();
+require_once __DIR__ . '/../shared/auth.php';
+require_once __DIR__ . '/../shared/db.php';
+require_once __DIR__ . '/../shared/helpers.php';
+
+$id = (int)($_GET['id'] ?? 0);
+if (!$id) { header('Location: /'); exit; }
+
+$db = getResourcesDB();
+$sessionUser = getSessionUser();
+$user = authenticate();
+
+// Fetch resource
+$stmt = $db->prepare("
+    SELECT r.*, c.name AS category_name, c.icon AS category_icon
+    FROM resources r
+    LEFT JOIN categories c ON r.category_id = c.id
+    WHERE r.id = ? AND r.is_active = 1
+");
+$stmt->execute([$id]);
+$r = $stmt->fetch();
+if (!$r) { header('HTTP/1.1 404 Not Found'); header('Location: /'); exit; }
+
+// Visibility check
+if ($r['visibility'] !== 'community') {
+    if (!$user) { header('Location: /'); exit; }
+    $vis = $r['visibility'];
+    if ($vis === 'draft' && $user['user_id'] != $r['author_user_id']) { header('Location: /'); exit; }
+    if (in_array($vis, ['area','school']) && ($user['tenant_id'] ?? 0) != $r['author_tenant_id']) { header('Location: /'); exit; }
+}
+
+// Check if user liked
+$userLiked = false;
+if ($user) {
+    $likeCheck = $db->prepare("SELECT id FROM resource_likes WHERE resource_id = ? AND user_id = ?");
+    $likeCheck->execute([$id, $user['user_id']]);
+    $userLiked = (bool)$likeCheck->fetch();
+}
+
+// Similar resources (same category or subject_area)
+$similar = [];
+if ($r['category_id']) {
+    $simStmt = $db->prepare("
+        SELECT id, title, code_type, view_count, like_count, author_display_name
+        FROM resources
+        WHERE category_id = ? AND id != ? AND is_active = 1 AND visibility = 'community'
+        ORDER BY like_count DESC, view_count DESC LIMIT 4
+    ");
+    $simStmt->execute([$r['category_id'], $id]);
+    $similar = $simStmt->fetchAll();
+}
+
+$env = require __DIR__ . '/../.env.php';
+$googleClientId = $env['GOOGLE_CLIENT_ID'] ?? '';
+$levelLabels = ['primary'=>'Primaria','secondary'=>'Secundaria','ib'=>'IB','university'=>'Universidad','general'=>'General'];
+?>
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title><?= h($r['title']) ?> — iarepo</title>
+<meta name="description" content="<?= h($r['description'] ?: $r['title']) ?>">
+<meta property="og:title" content="<?= h($r['title']) ?> — iarepo">
+<meta property="og:description" content="<?= h($r['description'] ?: 'Recurso educativo interactivo') ?>">
+<meta property="og:url" content="https://iarepo.com/resource/<?= $id ?>">
+<link rel="canonical" href="https://iarepo.com/resource/<?= $id ?>">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+<?php if (!$sessionUser): ?>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<?php endif; ?>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--bg:#f8fafc;--bg2:#fff;--bg3:#f1f5f9;--text:#1e293b;--text2:#475569;--text3:#94a3b8;--accent:#7c3aed;--accent2:#06b6d4;--grad:linear-gradient(135deg,#7c3aed,#06b6d4);--card:#fff;--border:#e2e8f0;--radius:12px;--shadow:0 1px 3px rgba(0,0,0,.06)}
+[data-theme="dark"]{--bg:#0a0e1a;--bg2:#111827;--bg3:#1e293b;--text:#e2e8f0;--text2:#94a3b8;--text3:#64748b;--card:#151c2e;--border:#1e293b;--shadow:0 1px 3px rgba(0,0,0,.3)}
+body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;transition:background .3s,color .3s}
+a{color:var(--accent2);text-decoration:none}
+
+.topbar{display:flex;align-items:center;justify-content:space-between;padding:12px 24px;background:var(--bg2);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:100}
+.topbar-left{display:flex;align-items:center;gap:12px}
+.topbar-left a{color:var(--accent);font-weight:600;font-size:.95rem}
+.topbar-right{display:flex;align-items:center;gap:10px}
+.topbar-right img{width:28px;height:28px;border-radius:50%}
+
+.layout{max-width:1200px;margin:0 auto;padding:24px;display:grid;grid-template-columns:1fr 360px;gap:24px}
+@media(max-width:900px){.layout{grid-template-columns:1fr}.sidebar{order:-1}}
+
+/* Preview */
+.preview-card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;box-shadow:var(--shadow)}
+.preview-frame{width:100%;height:500px;border:none;background:#fff}
+.preview-actions{display:flex;gap:8px;padding:12px 16px;border-top:1px solid var(--border);background:var(--bg3)}
+.btn{padding:8px 18px;border-radius:8px;border:none;cursor:pointer;font-family:inherit;font-size:.85rem;font-weight:600;transition:all .2s;display:inline-flex;align-items:center;gap:6px}
+.btn-primary{background:var(--grad);color:#fff}
+.btn-primary:hover{transform:translateY(-1px);box-shadow:0 4px 16px rgba(124,58,237,.3)}
+.btn-outline{background:transparent;border:1px solid var(--border);color:var(--text2)}
+.btn-outline:hover{border-color:var(--accent);color:var(--accent)}
+.btn-like{background:transparent;border:1px solid var(--border);color:var(--text2);font-size:.9rem}
+.btn-like.liked{border-color:#ef4444;color:#ef4444;background:rgba(239,68,68,.08)}
+.btn-like:hover{border-color:#ef4444;color:#ef4444}
+
+/* Sidebar */
+.sidebar{display:flex;flex-direction:column;gap:16px}
+.meta-card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:20px;box-shadow:var(--shadow)}
+.meta-card h2{font-size:1.25rem;font-weight:700;margin-bottom:8px;line-height:1.3}
+.meta-card p{color:var(--text2);font-size:.9rem;line-height:1.6;margin-bottom:16px}
+.meta-row{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-top:1px solid var(--border);font-size:.85rem}
+.meta-label{color:var(--text3)}
+.meta-value{font-weight:500;display:flex;align-items:center;gap:4px}
+.author-link{display:flex;align-items:center;gap:8px;padding:12px;border-radius:8px;background:var(--bg3);margin-top:12px;font-size:.9rem;font-weight:500;color:var(--text)}
+.stats-row{display:flex;gap:16px;margin-top:16px}
+.stat-item{flex:1;text-align:center;padding:12px;background:var(--bg3);border-radius:8px}
+.stat-item strong{display:block;font-size:1.3rem;background:var(--grad);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.stat-item span{font-size:.75rem;color:var(--text3)}
+.tag{display:inline-block;padding:3px 10px;border-radius:6px;font-size:.78rem;font-weight:500;margin:2px}
+.tag-type{background:rgba(124,58,237,.08);color:var(--accent)}
+.tag-level{background:rgba(6,182,212,.08);color:var(--accent2)}
+.tag-vis{background:rgba(34,197,94,.08);color:#16a34a}
+
+/* Comments */
+.comments-section{margin-top:24px;grid-column:1/-1}
+.comments-section h3{font-size:1.1rem;font-weight:700;margin-bottom:16px;display:flex;align-items:center;gap:8px}
+.comment-form{display:flex;gap:12px;margin-bottom:24px}
+.comment-form textarea{flex:1;padding:12px;border:1px solid var(--border);border-radius:8px;background:var(--bg2);color:var(--text);font-family:inherit;font-size:.9rem;resize:vertical;min-height:60px}
+.comment-form textarea:focus{outline:none;border-color:var(--accent)}
+.comment{padding:16px;background:var(--card);border:1px solid var(--border);border-radius:var(--radius);margin-bottom:12px}
+.comment-header{display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:.85rem}
+.comment-header img{width:24px;height:24px;border-radius:50%}
+.comment-header strong{color:var(--text)}
+.comment-header time{color:var(--text3);font-size:.78rem}
+.comment-body{font-size:.9rem;line-height:1.6;color:var(--text2)}
+.comment-actions{margin-top:8px;display:flex;gap:12px}
+.comment-actions button{background:none;border:none;color:var(--text3);font-size:.78rem;cursor:pointer;font-family:inherit}
+.comment-actions button:hover{color:var(--accent)}
+.replies{margin-left:32px;margin-top:8px}
+.login-prompt{padding:16px;background:var(--bg3);border-radius:8px;text-align:center;color:var(--text2);font-size:.9rem;margin-bottom:24px}
+
+/* Similar */
+.similar-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;margin-top:12px}
+.similar-card{padding:14px;background:var(--card);border:1px solid var(--border);border-radius:8px;cursor:pointer;transition:.2s}
+.similar-card:hover{border-color:var(--accent);transform:translateY(-1px)}
+.similar-card h4{font-size:.85rem;font-weight:600;margin-bottom:4px}
+.similar-card span{font-size:.75rem;color:var(--text3)}
+
+.theme-toggle{position:fixed;bottom:16px;right:16px;z-index:100;width:40px;height:40px;border-radius:50%;border:1px solid var(--border);background:var(--bg2);color:var(--text2);cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:var(--shadow)}
+.theme-toggle:hover{border-color:var(--accent);color:var(--accent)}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-left">
+    <a href="/">← iarepo</a>
+    <span style="color:var(--text3);font-size:.85rem">/</span>
+    <span style="font-size:.85rem;color:var(--text2)"><?= h($r['title']) ?></span>
+  </div>
+  <div class="topbar-right">
+    <?php if ($sessionUser): ?>
+      <?php if ($sessionUser['avatar_url']): ?><img src="<?= h($sessionUser['avatar_url']) ?>" alt=""><?php endif; ?>
+      <span style="font-size:.85rem"><?= h($sessionUser['name']) ?></span>
+      <a href="/dashboard/" style="font-size:.8rem;margin-left:4px">Dashboard</a>
+    <?php else: ?>
+      <div id="g_id_onload" data-client_id="<?= h($googleClientId) ?>" data-login_uri="https://iarepo.com/auth/google.php" data-auto_prompt="false"></div>
+      <div class="g_id_signin" data-type="standard" data-shape="pill" data-theme="outline" data-size="small"></div>
+    <?php endif; ?>
+  </div>
+</div>
+
+<div class="layout">
+  <!-- Preview -->
+  <div>
+    <div class="preview-card">
+      <?php if ($r['code_type'] === 'html'): ?>
+        <iframe class="preview-frame" srcdoc="<?= h($r['code_content']) ?>" sandbox="allow-scripts allow-modals allow-popups" title="<?= h($r['title']) ?>"></iframe>
+      <?php elseif ($r['code_type'] === 'url'): ?>
+        <iframe class="preview-frame" src="<?= h($r['code_content']) ?>" title="<?= h($r['title']) ?>"></iframe>
+      <?php elseif ($r['code_type'] === 'embed'): ?>
+        <iframe class="preview-frame" srcdoc="<?= h($r['code_content']) ?>" sandbox="allow-scripts allow-modals allow-popups allow-forms" title="<?= h($r['title']) ?>"></iframe>
+      <?php else: ?>
+        <pre style="height:500px;overflow:auto;padding:20px;background:#1e1e2e;color:#cdd6f4;font-size:14px;font-family:'Fira Code',monospace;white-space:pre-wrap"><?= h($r['code_content']) ?></pre>
+      <?php endif; ?>
+      <div class="preview-actions">
+        <a href="/view/<?= $id ?>" target="_blank" class="btn btn-primary"><i data-lucide="maximize" style="width:14px;height:14px"></i> Abrir en Viewer</a>
+        <button class="btn btn-like <?= $userLiked ? 'liked' : '' ?>" id="likeBtn" data-id="<?= $id ?>">
+          <i data-lucide="heart" style="width:14px;height:14px"></i>
+          <span id="likeCount"><?= (int)($r['like_count'] ?? 0) ?></span>
+        </button>
+        <button class="btn btn-outline" id="forkBtn" data-id="<?= $id ?>"><i data-lucide="git-fork" style="width:14px;height:14px"></i> Fork</button>
+        <?php if ($r['source_url']): ?>
+          <a href="<?= h($r['source_url']) ?>" target="_blank" class="btn btn-outline"><i data-lucide="external-link" style="width:14px;height:14px"></i> Fuente</a>
+        <?php endif; ?>
+      </div>
+    </div>
+
+    <!-- Comments -->
+    <div class="comments-section">
+      <h3><i data-lucide="message-circle" style="width:18px;height:18px"></i> Comentarios <span id="commentCount" style="color:var(--text3);font-weight:400;font-size:.9rem"></span></h3>
+      <?php if ($sessionUser || $user): ?>
+        <div class="comment-form">
+          <textarea id="commentBody" placeholder="Comparte una idea, sugerencia o cómo usas este recurso..."></textarea>
+          <button class="btn btn-primary" id="postComment" style="align-self:flex-end">Enviar</button>
+        </div>
+      <?php else: ?>
+        <div class="login-prompt">Inicia sesión con Google para comentar</div>
+      <?php endif; ?>
+      <div id="commentsList"></div>
+    </div>
+  </div>
+
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <div class="meta-card">
+      <h2><?= h($r['title']) ?></h2>
+      <?php if ($r['description']): ?>
+        <p><?= h($r['description']) ?></p>
+      <?php endif; ?>
+
+      <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:12px">
+        <span class="tag tag-type"><?= h($r['code_type']) ?></span>
+        <?php if ($r['level']): ?><span class="tag tag-level"><?= h($levelLabels[$r['level']] ?? $r['level']) ?></span><?php endif; ?>
+        <span class="tag tag-vis"><?= h($r['visibility']) ?></span>
+        <?php if ($r['category_name']): ?><span class="tag" style="background:var(--bg3);color:var(--text2)"><?= h($r['category_name']) ?></span><?php endif; ?>
+        <?php if ($r['lang']): ?><span class="tag" style="background:var(--bg3);color:var(--text2)"><?= strtoupper(h($r['lang'])) ?></span><?php endif; ?>
+      </div>
+
+      <div class="stats-row">
+        <div class="stat-item"><strong><?= (int)$r['view_count'] ?></strong><span>Vistas</span></div>
+        <div class="stat-item"><strong><?= (int)($r['like_count'] ?? 0) ?></strong><span>Likes</span></div>
+        <div class="stat-item"><strong><?= (int)$r['fork_count'] ?></strong><span>Forks</span></div>
+      </div>
+
+      <div class="meta-row"><span class="meta-label">Autor</span><span class="meta-value"><?= h($r['author_display_name']) ?></span></div>
+      <?php if ($r['subject_area']): ?><div class="meta-row"><span class="meta-label">Área</span><span class="meta-value"><?= h($r['subject_area']) ?></span></div><?php endif; ?>
+      <?php if ($r['topic_tag']): ?><div class="meta-row"><span class="meta-label">Tema</span><span class="meta-value"><?= h($r['topic_tag']) ?></span></div><?php endif; ?>
+      <div class="meta-row"><span class="meta-label">Versión</span><span class="meta-value">v<?= (int)$r['current_version'] ?></span></div>
+      <div class="meta-row"><span class="meta-label">Creado</span><span class="meta-value"><?= date('d/m/Y', strtotime($r['created_at'])) ?></span></div>
+      <?php if ($r['source_name']): ?>
+        <div class="meta-row"><span class="meta-label">Fuente</span><span class="meta-value"><a href="<?= h($r['source_url'] ?? '#') ?>" target="_blank"><?= h($r['source_name']) ?></a></span></div>
+      <?php endif; ?>
+      <?php if ($r['source_prompt']): ?>
+        <div style="margin-top:12px">
+          <details>
+            <summary style="cursor:pointer;font-size:.85rem;color:var(--text3)">🤖 Prompt original</summary>
+            <pre style="margin-top:8px;padding:12px;background:var(--bg3);border-radius:8px;font-size:.8rem;white-space:pre-wrap;color:var(--text2);max-height:200px;overflow:auto"><?= h($r['source_prompt']) ?></pre>
+          </details>
+        </div>
+      <?php endif; ?>
+    </div>
+
+    <?php if ($similar): ?>
+    <div class="meta-card">
+      <h3 style="font-size:1rem;font-weight:600;margin-bottom:8px">Recursos similares</h3>
+      <div class="similar-grid">
+        <?php foreach ($similar as $s): ?>
+          <a href="/resource/<?= (int)$s['id'] ?>" class="similar-card" style="text-decoration:none;color:var(--text)">
+            <h4><?= h($s['title']) ?></h4>
+            <span><?= h($s['author_display_name']) ?> · 👁 <?= (int)$s['view_count'] ?> · ❤ <?= (int)$s['like_count'] ?></span>
+          </a>
+        <?php endforeach; ?>
+      </div>
+    </div>
+    <?php endif; ?>
+  </div>
+</div>
+
+<button class="theme-toggle" id="themeBtn" title="Cambiar tema"><i data-lucide="moon" style="width:18px;height:18px"></i></button>
+
+<script>
+const RID = <?= $id ?>;
+const IS_AUTH = <?= ($sessionUser || $user) ? 'true' : 'false' ?>;
+
+// Theme
+(function(){
+  if(localStorage.getItem('iarepo-theme')==='dark') document.documentElement.setAttribute('data-theme','dark');
+  document.getElementById('themeBtn').addEventListener('click',()=>{
+    const d=document.documentElement.getAttribute('data-theme')==='dark';
+    d?document.documentElement.removeAttribute('data-theme'):document.documentElement.setAttribute('data-theme','dark');
+    localStorage.setItem('iarepo-theme',d?'light':'dark');
+  });
+})();
+
+function esc(s){const d=document.createElement('div');d.textContent=s||'';return d.innerHTML}
+
+// Like
+document.getElementById('likeBtn').addEventListener('click', async()=>{
+  if(!IS_AUTH){alert('Inicia sesión para dar like');return}
+  try{
+    const res=await fetch(`/api/likes.php?id=${RID}`,{method:'POST'});
+    const data=await res.json();
+    if(!data.ok) throw new Error(data.error);
+    document.getElementById('likeCount').textContent=data.like_count;
+    const btn=document.getElementById('likeBtn');
+    data.user_liked?btn.classList.add('liked'):btn.classList.remove('liked');
+  }catch(e){alert(e.message)}
+});
+
+// Fork
+document.getElementById('forkBtn').addEventListener('click', async()=>{
+  if(!IS_AUTH){alert('Inicia sesión para forkear');return}
+  if(!confirm('¿Crear un fork de este recurso?')) return;
+  try{
+    const res=await fetch(`/api/resources.php?action=fork&id=${RID}`,{method:'POST'});
+    const data=await res.json();
+    if(!data.ok) throw new Error(data.error);
+    alert('¡Fork creado! Revisa tu dashboard.');
+  }catch(e){alert(e.message)}
+});
+
+// Comments
+async function loadComments(){
+  try{
+    const res=await fetch(`/api/comments.php?resource_id=${RID}`);
+    const data=await res.json();
+    if(!data.ok) return;
+    document.getElementById('commentCount').textContent=`(${data.total})`;
+    const list=document.getElementById('commentsList');
+    if(!data.comments.length){list.innerHTML='<p style="color:var(--text3);text-align:center;padding:24px">Aún no hay comentarios. ¡Sé el primero!</p>';return}
+    list.innerHTML=data.comments.map(c=>{
+      const avatar=c.user_avatar?`<img src="${esc(c.user_avatar)}" alt="">`:'';
+      const date=new Date(c.created_at).toLocaleDateString('es',{day:'numeric',month:'short',year:'numeric'});
+      const replies=(c.replies||[]).map(r=>{
+        const ra=r.user_avatar?`<img src="${esc(r.user_avatar)}" alt="">`:'';
+        const rd=new Date(r.created_at).toLocaleDateString('es',{day:'numeric',month:'short',year:'numeric'});
+        return`<div class="comment" style="margin-top:8px"><div class="comment-header">${ra}<strong>${esc(r.user_name)}</strong><time>${rd}</time></div><div class="comment-body">${esc(r.body)}</div></div>`;
+      }).join('');
+      return`<div class="comment"><div class="comment-header">${avatar}<strong>${esc(c.user_name)}</strong><time>${date}</time></div><div class="comment-body">${esc(c.body)}</div>${replies?'<div class="replies">'+replies+'</div>':''}</div>`;
+    }).join('');
+  }catch(e){console.error(e)}
+}
+
+const postBtn=document.getElementById('postComment');
+if(postBtn){
+  postBtn.addEventListener('click', async()=>{
+    const body=document.getElementById('commentBody').value.trim();
+    if(!body) return;
+    postBtn.disabled=true;postBtn.textContent='⏳...';
+    try{
+      const res=await fetch('/api/comments.php',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({resource_id:RID,body})});
+      const data=await res.json();
+      if(!data.ok) throw new Error(data.error);
+      document.getElementById('commentBody').value='';
+      loadComments();
+    }catch(e){alert(e.message)}
+    finally{postBtn.disabled=false;postBtn.textContent='Enviar'}
+  });
+}
+
+loadComments();
+lucide.createIcons();
+</script>
+</body>
+</html>

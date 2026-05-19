@@ -8,6 +8,12 @@ RewriteRule .* - [R=200,L]
 # /view/123 → viewer/index.php?id=123
 RewriteRule ^view/(\d+)$ viewer/index.php?id=$1 [L,QSA]
 
+# /resource/123 → resource/index.php?id=123
+RewriteRule ^resource/(\d+)$ resource/index.php?id=$1 [L,QSA]
+
+# /profile/123 → profile/index.php?id=123
+RewriteRule ^profile/(\d+)$ profile/index.php?id=$1 [L,QSA]
+
 # ── Security: block .env.php ─────────────────────
 <FilesMatch "^\.env\.php$">
     Require all denied
@@ -15,8 +21,8 @@ RewriteRule ^view/(\d+)$ viewer/index.php?id=$1 [L,QSA]
 
 # ── CORS Headers ─────────────────────────────────
 <IfModule mod_headers.c>
-    # Allow Campus domains
-    SetEnvIf Origin "^https://(claseprivada\.com|staging\.claseprivada\.com|resources\.claseprivada\.com)" CORS_ORIGIN=$0
+    # Allow Campus domains + iarepo.com
+    SetEnvIf Origin "^https://(claseprivada\.com|staging\.claseprivada\.com|resources\.claseprivada\.com|iarepo\.com|www\.iarepo\.com)" CORS_ORIGIN=$0
     Header always set Access-Control-Allow-Origin "%{CORS_ORIGIN}e" env=CORS_ORIGIN
     Header always set Access-Control-Allow-Methods "GET, POST, PUT, DELETE, OPTIONS"
     Header always set Access-Control-Allow-Headers "Authorization, Content-Type"

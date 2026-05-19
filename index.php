@@ -194,7 +194,7 @@ a:hover{opacity:.8}
 <body>
 
 <!-- Theme toggle -->
-<button class="theme-toggle" onclick="toggleTheme()" title="Cambiar tema" id="theme-btn">
+<button class="theme-toggle" title="Cambiar tema" id="theme-btn">
   <i data-lucide="moon" style="width:18px;height:18px" id="theme-icon-dark"></i>
   <i data-lucide="sun" style="width:18px;height:18px" id="theme-icon-light" style="display:none"></i>
 </button>
@@ -225,7 +225,7 @@ a:hover{opacity:.8}
 </div>
 
 <!-- Present mode button -->
-<button class="present-btn" onclick="enterPresent()" title="Modo presentación">
+<button class="present-btn" id="presentBtn" title="Modo presentación">
   <i data-lucide="maximize" style="width:14px;height:14px"></i> Presentar
 </button>
 
@@ -255,7 +255,7 @@ a:hover{opacity:.8}
 <div class="container">
   <div class="toolbar">
     <span class="result-count" id="result-count"></span>
-    <select class="sort-select" id="sort" onchange="loadResources()">
+    <select class="sort-select" id="sort">
       <option value="recent">Más recientes</option>
       <option value="popular">Más usados</option>
       <option value="views">Más vistos</option>
@@ -301,6 +301,7 @@ function updateThemeIcons() {
   document.getElementById('theme-icon-light').style.display = isDark ? 'block' : 'none';
 }
 initTheme();
+document.getElementById('theme-btn').addEventListener('click', toggleTheme);
 
 // ── Presentation Mode ──
 function enterPresent() {
@@ -312,6 +313,7 @@ function enterPresent() {
   if (document.documentElement.requestFullscreen) document.documentElement.requestFullscreen();
   lucide.createIcons();
 }
+document.getElementById('presentBtn').addEventListener('click', enterPresent);
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') {
     const overlay = document.getElementById('present-overlay');
@@ -361,28 +363,31 @@ function renderCategories(cats) {
   document.getElementById('stat-cats').textContent = activeCats.length;
   document.getElementById('stat-types').textContent = '6';
   const el = document.getElementById('categories');
-  let html = `<button class="cat-pill active" onclick="filterCat(null, this)">Todos</button>`;
+  let html = `<button class="cat-pill active" data-cat-id="">Todos</button>`;
   cats.forEach(c => {
     if (parseInt(c.resource_count) > 0)
-      html += `<button class="cat-pill" onclick="filterCat(${c.id}, this)"><i data-lucide="${c.icon}" style="width:14px;height:14px"></i> ${c.name} <span class="count">${c.resource_count}</span></button>`;
+      html += `<button class="cat-pill" data-cat-id="${c.id}"><i data-lucide="${c.icon}" style="width:14px;height:14px"></i> ${c.name} <span class="count">${c.resource_count}</span></button>`;
   });
   el.innerHTML = html;
   lucide.createIcons();
+  // Delegated click for category pills
+  el.addEventListener('click', e => {
+    const pill = e.target.closest('.cat-pill');
+    if (!pill) return;
+    currentCat = pill.dataset.catId || null;
+    document.querySelectorAll('.cat-pill').forEach(p => p.classList.remove('active'));
+    pill.classList.add('active');
+    loadResources();
+  });
 }
 
-function filterCat(id, el) {
-  currentCat = id;
-  document.querySelectorAll('.cat-pill').forEach(p => p.classList.remove('active'));
-  el.classList.add('active');
-  loadResources();
-}
 
 function renderCard(r) {
   const icon = r.category_icon || 'file-code';
   const levelClass = r.level || 'general';
   const levelLabel = {primary:'Primaria',secondary:'Secundaria',ib:'IB',university:'Universidad',general:'General'}[levelClass] || levelClass;
   const source = r.source_name ? `<span class="source-badge">${r.source_name}</span>` : '';
-  return `<div class="card" onclick="window.open('/view/${r.id}','_blank')">
+  return `<div class="card" data-resource-id="${r.id}">
     ${source}
     <div class="card-header">
       <div class="card-icon"><i data-lucide="${icon}" style="width:20px;height:20px"></i></div>
@@ -393,6 +398,7 @@ function renderCard(r) {
       <div class="card-tags"><span class="badge-level ${levelClass}">${levelLabel}</span><span class="tag">${r.code_type}</span></div>
       <div class="card-meta">
         <span><i data-lucide="eye" style="width:12px;height:12px"></i> ${r.view_count||0}</span>
+        <span><i data-lucide="heart" style="width:12px;height:12px"></i> ${r.like_count||0}</span>
         <span><i data-lucide="git-fork" style="width:12px;height:12px"></i> ${r.fork_count||0}</span>
       </div>
     </div>
@@ -404,6 +410,13 @@ function esc(s) { const d = document.createElement('div'); d.textContent = s; re
 document.getElementById('search').addEventListener('input', () => {
   clearTimeout(debounceTimer);
   debounceTimer = setTimeout(loadResources, 300);
+});
+document.getElementById('sort').addEventListener('change', loadResources);
+
+// Delegated click for resource cards
+document.addEventListener('click', e => {
+  const card = e.target.closest('[data-resource-id]');
+  if (card) window.location = '/resource/' + card.dataset.resourceId;
 });
 
 loadResources();
