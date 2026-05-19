@@ -97,12 +97,16 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);min-h
 a{color:var(--accent2);text-decoration:none;transition:.2s}
 a:hover{opacity:.8}
 
+/* Top nav bar */
+.topnav{position:fixed;top:0;right:0;left:0;z-index:1001;display:flex;align-items:center;justify-content:flex-end;gap:8px;padding:12px 20px;pointer-events:none}
+.topnav>*{pointer-events:auto}
+
 /* Theme toggle */
-.theme-toggle{position:fixed;top:16px;right:16px;z-index:100;width:40px;height:40px;border-radius:50%;border:1px solid var(--border);background:var(--bg2);color:var(--text2);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:.2s;box-shadow:var(--shadow)}
+.theme-toggle{width:36px;height:36px;border-radius:50%;border:1px solid var(--border);background:var(--bg2);color:var(--text2);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:.2s;box-shadow:var(--shadow);flex-shrink:0}
 .theme-toggle:hover{border-color:var(--accent);color:var(--accent)}
 
 /* Fullscreen present button */
-.present-btn{position:fixed;top:16px;right:64px;z-index:100;display:flex;align-items:center;gap:6px;padding:8px 14px;border-radius:20px;border:1px solid var(--border);background:var(--bg2);color:var(--text2);cursor:pointer;font-family:inherit;font-size:.8rem;transition:.2s;box-shadow:var(--shadow)}
+.present-btn{display:flex;align-items:center;gap:6px;padding:8px 14px;border-radius:20px;border:1px solid var(--border);background:var(--bg2);color:var(--text2);cursor:pointer;font-family:inherit;font-size:.8rem;transition:.2s;box-shadow:var(--shadow)}
 .present-btn:hover{border-color:var(--accent);color:var(--accent)}
 
 /* Presentation mode */
@@ -167,7 +171,7 @@ a:hover{opacity:.8}
 @keyframes spin{to{transform:rotate(360deg)}}
 
 /* Auth bar */
-.auth-bar{position:fixed;top:16px;right:72px;z-index:1001;display:flex;align-items:center;gap:10px}
+.auth-bar{display:flex;align-items:center;gap:10px}
 .auth-user{display:flex;align-items:center;gap:8px;background:var(--card);border:1px solid var(--border);padding:6px 14px;border-radius:24px;text-decoration:none;color:var(--text);font-size:.85rem;font-weight:500;transition:all .2s}
 .auth-user:hover{box-shadow:var(--shadow-hover);border-color:var(--accent)}
 .auth-avatar{width:28px;height:28px;border-radius:50%;object-fit:cover}
@@ -193,11 +197,7 @@ a:hover{opacity:.8}
 </head>
 <body>
 
-<!-- Theme toggle -->
-<button class="theme-toggle" title="Cambiar tema" id="theme-btn">
-  <i data-lucide="moon" style="width:18px;height:18px" id="theme-icon-dark"></i>
-  <i data-lucide="sun" style="width:18px;height:18px" id="theme-icon-light" style="display:none"></i>
-</button>
+<div class="topnav">
 
 <!-- User auth bar -->
 <div class="auth-bar">
@@ -228,6 +228,14 @@ a:hover{opacity:.8}
 <button class="present-btn" id="presentBtn" title="Modo presentación">
   <i data-lucide="maximize" style="width:14px;height:14px"></i> Presentar
 </button>
+
+<!-- Theme toggle -->
+<button class="theme-toggle" title="Cambiar tema" id="theme-btn">
+  <i data-lucide="moon" style="width:18px;height:18px" id="theme-icon-dark"></i>
+  <i data-lucide="sun" style="width:18px;height:18px" id="theme-icon-light" style="display:none"></i>
+</button>
+
+</div><!-- /topnav -->
 
 <!-- Presentation overlay -->
 <div class="present-overlay" id="present-overlay">
