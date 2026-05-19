@@ -197,7 +197,7 @@ if ($method === 'PUT') {
     $data = json_body();
     $db->prepare("
         UPDATE collections SET
-            title = COALESCE(NULLIF(?, ''), title),
+            title = COALESCE(NULLIF(? COLLATE utf8mb4_unicode_ci, ''), title),
             description = COALESCE(?, description),
             is_public = COALESCE(?, is_public)
         WHERE id = ?

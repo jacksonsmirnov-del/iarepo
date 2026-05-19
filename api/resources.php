@@ -344,31 +344,33 @@ if ($method === 'PUT') {
     if (!$res)
         json_error('Resource not found', 404);
 
-    // Only author or same tenant admin can edit
-    $isAuthor = ($res['author_tenant_id'] == $user['tenant_id'] && $res['author_user_id'] == $user['user_id']);
-    $isAdmin = (($user['role'] ?? '') === 'superadmin');
-    if (!$isAuthor && !$isAdmin)
-        json_error('Only the author can edit this resource', 403);
+    // Only the original author can edit. Superadmins can edit anything.
+    // Admin-seeded resources (author_user_id=1, author_tenant_id=0) cannot be
+    // edited by regular users — they should fork instead.
+    $isAuthor = ($res['author_user_id'] == $user['user_id'] && $res['author_tenant_id'] == $user['tenant_id']);
+    $isSuperadmin = (($user['role'] ?? '') === 'superadmin');
+    if (!$isAuthor && !$isSuperadmin)
+        json_error('Solo el autor puede editar este recurso. Usa "Fork" para crear tu propia versión.', 403, 'NOT_AUTHOR');
 
     $data = json_body();
     $newVersion = (int) $res['current_version'] + 1;
 
     $db->beginTransaction();
     try {
-        // Update resource
+        // Update resource — use explicit COLLATE to avoid collation mismatches
         $stmt = $db->prepare("
             UPDATE resources SET
-                title = COALESCE(NULLIF(?, ''), title),
+                title = COALESCE(NULLIF(? COLLATE utf8mb4_unicode_ci, ''), title),
                 description = COALESCE(?, description),
                 code_content = COALESCE(?, code_content),
-                code_type = COALESCE(NULLIF(?, ''), code_type),
-                subject_area = COALESCE(NULLIF(?, ''), subject_area),
-                topic_tag = COALESCE(NULLIF(?, ''), topic_tag),
-                lang = COALESCE(NULLIF(?, ''), lang),
-                level = COALESCE(NULLIF(?, ''), level),
+                code_type = COALESCE(NULLIF(? COLLATE utf8mb4_unicode_ci, ''), code_type),
+                subject_area = COALESCE(NULLIF(? COLLATE utf8mb4_unicode_ci, ''), subject_area),
+                topic_tag = COALESCE(NULLIF(? COLLATE utf8mb4_unicode_ci, ''), topic_tag),
+                lang = COALESCE(NULLIF(? COLLATE utf8mb4_unicode_ci, ''), lang),
+                level = COALESCE(NULLIF(? COLLATE utf8mb4_unicode_ci, ''), level),
                 category_id = COALESCE(?, category_id),
                 source_prompt = COALESCE(?, source_prompt),
-                visibility = COALESCE(NULLIF(?, ''), visibility),
+                visibility = COALESCE(NULLIF(? COLLATE utf8mb4_unicode_ci, ''), visibility),
                 current_version = ?
             WHERE id = ?
         ");
