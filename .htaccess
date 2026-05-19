@@ -5,6 +5,9 @@ RewriteCond %{REQUEST_METHOD} OPTIONS
 RewriteRule .* - [R=200,L]
 
 # ── Pretty URLs ──────────────────────────────────
+# /sitemap.xml → sitemap.php
+RewriteRule ^sitemap\.xml$ sitemap.php [L]
+
 # /view/123 → viewer/index.php?id=123
 RewriteRule ^view/(\d+)$ viewer/index.php?id=$1 [L,QSA]
 
@@ -14,8 +17,23 @@ RewriteRule ^resource/(\d+)$ resource/index.php?id=$1 [L,QSA]
 # /profile/123 → profile/index.php?id=123
 RewriteRule ^profile/(\d+)$ profile/index.php?id=$1 [L,QSA]
 
-# ── Security: block .env.php ─────────────────────
+# ── Security: block sensitive files & directories ──
 <FilesMatch "^\.env\.php$">
+    Require all denied
+</FilesMatch>
+
+# Block all setup scripts (seeds, schema, migrations, cron)
+<Directory "setup">
+    Require all denied
+</Directory>
+# Fallback for hosts that ignore <Directory> in .htaccess
+RewriteRule ^setup/ - [F,L]
+
+# Block admin (requires session auth, not public)
+RewriteRule ^admin/ - [F,L]
+
+# Block raw SQL files everywhere
+<FilesMatch "\.sql$">
     Require all denied
 </FilesMatch>
 

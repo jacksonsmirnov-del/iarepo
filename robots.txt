@@ -8,6 +8,9 @@ Disallow: /api/check_similarity.php
 Disallow: /setup/
 Disallow: /shared/
 Disallow: /.env.php
+Disallow: /admin/
+Disallow: /auth/
+Disallow: /dashboard/
 
 # AI Crawlers welcome
 User-agent: GPTBot
