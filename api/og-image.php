@@ -77,12 +77,41 @@ imagefilledellipse($img, $w - 120, -40, 400, 400, $purple);
 $cyan = imagecolorallocatealpha($img, 6, 182, 212, 105);
 imagefilledellipse($img, 100, $h + 60, 350, 350, $cyan);
 
-// ── Fonts ────────────────────────────────────────────────────
-$fontBold   = '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf';
-$fontRegular = '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf';
+// ── Fonts (with fallback chain for different servers) ────────
+$fontCandidates = [
+    // Bold candidates
+    'bold' => [
+        '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
+        '/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf',
+        '/usr/share/fonts/google-droid/DroidSans-Bold.ttf',
+        '/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf',
+        '/usr/share/fonts/dejavu/DejaVuSansMono-Bold.ttf',
+    ],
+    // Regular candidates
+    'regular' => [
+        '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
+        '/usr/share/fonts/dejavu/DejaVuSans.ttf',
+        '/usr/share/fonts/google-droid/DroidSans.ttf',
+        '/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf',
+        '/usr/share/fonts/dejavu/DejaVuSansMono.ttf',
+    ],
+];
 
-if (!file_exists($fontBold)) {
-    $fontBold = $fontRegular = '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf';
+$fontBold = $fontRegular = null;
+foreach ($fontCandidates['bold'] as $path) {
+    if (file_exists($path)) { $fontBold = $path; break; }
+}
+foreach ($fontCandidates['regular'] as $path) {
+    if (file_exists($path)) { $fontRegular = $path; break; }
+}
+
+// Ultimate fallback: use GD built-in font (no TTF)
+if (!$fontRegular) {
+    // Render a simple image with built-in font
+    $fontRegular = $fontBold = '';
+}
+if (!$fontBold) {
+    $fontBold = $fontRegular;
 }
 
 // ── Colors ───────────────────────────────────────────────────
