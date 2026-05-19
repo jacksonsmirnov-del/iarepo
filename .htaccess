@@ -21,8 +21,9 @@ RewriteRule ^profile/(\d+)$ profile/index.php?id=$1 [L,QSA]
 
 # ── CORS Headers ─────────────────────────────────
 <IfModule mod_headers.c>
-    # Allow Campus domains + iarepo.com
-    SetEnvIf Origin "^https://(claseprivada\.com|staging\.claseprivada\.com|resources\.claseprivada\.com|iarepo\.com|www\.iarepo\.com)" CORS_ORIGIN=$0
+    # Allow Campus domains (any subdomain) + iarepo.com
+    SetEnvIf Origin "^https://([a-z0-9-]+\.)?claseprivada\.com$" CORS_ORIGIN=$0
+    SetEnvIf Origin "^https://(iarepo\.com|www\.iarepo\.com)$" CORS_ORIGIN=$0
     Header always set Access-Control-Allow-Origin "%{CORS_ORIGIN}e" env=CORS_ORIGIN
     Header always set Access-Control-Allow-Methods "GET, POST, PUT, DELETE, OPTIONS"
     Header always set Access-Control-Allow-Headers "Authorization, Content-Type"
