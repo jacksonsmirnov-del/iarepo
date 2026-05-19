@@ -72,6 +72,15 @@ $levelLabels = ['primary'=>'Primaria','secondary'=>'Secundaria','ib'=>'IB','univ
 <meta property="og:title" content="<?= h($r['title']) ?> — iarepo">
 <meta property="og:description" content="<?= h($r['description'] ?: 'Recurso educativo interactivo') ?>">
 <meta property="og:url" content="https://iarepo.com/resource/<?= $id ?>">
+<meta property="og:type" content="article">
+<meta property="og:image" content="https://iarepo.com/api/og-image.php?id=<?= $id ?>">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:site_name" content="iarepo">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="<?= h($r['title']) ?> — iarepo">
+<meta name="twitter:description" content="<?= h($r['description'] ?: 'Recurso educativo interactivo') ?>">
+<meta name="twitter:image" content="https://iarepo.com/api/og-image.php?id=<?= $id ?>">
 <link rel="canonical" href="https://iarepo.com/resource/<?= $id ?>">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
@@ -152,6 +161,36 @@ a{color:var(--accent2);text-decoration:none}
 
 .theme-toggle{position:fixed;bottom:16px;right:16px;z-index:100;width:40px;height:40px;border-radius:50%;border:1px solid var(--border);background:var(--bg2);color:var(--text2);cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:var(--shadow)}
 .theme-toggle:hover{border-color:var(--accent);color:var(--accent)}
+
+/* Share FAB + Panel */
+.share-fab{position:fixed;bottom:72px;right:16px;z-index:100;width:48px;height:48px;border-radius:50%;border:none;background:var(--grad);color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 16px rgba(124,58,237,.35);transition:transform .3s,box-shadow .3s}
+.share-fab:hover{transform:scale(1.08);box-shadow:0 6px 24px rgba(124,58,237,.45)}
+.share-fab:active{transform:scale(.95)}
+.share-fab svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+
+.share-panel{position:fixed;bottom:130px;right:16px;z-index:101;background:var(--card);border:1px solid var(--border);border-radius:16px;padding:16px;box-shadow:0 12px 40px rgba(0,0,0,.18);opacity:0;visibility:hidden;transform:translateY(12px) scale(.95);transition:all .25s cubic-bezier(.4,0,.2,1);min-width:220px}
+.share-panel.open{opacity:1;visibility:visible;transform:translateY(0) scale(1)}
+.share-panel h4{font-size:.85rem;font-weight:600;color:var(--text);margin-bottom:12px;display:flex;align-items:center;gap:6px}
+.share-panel .share-options{display:flex;flex-direction:column;gap:6px}
+.share-btn{display:flex;align-items:center;gap:10px;padding:10px 14px;border-radius:10px;border:none;background:transparent;color:var(--text);cursor:pointer;font-family:inherit;font-size:.88rem;font-weight:500;transition:all .15s;width:100%;text-align:left;text-decoration:none}
+.share-btn:hover{background:var(--bg3);transform:translateX(2px)}
+.share-btn .share-icon{width:32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:1.1rem}
+.share-btn.whatsapp .share-icon{background:rgba(37,211,102,.12);color:#25d366}
+.share-btn.twitter .share-icon{background:rgba(29,161,242,.12);color:#1da1f2}
+.share-btn.facebook .share-icon{background:rgba(24,119,242,.12);color:#1877f2}
+.share-btn.linkedin .share-icon{background:rgba(10,102,194,.12);color:#0a66c2}
+.share-btn.telegram .share-icon{background:rgba(0,136,204,.12);color:#0088cc}
+.share-btn.copy .share-icon{background:var(--badge-bg);color:var(--accent)}
+.share-btn.native .share-icon{background:var(--badge-bg);color:var(--accent)}
+.share-divider{height:1px;background:var(--border);margin:4px 0}
+.share-toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(60px);background:#1e293b;color:#e2e8f0;padding:10px 24px;border-radius:24px;font-size:.85rem;font-weight:500;z-index:200;opacity:0;transition:all .3s cubic-bezier(.4,0,.2,1);pointer-events:none;box-shadow:0 8px 24px rgba(0,0,0,.3)}
+.share-toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+
+/* Desktop inline share buttons (in preview-actions) */
+.share-inline{display:none}
+@media(min-width:640px){.share-inline{display:flex}}
+@media(max-width:639px){.share-fab{display:flex}}
+@media(min-width:640px){.share-fab{width:40px;height:40px;bottom:64px}}
 </style>
 </head>
 <body>
@@ -197,6 +236,7 @@ a{color:var(--accent2);text-decoration:none}
         <?php if ($r['source_url']): ?>
           <a href="<?= h($r['source_url']) ?>" target="_blank" class="btn btn-outline"><i data-lucide="external-link" style="width:14px;height:14px"></i> Fuente</a>
         <?php endif; ?>
+        <button class="btn btn-outline share-inline" id="shareInlineBtn"><i data-lucide="share-2" style="width:14px;height:14px"></i> Compartir</button>
       </div>
     </div>
 
@@ -270,6 +310,39 @@ a{color:var(--accent2);text-decoration:none}
     <?php endif; ?>
   </div>
 </div>
+
+<!-- Share FAB (prominent on mobile) -->
+<button class="share-fab" id="shareFab" title="Compartir recurso">
+  <svg viewBox="0 0 24 24"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
+</button>
+
+<!-- Share Panel -->
+<div class="share-panel" id="sharePanel">
+  <h4><i data-lucide="share-2" style="width:16px;height:16px"></i> Compartir recurso</h4>
+  <div class="share-options">
+    <a class="share-btn whatsapp" id="shareWhatsApp" href="#" target="_blank" rel="noopener">
+      <span class="share-icon">💬</span> WhatsApp
+    </a>
+    <a class="share-btn telegram" id="shareTelegram" href="#" target="_blank" rel="noopener">
+      <span class="share-icon">✈️</span> Telegram
+    </a>
+    <a class="share-btn twitter" id="shareTwitter" href="#" target="_blank" rel="noopener">
+      <span class="share-icon">𝕏</span> X (Twitter)
+    </a>
+    <a class="share-btn facebook" id="shareFacebook" href="#" target="_blank" rel="noopener">
+      <span class="share-icon">f</span> Facebook
+    </a>
+    <a class="share-btn linkedin" id="shareLinkedIn" href="#" target="_blank" rel="noopener">
+      <span class="share-icon">in</span> LinkedIn
+    </a>
+    <div class="share-divider"></div>
+    <button class="share-btn copy" id="shareCopy">
+      <span class="share-icon"><i data-lucide="link" style="width:16px;height:16px"></i></span> Copiar enlace
+    </button>
+  </div>
+</div>
+
+<div class="share-toast" id="shareToast">✓ Enlace copiado al portapapeles</div>
 
 <button class="theme-toggle" id="themeBtn" title="Cambiar tema"><i data-lucide="moon" style="width:18px;height:18px"></i></button>
 
@@ -354,6 +427,70 @@ if(postBtn){
 }
 
 loadComments();
+
+// ── Share functionality ──
+const SHARE_URL = `https://iarepo.com/resource/${RID}`;
+const SHARE_TITLE = document.querySelector('meta[property="og:title"]')?.content || document.title;
+const SHARE_DESC = document.querySelector('meta[property="og:description"]')?.content || '';
+const SHARE_TEXT = `${SHARE_TITLE}\n${SHARE_DESC}`;
+
+// Set share links
+document.getElementById('shareWhatsApp').href = `https://wa.me/?text=${encodeURIComponent(SHARE_TEXT + '\n' + SHARE_URL)}`;
+document.getElementById('shareTelegram').href = `https://t.me/share/url?url=${encodeURIComponent(SHARE_URL)}&text=${encodeURIComponent(SHARE_TEXT)}`;
+document.getElementById('shareTwitter').href = `https://twitter.com/intent/tweet?text=${encodeURIComponent(SHARE_TITLE)}&url=${encodeURIComponent(SHARE_URL)}`;
+document.getElementById('shareFacebook').href = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(SHARE_URL)}`;
+document.getElementById('shareLinkedIn').href = `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(SHARE_URL)}`;
+
+// Toggle panel
+const sharePanel = document.getElementById('sharePanel');
+const shareFab = document.getElementById('shareFab');
+const shareInlineBtn = document.getElementById('shareInlineBtn');
+
+function toggleSharePanel(e) {
+  e.stopPropagation();
+  // Use native Web Share API on mobile if available
+  if (navigator.share && window.innerWidth < 640) {
+    navigator.share({
+      title: SHARE_TITLE,
+      text: SHARE_DESC,
+      url: SHARE_URL
+    }).catch(() => {}); // User cancelled
+    return;
+  }
+  sharePanel.classList.toggle('open');
+}
+
+shareFab.addEventListener('click', toggleSharePanel);
+if (shareInlineBtn) shareInlineBtn.addEventListener('click', toggleSharePanel);
+
+// Close panel on outside click
+document.addEventListener('click', (e) => {
+  if (!sharePanel.contains(e.target) && e.target !== shareFab && e.target !== shareInlineBtn) {
+    sharePanel.classList.remove('open');
+  }
+});
+
+// Copy link
+document.getElementById('shareCopy').addEventListener('click', async () => {
+  try {
+    await navigator.clipboard.writeText(SHARE_URL);
+  } catch {
+    // Fallback for older browsers
+    const ta = document.createElement('textarea');
+    ta.value = SHARE_URL;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+  }
+  sharePanel.classList.remove('open');
+  const toast = document.getElementById('shareToast');
+  toast.classList.add('show');
+  setTimeout(() => toast.classList.remove('show'), 2500);
+});
+
 lucide.createIcons();
 </script>
 </body>
