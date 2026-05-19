@@ -193,26 +193,26 @@ if ($area) {
 
 // Author
 if ($r['author_display_name']) {
-    $authorText = '👤 ' . $r['author_display_name'];
+    $authorText = 'By ' . $r['author_display_name'];
     imagettftext($img, 12, 0, 90, $metaY + 30, $gray, $fontRegular, $authorText);
 }
 
 // Stats (right side)
-$statsText = '👁 ' . number_format((int) $r['view_count']) . '   ❤ ' . number_format((int) $r['like_count']);
+$statsText = number_format((int) $r['view_count']) . ' views  |  ' . number_format((int) $r['like_count']) . ' likes';
 $statsBbox = imagettfbbox(12, 0, $fontRegular, $statsText);
 $statsWidth = $statsBbox[2] - $statsBbox[0];
 imagettftext($img, 12, 0, $w - 90 - $statsWidth, $metaY + 30, $gray, $fontRegular, $statsText);
 
 // Source
 if ($r['source_name']) {
-    $sourceText = '📎 ' . $r['source_name'];
+    $sourceText = 'Source: ' . $r['source_name'];
     $srcBbox = imagettfbbox(11, 0, $fontRegular, $sourceText);
     $srcWidth = $srcBbox[2] - $srcBbox[0];
     imagettftext($img, 11, 0, $w - 90 - $srcWidth, $metaY, $accentPurple, $fontRegular, $sourceText);
 }
 
 // ── Bottom line (branding) ───────────────────────────────────
-$brandText = 'iarepo.com — Open Educational Resources';
+$brandText = 'iarepo.com - Open Educational Resources';
 $brandBbox = imagettfbbox(11, 0, $fontRegular, $brandText);
 $brandWidth = $brandBbox[2] - $brandBbox[0];
 imagettftext($img, 11, 0, ($w - $brandWidth) / 2, $h - 35, $gray, $fontRegular, $brandText);
