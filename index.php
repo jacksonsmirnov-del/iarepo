@@ -263,12 +263,28 @@ a:hover{opacity:.8}
 <div class="container">
   <div class="toolbar">
     <span class="result-count" id="result-count"></span>
-    <select class="sort-select" id="sort">
-      <option value="recent">Más recientes</option>
-      <option value="popular">Más usados</option>
-      <option value="views">Más vistos</option>
-      <option value="title">Alfabético</option>
-    </select>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <select class="sort-select" id="filter-lang" title="Idioma">
+        <option value="">🌐 Idioma</option>
+        <option value="es">🇪🇸 Español</option>
+        <option value="en">🇬🇧 English</option>
+        <option value="pt">🇧🇷 Português</option>
+      </select>
+      <select class="sort-select" id="filter-level" title="Nivel">
+        <option value="">📚 Nivel</option>
+        <option value="primary">Primaria</option>
+        <option value="secondary">Secundaria</option>
+        <option value="ib">IB</option>
+        <option value="university">Universidad</option>
+        <option value="general">General</option>
+      </select>
+      <select class="sort-select" id="sort">
+        <option value="recent">Más recientes</option>
+        <option value="popular">Más usados</option>
+        <option value="views">Más vistos</option>
+        <option value="title">Alfabético</option>
+      </select>
+    </div>
   </div>
   <div id="grid" class="grid">
     <div class="loading"><div class="spinner"></div>Cargando recursos...</div>
@@ -350,6 +366,10 @@ async function loadResources() {
   let url = `${API}?limit=50&sort=${sort}`;
   if (currentCat) url += `&category=${currentCat}`;
   if (search) url += `&search=${encodeURIComponent(search)}`;
+  const lang = document.getElementById('filter-lang').value;
+  const level = document.getElementById('filter-level').value;
+  if (lang) url += `&lang=${lang}`;
+  if (level) url += `&level=${level}`;
 
   try {
     const res = await fetch(url);
@@ -399,15 +419,24 @@ function renderCard(r) {
   const levelClass = r.level || 'general';
   const levelLabel = {primary:'Primaria',secondary:'Secundaria',ib:'IB',university:'Universidad',general:'General'}[levelClass] || levelClass;
   const source = r.source_name ? `<span class="source-badge">${r.source_name}</span>` : '';
+  const langFlag = {'es':'🇪🇸','en':'🇬🇧','pt':'🇧🇷'}[r.lang] || '🌐';
+  // Favicon from source URL
+  let favicon = '';
+  if (r.source_url) {
+    try {
+      const domain = new URL(r.source_url).hostname;
+      favicon = `<img src="https://www.google.com/s2/favicons?domain=${domain}&sz=32" alt="" style="width:20px;height:20px;border-radius:4px;object-fit:contain" onerror="this.style.display='none'">`;
+    } catch(e) {}
+  }
   return `<div class="card" data-resource-id="${r.id}">
     ${source}
     <div class="card-header">
-      <div class="card-icon"><i data-lucide="${icon}" style="width:20px;height:20px"></i></div>
+      <div class="card-icon">${favicon || `<i data-lucide="${icon}" style="width:20px;height:20px"></i>`}</div>
       <div class="card-title">${esc(r.title)}</div>
     </div>
     <div class="card-body"><div class="card-desc">${esc(r.description || '')}</div></div>
     <div class="card-footer">
-      <div class="card-tags"><span class="badge-level ${levelClass}">${levelLabel}</span><span class="tag">${r.code_type}</span></div>
+      <div class="card-tags"><span class="badge-level ${levelClass}">${levelLabel}</span><span class="tag">${r.code_type}</span><span class="tag">${langFlag}</span></div>
       <div class="card-meta">
         <span><i data-lucide="eye" style="width:12px;height:12px"></i> ${r.view_count||0}</span>
         <span><i data-lucide="heart" style="width:12px;height:12px"></i> ${r.like_count||0}</span>
@@ -423,6 +452,8 @@ document.getElementById('search').addEventListener('input', () => {
   clearTimeout(debounceTimer);
   debounceTimer = setTimeout(loadResources, 300);
 });
+document.getElementById('filter-lang').addEventListener('change', loadResources);
+document.getElementById('filter-level').addEventListener('change', loadResources);
 document.getElementById('sort').addEventListener('change', loadResources);
 
 // Delegated click for resource cards

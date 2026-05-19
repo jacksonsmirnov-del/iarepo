@@ -157,8 +157,10 @@ if ($method === 'GET') {
                r.lang, r.level, r.category_id, r.view_count, r.source_prompt,
                r.author_display_name, r.author_tenant_name, r.visibility,
                r.current_version, r.use_count, r.fork_count, r.fork_of,
+               r.source_name, r.source_url,
                r.created_at, r.updated_at,
-               c.name AS category_name, c.slug AS category_slug, c.icon AS category_icon
+               c.name AS category_name, c.slug AS category_slug, c.icon AS category_icon,
+               (SELECT COUNT(*) FROM resource_likes rl WHERE rl.resource_id = r.id) AS like_count
         FROM resources r
         LEFT JOIN categories c ON r.category_id = c.id
         WHERE $whereSQL

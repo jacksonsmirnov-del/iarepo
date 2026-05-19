@@ -214,22 +214,62 @@ $isPresent = ($mode === 'present');
                 sandbox="allow-scripts allow-modals allow-popups"
                 title="<?= h($resource['title']) ?>">
         </iframe>
-    <?php elseif ($resource['code_type'] === 'url' && !empty($resource['iframe_blocked'])): ?>
-        <div class="external-fallback">
+    <?php elseif ($resource['code_type'] === 'url'): ?>
+        <?php $url = $resource['code_content']; ?>
+        <!-- Try iframe first, fallback on block -->
+        <iframe class="viewer-frame" id="url-frame"
+                src="<?= h($url) ?>"
+                title="<?= h($resource['title']) ?>"
+                style="display:block;">
+        </iframe>
+        <div class="external-fallback" id="url-fallback" style="display:none;">
+            <div style="font-size:3rem;margin-bottom:16px;">🔗</div>
             <h2><?= h($resource['title']) ?></h2>
             <p>Este recurso no permite ser embebido en iframe por políticas de seguridad del sitio original. Haz click para abrirlo directamente.</p>
-            <a href="<?= h($resource['code_content']) ?>" target="_blank" rel="noopener" class="ext-btn">
-                🔗 Abrir <?= h($resource['source_name'] ?? 'recurso') ?>
+            <a href="<?= h($url) ?>" target="_blank" rel="noopener" class="ext-btn">
+                🚀 Abrir <?= h($resource['source_name'] ?? 'recurso') ?>
             </a>
             <?php if ($resource['source_name']): ?>
                 <div class="source">Fuente: <?= h($resource['source_name']) ?></div>
             <?php endif; ?>
         </div>
-    <?php elseif ($resource['code_type'] === 'url'): ?>
-        <iframe class="viewer-frame"
-                src="<?= h($resource['code_content']) ?>"
-                title="<?= h($resource['title']) ?>">
-        </iframe>
+        <!-- Floating open-external button (always visible for URLs) -->
+        <a href="<?= h($url) ?>" target="_blank" rel="noopener"
+           style="position:fixed;bottom:16px;right:16px;z-index:9999;
+                  background:rgba(30,41,59,.9);color:#e2e8f0;padding:8px 16px;
+                  border-radius:20px;font-size:12px;text-decoration:none;
+                  border:1px solid #475569;backdrop-filter:blur(8px);
+                  transition:background .2s"
+           onmouseover="this.style.background='rgba(59,130,246,.9)'"
+           onmouseout="this.style.background='rgba(30,41,59,.9)'"
+           title="Abrir en pestaña nueva">↗ Abrir externo</a>
+        <script>
+        // Detect iframe block: if iframe doesn't load in 4s, show fallback
+        (function(){
+            const frame = document.getElementById('url-frame');
+            const fallback = document.getElementById('url-fallback');
+            let loaded = false;
+            frame.addEventListener('load', function() { loaded = true; });
+            frame.addEventListener('error', function() {
+                frame.style.display = 'none';
+                fallback.style.display = 'flex';
+            });
+            // Timeout fallback — if frame content is empty/blocked
+            setTimeout(function() {
+                if (!loaded) return; // loaded fine
+                try {
+                    // Try to access frame — will throw if cross-origin
+                    const doc = frame.contentDocument || frame.contentWindow.document;
+                    if (!doc || !doc.body || doc.body.innerHTML === '') {
+                        frame.style.display = 'none';
+                        fallback.style.display = 'flex';
+                    }
+                } catch(e) {
+                    // Cross-origin — iframe loaded but we can't check, leave it
+                }
+            }, 4000);
+        })();
+        </script>
     <?php elseif ($resource['code_type'] === 'embed'): ?>
         <iframe class="viewer-frame"
                 srcdoc="<?= h($resource['code_content']) ?>"
