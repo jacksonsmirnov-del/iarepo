@@ -322,15 +322,19 @@ function enterPresent() {
   lucide.createIcons();
 }
 document.getElementById('presentBtn').addEventListener('click', enterPresent);
-document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') {
-    const overlay = document.getElementById('present-overlay');
-    if (overlay.classList.contains('active')) {
-      overlay.classList.remove('active');
-      document.body.style.overflow = '';
-      if (document.fullscreenElement) document.exitFullscreen();
-    }
+// Close overlay when fullscreen exits (browser handles ESC → fullscreen exit)
+function exitPresent() {
+  const overlay = document.getElementById('present-overlay');
+  if (overlay.classList.contains('active')) {
+    overlay.classList.remove('active');
+    document.body.style.overflow = '';
   }
+}
+document.addEventListener('fullscreenchange', () => {
+  if (!document.fullscreenElement) exitPresent();
+});
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') exitPresent();
 });
 
 // ── API ──
