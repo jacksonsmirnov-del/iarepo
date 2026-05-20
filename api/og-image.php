@@ -18,7 +18,8 @@ if (!$id) {
 }
 
 // ── Strategy 1: Real screenshot thumbnail ────────────────────
-$thumbnailPath = __DIR__ . '/../thumbnails/og-' . $id . '.png';
+$docRoot = $_SERVER['DOCUMENT_ROOT'] ?? dirname(__DIR__);
+$thumbnailPath = rtrim($docRoot, '/') . '/thumbnails/og-' . $id . '.png';
 if (file_exists($thumbnailPath)) {
     header('Content-Type: image/png');
     header('Cache-Control: public, max-age=86400');
