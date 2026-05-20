@@ -3,7 +3,7 @@
 // api/og-image.php — Dynamic Open Graph Image Generator
 //
 // Generates a branded 1200×630 PNG card for social sharing.
-// Used as og:image for resource detail pages.
+// Optimized for MOBILE readability (WhatsApp, Telegram, etc.)
 //
 // URL: /api/og-image.php?id={resource_id}
 // Auth: None (public)
@@ -56,30 +56,30 @@ $w = 1200;
 $h = 630;
 $img = imagecreatetruecolor($w, $h);
 imagealphablending($img, true);
+imagesavealpha($img, true);
 
-// ── Gradient background ──────────────────────────────────────
-// Deep purple → teal gradient (matching the iarepo brand)
+// ── Solid dark background ────────────────────────────────────
+$bgColor = imagecolorallocate($img, 15, 23, 42); // #0f172a (slate-900)
+imagefilledrectangle($img, 0, 0, $w, $h, $bgColor);
+
+// ── Left accent bar (gradient purple→cyan) ───────────────────
 for ($y = 0; $y < $h; $y++) {
     $ratio = $y / $h;
-    $red   = (int) (15 + $ratio * 5);       // 15 → 20
-    $green = (int) (14 + $ratio * 25);       // 14 → 39
-    $blue  = (int) (40 + $ratio * 20);       // 40 → 60
-    $color = imagecolorallocate($img, $red, $green, $blue);
-    imageline($img, 0, $y, $w, $y, $color);
+    $cr = (int) (124 + $ratio * (6 - 124));
+    $cg = (int) (58 + $ratio * (182 - 58));
+    $cb = (int) (237 + $ratio * (212 - 237));
+    $barColor = imagecolorallocate($img, $cr, $cg, $cb);
+    imagefilledrectangle($img, 0, $y, 8, $y, $barColor);
 }
 
-// ── Decorative accent circles ────────────────────────────────
-// Top-right glow (purple)
-$purple = imagecolorallocatealpha($img, 124, 58, 237, 100);
-imagefilledellipse($img, $w - 120, -40, 400, 400, $purple);
-
-// Bottom-left glow (cyan)
-$cyan = imagecolorallocatealpha($img, 6, 182, 212, 105);
-imagefilledellipse($img, 100, $h + 60, 350, 350, $cyan);
+// ── Subtle background glow ───────────────────────────────────
+$glow1 = imagecolorallocatealpha($img, 124, 58, 237, 115);
+imagefilledellipse($img, $w - 100, 80, 500, 500, $glow1);
+$glow2 = imagecolorallocatealpha($img, 6, 182, 212, 118);
+imagefilledellipse($img, 200, $h - 50, 400, 400, $glow2);
 
 // ── Fonts (with fallback chain for different servers) ────────
 $fontCandidates = [
-    // Bold candidates
     'bold' => [
         '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
         '/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf',
@@ -87,7 +87,6 @@ $fontCandidates = [
         '/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf',
         '/usr/share/fonts/dejavu/DejaVuSansMono-Bold.ttf',
     ],
-    // Regular candidates
     'regular' => [
         '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
         '/usr/share/fonts/dejavu/DejaVuSans.ttf',
@@ -104,121 +103,94 @@ foreach ($fontCandidates['bold'] as $path) {
 foreach ($fontCandidates['regular'] as $path) {
     if (file_exists($path)) { $fontRegular = $path; break; }
 }
-
-// Ultimate fallback: use GD built-in font (no TTF)
-if (!$fontRegular) {
-    // Render a simple image with built-in font
-    $fontRegular = $fontBold = '';
-}
-if (!$fontBold) {
-    $fontBold = $fontRegular;
-}
+if (!$fontRegular) $fontRegular = $fontBold = '';
+if (!$fontBold)    $fontBold = $fontRegular;
 
 // ── Colors ───────────────────────────────────────────────────
-$white      = imagecolorallocate($img, 226, 232, 240);  // --text light
-$whiteTitle = imagecolorallocate($img, 248, 250, 252);  // brighter for title
-$gray       = imagecolorallocate($img, 148, 163, 184);  // --text3
-$accentPurple = imagecolorallocate($img, 167, 139, 250); // lighter purple for accent
-$accentCyan   = imagecolorallocate($img, 6, 182, 212);   // cyan accent
+$white       = imagecolorallocate($img, 255, 255, 255);
+$lightGray   = imagecolorallocate($img, 203, 213, 225);  // slate-300
+$medGray     = imagecolorallocate($img, 148, 163, 184);  // slate-400
+$purple      = imagecolorallocate($img, 167, 139, 250);  // purple-400
+$cyan        = imagecolorallocate($img, 34, 211, 238);   // cyan-400
+$green       = imagecolorallocate($img, 74, 222, 128);   // green-400
 
-// ── Card background (semi-transparent) ──────────────────────
-$cardBg = imagecolorallocatealpha($img, 30, 41, 59, 60); // #1e293b with alpha
-imagefilledrectangle($img, 60, 60, $w - 60, $h - 60, $cardBg);
+// ── Layout constants (generous padding for readability) ──────
+$padL = 60;  // left padding
+$padR = 60;  // right padding
+$maxTextW = $w - $padL - $padR;
 
-// Card border top accent line (gradient-like purple→cyan)
-for ($x = 60; $x < $w - 60; $x++) {
-    $ratio = ($x - 60) / ($w - 120);
-    $cr = (int) (124 + $ratio * (6 - 124));
-    $cg = (int) (58 + $ratio * (182 - 58));
-    $cb = (int) (237 + $ratio * (212 - 237));
-    $lineColor = imagecolorallocate($img, $cr, $cg, $cb);
-    imageline($img, $x, 60, $x, 63, $lineColor);
+// ── Category / Subject pill (top) ────────────────────────────
+$area = $r['category_name'] ?? $r['subject_area'] ?? '';
+$topY = 60;
+
+if ($area) {
+    $areaBbox = imagettfbbox(20, 0, $fontBold, $area);
+    $areaPillW = $areaBbox[2] - $areaBbox[0] + 32;
+    $pillBg = imagecolorallocatealpha($img, 6, 182, 212, 90);
+    // Rounded rectangle approximation
+    imagefilledrectangle($img, $padL, $topY, $padL + $areaPillW, $topY + 40, $pillBg);
+    imagettftext($img, 20, 0, $padL + 16, $topY + 29, $white, $fontBold, $area);
+    $topY += 60;
+} else {
+    $topY += 10;
 }
 
-// ── "iarepo" badge (top-left) ────────────────────────────────
-// Badge background
-$badgeBg = imagecolorallocatealpha($img, 124, 58, 237, 80);
-imagefilledrectangle($img, 80, 85, 210, 120, $badgeBg);
+// ── Title (BIG — optimized for mobile readability) ───────────
+$title = mb_substr($r['title'], 0, 70, 'UTF-8');
+if (mb_strlen($r['title'], 'UTF-8') > 70) $title .= '...';
 
-imagettftext($img, 14, 0, 92, 112, $whiteTitle, $fontBold, 'iarepo');
-
-// ── Code type + Language badge (top-right) ───────────────────
-$typeText = strtoupper($r['code_type'] ?? 'HTML');
-$langFlag = match($r['lang'] ?? '') { 'es' => 'ES', 'en' => 'EN', 'pt' => 'PT', default => '' };
-$badgeText = $typeText . ($langFlag ? ' · ' . $langFlag : '');
-
-$bbox = imagettfbbox(11, 0, $fontRegular, $badgeText);
-$badgeWidth = $bbox[2] - $bbox[0] + 24;
-$badgeX = $w - 80 - $badgeWidth;
-
-$typeBadgeBg = imagecolorallocatealpha($img, 6, 182, 212, 85);
-imagefilledrectangle($img, $badgeX, 85, $w - 80, 118, $typeBadgeBg);
-imagettftext($img, 11, 0, $badgeX + 12, 109, $whiteTitle, $fontRegular, $badgeText);
-
-// ── Title ────────────────────────────────────────────────────
-$title = mb_substr($r['title'], 0, 80, 'UTF-8');
-if (mb_strlen($r['title'], 'UTF-8') > 80) $title .= '…';
-
-// Word-wrap title for multi-line rendering
-$titleLines = wrapText($title, $fontBold, 28, $w - 200);
-$titleY = 190;
+$titleLines = wrapText($title, $fontBold, 42, $maxTextW);
 foreach ($titleLines as $i => $line) {
-    if ($i >= 3) break; // Max 3 lines
-    imagettftext($img, 28, 0, 90, $titleY, $whiteTitle, $fontBold, $line);
-    $titleY += 42;
+    if ($i >= 2) break; // Max 2 lines
+    imagettftext($img, 42, 0, $padL, $topY + 50 + ($i * 58), $white, $fontBold, $line);
 }
+$titleBottomY = $topY + 50 + (min(count($titleLines), 2) * 58);
 
-// ── Description ──────────────────────────────────────────────
+// ── Description (medium size, readable) ──────────────────────
 if ($r['description']) {
-    $desc = mb_substr($r['description'], 0, 120, 'UTF-8');
-    if (mb_strlen($r['description'], 'UTF-8') > 120) $desc .= '…';
+    $desc = mb_substr($r['description'], 0, 100, 'UTF-8');
+    if (mb_strlen($r['description'], 'UTF-8') > 100) $desc .= '...';
 
-    $descLines = wrapText($desc, $fontRegular, 14, $w - 200);
-    $descY = $titleY + 16;
+    $descLines = wrapText($desc, $fontRegular, 22, $maxTextW);
+    $descY = $titleBottomY + 20;
     foreach ($descLines as $i => $line) {
         if ($i >= 2) break; // Max 2 lines
-        imagettftext($img, 14, 0, 90, $descY, $gray, $fontRegular, $line);
-        $descY += 24;
+        imagettftext($img, 22, 0, $padL, $descY + ($i * 34), $lightGray, $fontRegular, $line);
     }
 }
 
-// ── Bottom metadata bar ──────────────────────────────────────
-$metaY = $h - 110;
+// ── Bottom bar ───────────────────────────────────────────────
+$bottomY = $h - 80;
 
-// Subject area / Category
-$area = $r['category_name'] ?? $r['subject_area'] ?? '';
-if ($area) {
-    imagettftext($img, 13, 0, 90, $metaY, $accentCyan, $fontRegular, $area);
-}
+// Separator line
+$sepColor = imagecolorallocatealpha($img, 148, 163, 184, 100);
+imageline($img, $padL, $bottomY - 20, $w - $padR, $bottomY - 20, $sepColor);
 
-// Author
+// Left: iarepo branding
+imagettftext($img, 24, 0, $padL, $bottomY + 8, $purple, $fontBold, 'iarepo');
+
+// Author name after branding
 if ($r['author_display_name']) {
-    $authorText = 'By ' . $r['author_display_name'];
-    imagettftext($img, 12, 0, 90, $metaY + 30, $gray, $fontRegular, $authorText);
+    $brandBbox = imagettfbbox(24, 0, $fontBold, 'iarepo');
+    $brandW = $brandBbox[2] - $brandBbox[0];
+    $separator = '  /  ';
+    imagettftext($img, 18, 0, $padL + $brandW + 12, $bottomY + 5, $medGray, $fontRegular, $separator . $r['author_display_name']);
 }
 
-// Stats (right side)
-$statsText = number_format((int) $r['view_count']) . ' views  |  ' . number_format((int) $r['like_count']) . ' likes';
-$statsBbox = imagettfbbox(12, 0, $fontRegular, $statsText);
-$statsWidth = $statsBbox[2] - $statsBbox[0];
-imagettftext($img, 12, 0, $w - 90 - $statsWidth, $metaY + 30, $gray, $fontRegular, $statsText);
+// Right: code_type + lang badge
+$typeText = strtoupper($r['code_type'] ?? 'HTML');
+$langText = match($r['lang'] ?? '') { 'es' => 'ES', 'en' => 'EN', 'pt' => 'PT', default => '' };
+$badgeText = $typeText . ($langText ? '  ' . $langText : '');
 
-// Source
-if ($r['source_name']) {
-    $sourceText = 'Source: ' . $r['source_name'];
-    $srcBbox = imagettfbbox(11, 0, $fontRegular, $sourceText);
-    $srcWidth = $srcBbox[2] - $srcBbox[0];
-    imagettftext($img, 11, 0, $w - 90 - $srcWidth, $metaY, $accentPurple, $fontRegular, $sourceText);
-}
-
-// ── Bottom line (branding) ───────────────────────────────────
-$brandText = 'iarepo.com - Open Educational Resources';
-$brandBbox = imagettfbbox(11, 0, $fontRegular, $brandText);
-$brandWidth = $brandBbox[2] - $brandBbox[0];
-imagettftext($img, 11, 0, ($w - $brandWidth) / 2, $h - 35, $gray, $fontRegular, $brandText);
+$badgeBbox = imagettfbbox(18, 0, $fontBold, $badgeText);
+$badgeW = $badgeBbox[2] - $badgeBbox[0] + 28;
+$badgeX = $w - $padR - $badgeW;
+$badgeBg = imagecolorallocatealpha($img, 30, 41, 59, 40);
+imagefilledrectangle($img, $badgeX, $bottomY - 12, $w - $padR, $bottomY + 18, $badgeBg);
+imagettftext($img, 18, 0, $badgeX + 14, $bottomY + 10, $cyan, $fontBold, $badgeText);
 
 // ── Save & serve ─────────────────────────────────────────────
-imagepng($img, $cachePath, 6); // quality 6 (0=no compression, 9=max)
+imagepng($img, $cachePath, 6);
 imagedestroy($img);
 
 header('Content-Type: image/png');
