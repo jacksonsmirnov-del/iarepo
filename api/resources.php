@@ -277,6 +277,38 @@ if ($method === 'POST') {
             json_error("Contenido duplicado del recurso \"{$existing['title']}\" (ID: {$existing['id']})", 409);
     }
 
+    // ── Blacklist check: prevent re-uploading broken/retired URLs ──
+    $sourceUrl = $data['source_url'] ?? '';
+    if ($sourceUrl && ($data['code_type'] ?? '') === 'url') {
+        // Check exact URL
+        $blStmt = $db->prepare("SELECT url, original_title, reason FROM url_blacklist WHERE url = ? LIMIT 1");
+        $blStmt->execute([$sourceUrl]);
+        $blocked = $blStmt->fetch();
+        if ($blocked) {
+            json_error(
+                "URL retirada: \"{$blocked['original_title']}\" fue eliminada por {$blocked['reason']}. Usa otra fuente.",
+                409,
+                'BLACKLISTED_URL'
+            );
+        }
+
+        // Check if domain is heavily blacklisted (3+ URLs from same domain)
+        $parsed = parse_url($sourceUrl);
+        $domain = $parsed['host'] ?? '';
+        if ($domain) {
+            $domStmt = $db->prepare("SELECT COUNT(*) FROM url_blacklist WHERE domain = ?");
+            $domStmt->execute([$domain]);
+            $domCount = (int) $domStmt->fetchColumn();
+            if ($domCount >= 3) {
+                json_error(
+                    "Dominio bloqueado: {$domain} tiene {$domCount} URLs retiradas. Este sitio dejó de funcionar.",
+                    409,
+                    'BLACKLISTED_DOMAIN'
+                );
+            }
+        }
+    }
+
     // Heavy similarity check is deferred to cron (setup/cron_moderation.php)
     $moderationStatus = isModerationEnabled() ? 'pending_review' : 'approved';
 
