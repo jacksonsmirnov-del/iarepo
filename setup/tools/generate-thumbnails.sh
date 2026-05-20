@@ -17,7 +17,7 @@ set -euo pipefail
 
 REMOTE="u403412230@145.223.106.219"
 PORT="65002"
-REMOTE_DIR="/home/u403412230/domains/resources.claseprivada.com/public_html/thumbnails"
+REMOTE_DIR="/home/u403412230/domains/claseprivada.com/public_html/resources/thumbnails"
 LOCAL_TMP="/tmp/og-thumbnails"
 BASE_URL="https://iarepo.com/view"
 
