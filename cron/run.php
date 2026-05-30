@@ -25,8 +25,7 @@ if (!file_exists($envFile)) {
     http_response_code(500);
     die(json_encode(['ok' => false, 'error' => 'Configuration missing']));
 }
-$env = [];
-require $envFile;
+$env = require $envFile;
 
 $secret = $env['CRON_SECRET'] ?? '';
 $token  = $_GET['token'] ?? '';
