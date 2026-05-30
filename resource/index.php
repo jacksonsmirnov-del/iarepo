@@ -238,6 +238,20 @@ a{color:var(--accent2);text-decoration:none}
 @media(max-width:639px){.share-fab{display:flex}}
 @media(min-width:640px){.share-fab{width:40px;height:40px;bottom:64px}}
 
+/* Embed modal */
+.embed-modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:200;display:none;align-items:center;justify-content:center;padding:16px}
+.embed-modal-overlay.open{display:flex}
+.embed-modal{background:var(--bg2);border-radius:16px;padding:28px;width:100%;max-width:520px;box-shadow:0 24px 64px rgba(0,0,0,.25)}
+.embed-modal h3{font-size:1rem;font-weight:700;margin-bottom:16px;display:flex;align-items:center;gap:8px}
+.embed-sizes{display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap}
+.embed-size-btn{padding:6px 14px;border-radius:8px;border:1px solid var(--border);background:var(--bg3);color:var(--text2);font-size:.8rem;font-weight:600;cursor:pointer;transition:.15s;font-family:inherit}
+.embed-size-btn.active,.embed-size-btn:hover{border-color:var(--accent);color:var(--accent);background:rgba(124,58,237,.06)}
+.embed-code-wrap{position:relative}
+.embed-code{width:100%;padding:12px;border:1px solid var(--border);border-radius:8px;background:var(--bg3);color:var(--text2);font-family:'Fira Code',monospace;font-size:.78rem;resize:none;height:90px;line-height:1.6}
+.embed-copy-btn{margin-top:10px;width:100%;padding:10px;border-radius:8px;border:none;background:var(--grad);color:#fff;font-family:inherit;font-size:.85rem;font-weight:600;cursor:pointer;transition:.2s}
+.embed-copy-btn:hover{opacity:.9}
+.embed-note{margin-top:10px;font-size:.75rem;color:var(--text3);line-height:1.5}
+
 /* Save to collection dropdown */
 .save-coll-wrap{position:relative;display:inline-flex}
 .coll-dropdown{position:absolute;top:calc(100% + 6px);left:0;z-index:50;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:8px;box-shadow:0 8px 32px rgba(0,0,0,.15);min-width:220px;display:none}
@@ -331,6 +345,7 @@ a{color:var(--accent2);text-decoration:none}
           <a href="<?= h($r['source_url']) ?>" target="_blank" class="btn btn-outline"><i data-lucide="external-link" style="width:14px;height:14px"></i> Fuente</a>
         <?php endif; ?>
         <button class="btn btn-outline share-inline" id="shareInlineBtn"><i data-lucide="share-2" style="width:14px;height:14px"></i> Compartir</button>
+        <button class="btn btn-outline" id="embedBtn"><i data-lucide="code-2" style="width:14px;height:14px"></i> Insertar</button>
       </div>
     </div>
 
@@ -409,6 +424,24 @@ a{color:var(--accent2);text-decoration:none}
       </div>
     </div>
     <?php endif; ?>
+  </div>
+</div>
+
+<!-- Embed Modal -->
+<div class="embed-modal-overlay" id="embedModal">
+  <div class="embed-modal">
+    <h3><i data-lucide="code-2" style="width:16px;height:16px"></i> Insertar en tu web o LMS</h3>
+    <div class="embed-sizes">
+      <button class="embed-size-btn active" onclick="setEmbedSize('responsive')">Responsivo</button>
+      <button class="embed-size-btn" onclick="setEmbedSize('medium')">Mediano</button>
+      <button class="embed-size-btn" onclick="setEmbedSize('large')">Grande</button>
+    </div>
+    <div class="embed-code-wrap">
+      <textarea class="embed-code" id="embedCode" readonly></textarea>
+    </div>
+    <button class="embed-copy-btn" id="embedCopyBtn">Copiar código</button>
+    <p class="embed-note">Pega este código en cualquier página HTML, Moodle, Google Sites o Notion. El recurso se mostrará en modo presentación completo.</p>
+    <button onclick="document.getElementById('embedModal').classList.remove('open')" style="margin-top:12px;background:none;border:none;color:var(--text3);font-size:.82rem;cursor:pointer;font-family:inherit;width:100%">Cerrar</button>
   </div>
 </div>
 
@@ -573,6 +606,45 @@ async function saveToCollection(collId, collTitle) {
     setTimeout(() => toast.classList.remove('show'), 2500);
   } catch { alert('Error al guardar'); }
 }
+
+// ── Embed ──
+const EMBED_SIZES = {
+  responsive: { w: '100%',  h: '500' },
+  medium:     { w: '640',   h: '480' },
+  large:      { w: '100%',  h: '700' },
+};
+let currentEmbedSize = 'responsive';
+
+function buildEmbedCode(size) {
+  const {w, h} = EMBED_SIZES[size];
+  return `<iframe\n  src="https://iarepo.com/view/${RID}?mode=present"\n  width="${w}" height="${h}"\n  frameborder="0" allowfullscreen\n  title="${esc(document.title.split(' —')[0])}"\n  style="border:none;border-radius:8px">\n</iframe>`;
+}
+
+function setEmbedSize(size) {
+  currentEmbedSize = size;
+  document.querySelectorAll('.embed-size-btn').forEach(b => b.classList.remove('active'));
+  event.target.classList.add('active');
+  document.getElementById('embedCode').value = buildEmbedCode(size);
+}
+
+document.getElementById('embedBtn')?.addEventListener('click', () => {
+  document.getElementById('embedCode').value = buildEmbedCode(currentEmbedSize);
+  document.getElementById('embedModal').classList.add('open');
+});
+
+document.getElementById('embedCopyBtn')?.addEventListener('click', async () => {
+  const code = document.getElementById('embedCode').value;
+  try { await navigator.clipboard.writeText(code); }
+  catch { const ta=document.createElement('textarea');ta.value=code;document.body.appendChild(ta);ta.select();document.execCommand('copy');document.body.removeChild(ta); }
+  const btn = document.getElementById('embedCopyBtn');
+  btn.textContent = '✓ Copiado';
+  setTimeout(() => btn.textContent = 'Copiar código', 2000);
+});
+
+document.getElementById('embedModal')?.addEventListener('click', e => {
+  if (e.target === document.getElementById('embedModal'))
+    document.getElementById('embedModal').classList.remove('open');
+});
 
 // ── Share functionality ──
 const SHARE_URL = `https://iarepo.com/resource/${RID}`;
