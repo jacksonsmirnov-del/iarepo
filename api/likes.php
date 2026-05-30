@@ -17,6 +17,8 @@ cors();
 
 $db = getResourcesDB();
 $method = request_method();
+
+if ($method === 'POST') rateLimit($db, 'likes_post', 30);
 $resourceId = (int) ($_GET['id'] ?? 0);
 
 if (!$resourceId)

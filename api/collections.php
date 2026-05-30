@@ -25,6 +25,9 @@ cors();
 $db = getResourcesDB();
 $method = request_method();
 
+if ($method === 'GET') rateLimit($db, 'collections_get', 60);
+elseif (in_array($method, ['POST', 'PUT', 'DELETE'])) rateLimit($db, 'collections_write', 30);
+
 // ── GET ───────────────────────────────────────────────────────
 if ($method === 'GET') {
     $id = (int) ($_GET['id'] ?? 0);

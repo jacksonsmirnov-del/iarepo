@@ -18,11 +18,15 @@ $db = getResourcesDB();
 $editId = (int)($_GET['id'] ?? 0);
 $resource = null;
 
+$existingTags = [];
 if ($editId) {
     $stmt = $db->prepare("SELECT * FROM resources WHERE id = ? AND author_user_id = ? AND author_tenant_id = 0 AND is_active = 1");
     $stmt->execute([$editId, $user['id']]);
     $resource = $stmt->fetch();
     if (!$resource) { header('Location: /dashboard/'); exit; }
+    $tagRows = $db->prepare("SELECT tag FROM resource_tags WHERE resource_id = ? ORDER BY tag");
+    $tagRows->execute([$editId]);
+    $existingTags = $tagRows->fetchAll(PDO::FETCH_COLUMN);
 }
 
 // Fetch categories for dropdown
@@ -78,6 +82,13 @@ textarea.form-control{resize:vertical;min-height:60px}
 .status-msg{padding:10px 16px;border-radius:8px;font-size:.85rem;margin-top:12px;display:none}
 .status-msg.success{display:block;background:rgba(34,197,94,.1);color:#16a34a;border:1px solid rgba(34,197,94,.2)}
 .status-msg.error{display:block;background:rgba(239,68,68,.1);color:#ef4444;border:1px solid rgba(239,68,68,.2)}
+
+.tag-input-wrap{display:flex;flex-wrap:wrap;gap:4px;align-items:center;padding:6px 8px;border:1px solid var(--border);border-radius:8px;background:var(--bg2);min-height:42px;cursor:text}
+.tag-input-wrap:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px rgba(124,58,237,.1)}
+.tag-chip{display:inline-flex;align-items:center;gap:3px;padding:2px 8px;border-radius:6px;background:rgba(124,58,237,.1);color:var(--accent);font-size:.78rem;font-weight:500}
+.tag-chip-remove{background:none;border:none;cursor:pointer;color:var(--accent);opacity:.6;font-size:.8rem;padding:0;line-height:1}
+.tag-chip-remove:hover{opacity:1}
+.tag-input-field{border:none;outline:none;background:none;font-family:inherit;font-size:.85rem;color:var(--text);min-width:120px;flex:1;padding:2px 4px}
 </style>
 </head>
 <body>
@@ -154,6 +165,12 @@ textarea.form-control{resize:vertical;min-height:60px}
           </select>
         </div>
       </div>
+      <div class="form-group">
+        <label>Tags <span style="font-weight:400;color:var(--text3);font-size:.8rem">· Enter para agregar · máx. 20</span></label>
+        <div class="tag-input-wrap" id="tagWrap" onclick="document.getElementById('tagInput').focus()">
+          <input type="text" class="tag-input-field" id="tagInput" placeholder="ej. gravedad, simulación..." maxlength="50" autocomplete="off">
+        </div>
+      </div>
       <div class="form-group" style="flex:1;display:flex;flex-direction:column">
         <label>Código / Contenido *</label>
         <textarea class="form-control code-editor" id="codeContent" placeholder="Pega tu código HTML aquí..."><?= $resource ? h($resource['code_content']) : '' ?></textarea>
@@ -178,6 +195,49 @@ textarea.form-control{resize:vertical;min-height:60px}
 
 <script>
 const EDIT_ID = <?= $editId ?: 'null' ?>;
+const tags = new Set(<?= json_encode($existingTags, JSON_UNESCAPED_UNICODE) ?>);
+
+function esc(s){const d=document.createElement('div');d.textContent=s||'';return d.innerHTML}
+
+function renderTags(){
+  document.querySelectorAll('.tag-chip').forEach(c=>c.remove());
+  const wrap=document.getElementById('tagWrap');
+  const input=document.getElementById('tagInput');
+  tags.forEach(tag=>{
+    const chip=document.createElement('span');
+    chip.className='tag-chip';
+    chip.innerHTML=`${esc(tag)} <button class="tag-chip-remove" type="button" onclick="removeTag('${esc(tag).replace(/'/g,"\\'")}')">✕</button>`;
+    wrap.insertBefore(chip,input);
+  });
+}
+
+function addTag(val){
+  const tag=val.toLowerCase().trim().replace(/[,]+$/,'').slice(0,50);
+  if(tag && tags.size<20) tags.add(tag);
+  renderTags();
+}
+
+function removeTag(tag){ tags.delete(tag); renderTags(); }
+
+document.getElementById('tagInput').addEventListener('keydown',e=>{
+  if(e.key==='Enter'||e.key===','){
+    e.preventDefault();
+    const v=document.getElementById('tagInput').value.trim();
+    if(v){ addTag(v); document.getElementById('tagInput').value=''; }
+  }
+  if(e.key==='Backspace'&&!document.getElementById('tagInput').value&&tags.size){
+    const last=[...tags].pop();
+    tags.delete(last);
+    renderTags();
+  }
+});
+
+document.getElementById('tagInput').addEventListener('blur',()=>{
+  const v=document.getElementById('tagInput').value.trim();
+  if(v){ addTag(v); document.getElementById('tagInput').value=''; }
+});
+
+renderTags();
 
 // Theme
 if(localStorage.getItem('iarepo-theme')==='dark') document.documentElement.setAttribute('data-theme','dark');
@@ -221,6 +281,7 @@ document.getElementById('saveBtn').addEventListener('click', async()=>{
     category_id:document.getElementById('categoryId').value||null,
     level:document.getElementById('level').value,
     lang:document.getElementById('lang').value,
+    tags:Array.from(tags),
   };
 
   const btn=document.getElementById('saveBtn');

@@ -565,14 +565,27 @@ Campus .env.php:
 - [x] Thumbnails: screenshots reales con headless Chrome (motor propio, 108+ generados)
 - [x] Meta tags: og:image, og:type, twitter:card summary_large_image
 
+### ✅ Completado recientemente:
+- [x] **Rate limiting por IP** — `api_rate_limits` table + `rateLimit()` en todos los endpoints (`shared/helpers.php`, migration: `setup/migration_005_rate_limits.sql`)
+- [x] **Cron automático** — `cron/run.php` con token CRON_SECRET, llamable desde cron-job.org (jobs: `link_check` cada 6h, `moderation` cada 2min). Agregar `CRON_SECRET` al `.env.php` del servidor.
+- [x] **Colecciones UI** — Modal de creación/edición, botones editar/eliminar en dashboard, página `/collection/?id=X`, botón "Guardar en colección" en resource detail
+- [x] **Tags UI** — Chip input en editor, tags en cards del catálogo (máx. 3), tags clickables en resource detail, API lista incluye tags via GROUP_CONCAT, PUT actualiza tags
+
 ### 🔲 Pendiente:
-1. **Colecciones UI** — la API existe pero falta frontend
-2. **Tags UI** — tabla resource_tags existe pero sin interfaz
-3. **Rate limiting** — protección contra abuso de la API
-4. **i18n** — UI bilingüe (ES/EN toggle)
-5. **Cron automático** — Hostinger no tiene crontab, necesita alternativa
-6. **Thumbnails restantes** — generar para los 578+ recursos (actualmente 108 generados)
-7. **Headless Chrome en servidor** — instalar libatk-bridge en el VPS para generar thumbnails sin máquina local
+1. **Thumbnails restantes** — generar para los 578+ recursos (actualmente 108 generados). Ver comando batch abajo.
+2. **i18n** — UI bilingüe (ES/EN toggle). Posponer hasta haber tracción de usuarios en inglés.
+3. **Headless Chrome en servidor** — falta `libatk-bridge-2.0.so.0`, sin sudo no se puede instalar en Hostinger. Workaround: generar local + subir vía SCP.
+
+### Thumbnails — Generación en batch (desde tu Mac/Linux):
+```bash
+# Prioridad alta: los 100 más vistos sin thumbnail
+cd resources/
+# 1. Obtener IDs sin thumbnail (query en el servidor o local si tienes acceso DB)
+# 2. Generar en lotes:
+./setup/tools/generate-thumbnails.sh 3 5 100   # Ejemplo: IDs 3, 5, 100
+# 3. El script sube automáticamente vía SCP a /thumbnails/og-{id}.png en el servidor
+# Repetir hasta cubrir los 578+
+```
 
 ---
 

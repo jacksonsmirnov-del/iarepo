@@ -19,6 +19,9 @@ cors();
 $db = getResourcesDB();
 $method = request_method();
 
+if ($method === 'GET') rateLimit($db, 'comments_get', 60);
+elseif (in_array($method, ['POST', 'DELETE'])) rateLimit($db, 'comments_write', 30);
+
 // ── GET: List comments ────────────────────────────────────────
 if ($method === 'GET') {
     $resourceId = (int) ($_GET['resource_id'] ?? 0);

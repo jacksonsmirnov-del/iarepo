@@ -98,3 +98,54 @@ function request_method(): string {
 function sanitize(string $input, int $maxLen = 255): string {
     return mb_substr(trim($input), 0, $maxLen);
 }
+
+/**
+ * Get the real client IP, respecting X-Forwarded-For (Hostinger proxy).
+ */
+function clientIp(): string {
+    $forwarded = $_SERVER['HTTP_X_FORWARDED_FOR'] ?? '';
+    if ($forwarded) {
+        return trim(explode(',', $forwarded)[0]);
+    }
+    return $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
+}
+
+/**
+ * IP-based rate limiter. Exits with 429 if limit is exceeded.
+ *
+ * Uses api_rate_limits table. Window resets atomically via ON DUPLICATE KEY UPDATE.
+ * Cleans up expired rows with 1% probability to avoid a dedicated cron task.
+ *
+ * @param PDO    $db         DB connection
+ * @param string $endpoint   Short key identifying the endpoint (e.g. 'resources_get')
+ * @param int    $limit      Max requests allowed in the window
+ * @param int    $windowSecs Window size in seconds (default: 60)
+ */
+function rateLimit(PDO $db, string $endpoint, int $limit, int $windowSecs = 60): void {
+    $ip = clientIp();
+
+    // Atomic upsert: reset counter if window expired, otherwise increment
+    $db->prepare("
+        INSERT INTO api_rate_limits (ip, endpoint, requests, window_start)
+        VALUES (?, ?, 1, NOW())
+        ON DUPLICATE KEY UPDATE
+            requests     = IF(window_start < DATE_SUB(NOW(), INTERVAL ? SECOND), 1, requests + 1),
+            window_start = IF(window_start < DATE_SUB(NOW(), INTERVAL ? SECOND), NOW(), window_start)
+    ")->execute([$ip, $endpoint, $windowSecs, $windowSecs]);
+
+    $stmt = $db->prepare("SELECT requests FROM api_rate_limits WHERE ip = ? AND endpoint = ?");
+    $stmt->execute([$ip, $endpoint]);
+    $count = (int) $stmt->fetchColumn();
+
+    if ($count > $limit) {
+        http_response_code(429);
+        header('Retry-After: ' . $windowSecs);
+        json_error('Too many requests. Please slow down.', 429, 'RATE_LIMITED');
+    }
+
+    // 1% chance: clean up expired rows to avoid table bloat
+    if (random_int(1, 100) === 1) {
+        $db->prepare("DELETE FROM api_rate_limits WHERE window_start < DATE_SUB(NOW(), INTERVAL ? SECOND)")
+           ->execute([$windowSecs * 2]);
+    }
+}

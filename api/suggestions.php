@@ -20,6 +20,7 @@ cors();
 
 $db = getResourcesDB();
 $method = request_method();
+rateLimit($db, 'suggestions', $method === 'GET' ? 60 : 30);
 
 // ── POST: Create suggestion ───────────────────────────────────
 if ($method === 'POST') {

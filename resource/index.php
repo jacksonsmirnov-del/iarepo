@@ -37,6 +37,11 @@ if ($r['visibility'] !== 'community') {
     if (in_array($vis, ['area','school']) && ($user['tenant_id'] ?? 0) != $r['author_tenant_id']) { header('Location: /'); exit; }
 }
 
+// Fetch tags
+$tagStmt = $db->prepare("SELECT tag FROM resource_tags WHERE resource_id = ? ORDER BY tag");
+$tagStmt->execute([$id]);
+$resourceTags = $tagStmt->fetchAll(PDO::FETCH_COLUMN);
+
 // Check if user liked
 $userLiked = false;
 if ($user) {
@@ -191,6 +196,14 @@ a{color:var(--accent2);text-decoration:none}
 @media(min-width:640px){.share-inline{display:flex}}
 @media(max-width:639px){.share-fab{display:flex}}
 @media(min-width:640px){.share-fab{width:40px;height:40px;bottom:64px}}
+
+/* Save to collection dropdown */
+.save-coll-wrap{position:relative;display:inline-flex}
+.coll-dropdown{position:absolute;top:calc(100% + 6px);left:0;z-index:50;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:8px;box-shadow:0 8px 32px rgba(0,0,0,.15);min-width:220px;display:none}
+.coll-dropdown.open{display:block}
+.coll-dropdown-item{display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:8px;cursor:pointer;font-size:.85rem;font-weight:500;color:var(--text);border:none;background:none;width:100%;text-align:left;transition:.15s}
+.coll-dropdown-item:hover{background:var(--bg3);color:var(--accent)}
+.coll-dropdown-empty{padding:12px;font-size:.85rem;color:var(--text3);text-align:center}
 </style>
 </head>
 <body>
@@ -233,6 +246,12 @@ a{color:var(--accent2);text-decoration:none}
           <span id="likeCount"><?= (int)($r['like_count'] ?? 0) ?></span>
         </button>
         <button class="btn btn-outline" id="forkBtn" data-id="<?= $id ?>"><i data-lucide="git-fork" style="width:14px;height:14px"></i> Fork</button>
+        <?php if ($sessionUser || $user): ?>
+        <div class="save-coll-wrap">
+          <button class="btn btn-outline" id="saveCollBtn"><i data-lucide="bookmark" style="width:14px;height:14px"></i> Guardar</button>
+          <div class="coll-dropdown" id="collDropdown"><div class="coll-dropdown-empty">Cargando...</div></div>
+        </div>
+        <?php endif; ?>
         <?php if ($r['source_url']): ?>
           <a href="<?= h($r['source_url']) ?>" target="_blank" class="btn btn-outline"><i data-lucide="external-link" style="width:14px;height:14px"></i> Fuente</a>
         <?php endif; ?>
@@ -277,6 +296,13 @@ a{color:var(--accent2);text-decoration:none}
         <div class="stat-item"><strong><?= (int)$r['fork_count'] ?></strong><span>Forks</span></div>
       </div>
 
+      <?php if ($resourceTags): ?>
+      <div style="margin:8px 0 4px;display:flex;flex-wrap:wrap;gap:4px">
+        <?php foreach ($resourceTags as $tag): ?>
+          <a href="/?tag=<?= urlencode($tag) ?>" class="tag" style="background:rgba(124,58,237,.08);color:var(--accent);padding:3px 10px;border-radius:6px;font-size:.75rem;font-weight:500;text-decoration:none;border:1px solid rgba(124,58,237,.15)"><?= h($tag) ?></a>
+        <?php endforeach; ?>
+      </div>
+      <?php endif; ?>
       <div class="meta-row"><span class="meta-label">Autor</span><span class="meta-value"><?= h($r['author_display_name']) ?></span></div>
       <?php if ($r['subject_area']): ?><div class="meta-row"><span class="meta-label">Área</span><span class="meta-value"><?= h($r['subject_area']) ?></span></div><?php endif; ?>
       <?php if ($r['topic_tag']): ?><div class="meta-row"><span class="meta-label">Tema</span><span class="meta-value"><?= h($r['topic_tag']) ?></span></div><?php endif; ?>
@@ -427,6 +453,51 @@ if(postBtn){
 }
 
 loadComments();
+
+// ── Save to collection ──
+const saveCollBtn = document.getElementById('saveCollBtn');
+const collDropdown = document.getElementById('collDropdown');
+if (saveCollBtn) {
+  let collectionsLoaded = false;
+  saveCollBtn.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    collDropdown.classList.toggle('open');
+    if (!collectionsLoaded) {
+      try {
+        const res = await fetch('/api/collections.php');
+        const data = await res.json();
+        collectionsLoaded = true;
+        if (!data.ok || !data.collections.length) {
+          collDropdown.innerHTML = '<div class="coll-dropdown-empty">No tienes colecciones.<br><a href="/dashboard/#collections" style="color:var(--accent)">Crear una</a></div>';
+        } else {
+          collDropdown.innerHTML = data.collections.map(c =>
+            `<button class="coll-dropdown-item" onclick="saveToCollection(${c.id}, '${esc(c.title)}')">📁 ${esc(c.title)} <span style="color:var(--text3);font-size:.75rem;margin-left:auto">${c.item_count}</span></button>`
+          ).join('');
+        }
+      } catch { collDropdown.innerHTML = '<div class="coll-dropdown-empty">Error al cargar</div>'; }
+    }
+  });
+
+  document.addEventListener('click', (e) => {
+    if (!saveCollBtn.contains(e.target)) collDropdown.classList.remove('open');
+  });
+}
+
+async function saveToCollection(collId, collTitle) {
+  collDropdown.classList.remove('open');
+  try {
+    const res = await fetch(`/api/collections.php?action=add&id=${collId}`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({resource_id: RID})
+    });
+    const data = await res.json();
+    const toast = document.getElementById('shareToast');
+    toast.textContent = data.ok ? `✓ Guardado en "${collTitle}"` : `Error: ${data.error}`;
+    toast.classList.add('show');
+    setTimeout(() => toast.classList.remove('show'), 2500);
+  } catch { alert('Error al guardar'); }
+}
 
 // ── Share functionality ──
 const SHARE_URL = `https://iarepo.com/resource/${RID}`;

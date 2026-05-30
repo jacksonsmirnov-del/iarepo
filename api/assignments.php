@@ -22,6 +22,9 @@ cors();
 $db = getResourcesDB();
 $method = request_method();
 
+if ($method === 'GET') rateLimit($db, 'assignments_get', 60);
+elseif (in_array($method, ['POST', 'DELETE'])) rateLimit($db, 'assignments_write', 30);
+
 // ── POST: Create assignment ───────────────────────────────────
 if ($method === 'POST') {
     $user = requireAuth();

@@ -18,6 +18,8 @@ cors();
 $user = requireAuth();
 $db = getResourcesDB();
 
+rateLimit($db, 'versions_get', 60);
+
 if ($_SERVER['REQUEST_METHOD'] !== 'GET') json_error('Method not allowed', 405);
 
 $resourceId = (int)($_GET['resource_id'] ?? 0);

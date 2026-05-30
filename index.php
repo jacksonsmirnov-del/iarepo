@@ -436,7 +436,7 @@ function renderCard(r) {
     </div>
     <div class="card-body"><div class="card-desc">${esc(r.description || '')}</div></div>
     <div class="card-footer">
-      <div class="card-tags"><span class="badge-level ${levelClass}">${levelLabel}</span><span class="tag">${r.code_type}</span><span class="tag">${langFlag}</span></div>
+      <div class="card-tags"><span class="badge-level ${levelClass}">${levelLabel}</span><span class="tag">${r.code_type}</span><span class="tag">${langFlag}</span>${(r.tags&&r.tags.length)?r.tags.slice(0,3).map(t=>`<a href="/?tag=${encodeURIComponent(t)}" class="tag" style="color:var(--accent2);text-decoration:none" onclick="event.stopPropagation()">${esc(t)}</a>`).join(''):''}</div>
       <div class="card-meta">
         <span><i data-lucide="eye" style="width:12px;height:12px"></i> ${r.view_count||0}</span>
         <span><i data-lucide="heart" style="width:12px;height:12px"></i> ${r.like_count||0}</span>

@@ -19,6 +19,7 @@ cors();
 
 $user = requireAuth();
 $db = getResourcesDB();
+rateLimit($db, 'stats_get', 30);
 $detail = $_GET['detail'] ?? '';
 
 // ── Global stats ──────────────────────────────────────────────

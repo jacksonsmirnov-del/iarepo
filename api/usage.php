@@ -18,6 +18,8 @@ cors();
 $db = getResourcesDB();
 $method = request_method();
 
+rateLimit($db, 'usage', $method === 'POST' ? 60 : 120);
+
 if ($method === 'POST') {
     $user = requireAuth();
     $data = json_body();

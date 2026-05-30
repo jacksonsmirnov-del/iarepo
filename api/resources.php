@@ -25,6 +25,9 @@ cors();
 $method = request_method();
 $db = getResourcesDB();
 
+if ($method === 'GET') rateLimit($db, 'resources_get', 120);
+elseif (in_array($method, ['POST', 'PUT', 'DELETE'])) rateLimit($db, 'resources_write', 30);
+
 // ── GET: List or single resource ─────────────────────────────
 if ($method === 'GET') {
     $id = (int) ($_GET['id'] ?? 0);
@@ -160,7 +163,8 @@ if ($method === 'GET') {
                r.source_name, r.source_url,
                r.created_at, r.updated_at,
                c.name AS category_name, c.slug AS category_slug, c.icon AS category_icon,
-               (SELECT COUNT(*) FROM resource_likes rl WHERE rl.resource_id = r.id) AS like_count
+               (SELECT COUNT(*) FROM resource_likes rl WHERE rl.resource_id = r.id) AS like_count,
+               (SELECT GROUP_CONCAT(tag ORDER BY tag SEPARATOR ',') FROM resource_tags rt WHERE rt.resource_id = r.id) AS tags_csv
         FROM resources r
         LEFT JOIN categories c ON r.category_id = c.id
         WHERE $whereSQL
@@ -169,6 +173,12 @@ if ($method === 'GET') {
     ");
     $stmt->execute($params);
     $resources = $stmt->fetchAll();
+
+    foreach ($resources as &$res) {
+        $res['tags'] = $res['tags_csv'] ? explode(',', $res['tags_csv']) : [];
+        unset($res['tags_csv']);
+    }
+    unset($res);
 
     // Get categories for filter UI
     $categories = $db->query("
@@ -437,6 +447,16 @@ if ($method === 'PUT') {
                     $user['tenant_name'],
                     sanitize($data['change_description'] ?? "Version $newVersion", 500),
                 ]);
+
+        // Update tags if provided (replace strategy)
+        if (isset($data['tags']) && is_array($data['tags'])) {
+            $db->prepare("DELETE FROM resource_tags WHERE resource_id = ?")->execute([$id]);
+            $tagStmt = $db->prepare("INSERT IGNORE INTO resource_tags (resource_id, tag) VALUES (?, ?)");
+            foreach (array_slice($data['tags'], 0, 20) as $tag) {
+                $tag = strtolower(trim((string) $tag));
+                if ($tag !== '') $tagStmt->execute([$id, $tag]);
+            }
+        }
 
         $db->commit();
         json_ok(['version' => $newVersion, 'message' => 'Resource updated']);
