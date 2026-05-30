@@ -72,8 +72,15 @@ $levelLabels = ['primary'=>'Primaria','secondary'=>'Secundaria','ib'=>'IB','univ
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title><?= h($r['title']) ?> — iarepo</title>
-<meta name="description" content="<?= h($r['description'] ?: $r['title']) ?>">
+<?php
+$metaDesc = $r['description'] ?: $r['title'];
+if ($r['category_name']) $metaDesc .= ' · ' . $r['category_name'];
+if ($r['level'] && isset($levelLabels[$r['level']])) $metaDesc .= ' · ' . $levelLabels[$r['level']];
+$metaDesc .= ' — iarepo';
+$metaDesc = mb_substr($metaDesc, 0, 160);
+?>
+<title><?= h($r['title']) ?> — <?= h($r['category_name'] ?: $r['subject_area'] ?: 'iarepo') ?></title>
+<meta name="description" content="<?= h($metaDesc) ?>">
 <meta property="og:title" content="<?= h($r['title']) ?> — iarepo">
 <meta property="og:description" content="<?= h($r['description'] ?: 'Recurso educativo interactivo') ?>">
 <meta property="og:url" content="https://iarepo.com/resource/<?= $id ?>">
@@ -90,6 +97,38 @@ $levelLabels = ['primary'=>'Primaria','secondary'=>'Secundaria','ib'=>'IB','univ
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="icon" href="/favicon.ico" sizes="any">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "LearningResource",
+  "name": <?= json_encode($r['title']) ?>,
+  "description": <?= json_encode($r['description'] ?: $r['title']) ?>,
+  "url": "https://iarepo.com/resource/<?= $id ?>",
+  "image": "https://iarepo.com/api/og-image.php?id=<?= $id ?>",
+  "datePublished": "<?= date('Y-m-d', strtotime($r['created_at'])) ?>",
+  "dateModified": "<?= date('Y-m-d', strtotime($r['updated_at'] ?? $r['created_at'])) ?>",
+  "inLanguage": "<?= h($r['lang'] ?: 'es') ?>",
+  "author": {
+    "@type": "Person",
+    "name": <?= json_encode($r['author_display_name']) ?>
+  },
+  "provider": {
+    "@type": "Organization",
+    "name": "iarepo",
+    "url": "https://iarepo.com"
+  }<?php if ($r['category_name']): ?>,
+  "educationalLevel": <?= json_encode($levelLabels[$r['level']] ?? 'General') ?>,
+  "about": {
+    "@type": "Thing",
+    "name": <?= json_encode($r['category_name']) ?>
+  }<?php endif; ?><?php if ($r['source_url'] && $r['source_name']): ?>,
+  "isBasedOn": {
+    "@type": "WebPage",
+    "name": <?= json_encode($r['source_name']) ?>,
+    "url": <?= json_encode($r['source_url']) ?>
+  }<?php endif; ?>
+}
+</script>
 <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
 <?php if (!$sessionUser): ?>
 <script src="https://accounts.google.com/gsi/client" async defer></script>

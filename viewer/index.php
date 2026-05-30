@@ -88,11 +88,10 @@ $isPresent = ($mode === 'present');
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title><?= h($resource['title']) ?> — iarepo</title>
-    <meta name="description" content="<?= h($resource['title']) ?> — Recurso educativo interactivo en iarepo.com">
-    <meta property="og:title" content="<?= h($resource['title']) ?> — iarepo">
-    <meta property="og:type" content="article">
-    <meta property="og:url" content="https://iarepo.com/view/<?= $id ?>">
-    <link rel="canonical" href="https://iarepo.com/view/<?= $id ?>">
+    <meta name="robots" content="noindex, nofollow">
+    <link rel="canonical" href="https://iarepo.com/resource/<?= $id ?>">
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+    <link rel="icon" href="/favicon.ico" sizes="any">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         html, body { height: 100%; overflow: hidden; font-family: system-ui, sans-serif; }
