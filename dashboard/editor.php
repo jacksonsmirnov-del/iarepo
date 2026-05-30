@@ -103,6 +103,16 @@ textarea.form-control{resize:vertical;min-height:60px}
 <div class="container">
   <h1><?= $isEdit ? '✏️' : '➕' ?> <?= h($pageTitle) ?></h1>
 
+  <?php if (!$isEdit): ?>
+  <div style="background:rgba(124,58,237,.06);border:1px solid rgba(124,58,237,.2);border-radius:12px;padding:14px 18px;margin-bottom:20px;display:flex;align-items:flex-start;gap:12px">
+    <span style="font-size:1.4rem;flex-shrink:0">🤖</span>
+    <div>
+      <strong style="font-size:.9rem">¿Tienes un recurso HTML generado con IA?</strong>
+      <p style="font-size:.82rem;color:var(--text2);margin-top:3px;line-height:1.5">Pídele a Gemini, ChatGPT o Claude que genere una simulación interactiva en HTML, pega el código aquí y compártela con la comunidad. <a href="https://gemini.google.com" target="_blank" rel="noopener" style="color:var(--accent)">Abrir Gemini →</a></p>
+    </div>
+  </div>
+  <?php endif; ?>
+
   <div class="editor-layout">
     <div class="form-panel">
       <div class="form-group">
@@ -117,11 +127,11 @@ textarea.form-control{resize:vertical;min-height:60px}
         <div class="form-group">
           <label>Tipo de contenido</label>
           <select class="form-control" id="codeType">
-            <option value="html" <?= ($resource && $resource['code_type']==='html') ? 'selected' : '' ?>>HTML/JS/CSS</option>
-            <option value="url" <?= ($resource && $resource['code_type']==='url') ? 'selected' : '' ?>>URL externa</option>
-            <option value="embed" <?= ($resource && $resource['code_type']==='embed') ? 'selected' : '' ?>>Embed</option>
-            <option value="python" <?= ($resource && $resource['code_type']==='python') ? 'selected' : '' ?>>Python</option>
-            <option value="prompt" <?= ($resource && $resource['code_type']==='prompt') ? 'selected' : '' ?>>AI Prompt</option>
+            <option value="html" <?= ($resource && $resource['code_type']==='html') ? 'selected' : '' ?>>⭐ HTML generado con IA</option>
+            <option value="prompt" <?= ($resource && $resource['code_type']==='prompt') ? 'selected' : '' ?>>💡 Prompt de IA</option>
+            <option value="url" <?= ($resource && $resource['code_type']==='url') ? 'selected' : '' ?>>🔗 URL externa</option>
+            <option value="embed" <?= ($resource && $resource['code_type']==='embed') ? 'selected' : '' ?>>📋 Embed</option>
+            <option value="python" <?= ($resource && $resource['code_type']==='python') ? 'selected' : '' ?>>🐍 Python</option>
           </select>
         </div>
         <div class="form-group">
@@ -260,9 +270,17 @@ document.getElementById('codeContent').addEventListener('input',()=>{
   previewTimer=setTimeout(updatePreview,800);
 });
 document.getElementById('refreshPreview').addEventListener('click',updatePreview);
+const placeholders = {
+  html: '<!-- Pega aquí el HTML generado con Gemini, ChatGPT o Claude -->\n<!DOCTYPE html>\n<html>...',
+  prompt: 'Escribe el prompt que usaste para generar el recurso. Otros profesores podrán replicarlo y adaptarlo.',
+  url: 'https://phet.colorado.edu/sims/html/...',
+  embed: '<iframe src="..." width="100%" height="500" frameborder="0"></iframe>',
+  python: '# Código Python\nprint("Hola mundo")',
+};
 document.getElementById('codeType').addEventListener('change',()=>{
   const type=document.getElementById('codeType').value;
-  document.getElementById('codeContent').placeholder=type==='url'?'https://...':'Pega tu código aquí...';
+  if(!document.getElementById('codeContent').value)
+    document.getElementById('codeContent').placeholder=placeholders[type]||'Pega tu contenido aquí...';
   updatePreview();
 });
 
