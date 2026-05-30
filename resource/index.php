@@ -87,6 +87,8 @@ $levelLabels = ['primary'=>'Primaria','secondary'=>'Secundaria','ib'=>'IB','univ
 <meta name="twitter:description" content="<?= h($r['description'] ?: 'Recurso educativo interactivo') ?>">
 <meta name="twitter:image" content="https://iarepo.com/api/og-image.php?id=<?= $id ?>">
 <link rel="canonical" href="https://iarepo.com/resource/<?= $id ?>">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="/favicon.ico" sizes="any">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
 <?php if (!$sessionUser): ?>
@@ -210,7 +212,7 @@ a{color:var(--accent2);text-decoration:none}
 
 <div class="topbar">
   <div class="topbar-left">
-    <a href="/">← iarepo</a>
+    <a href="/"><img src="/assets/img/logo.svg" alt="iarepo" style="height:24px;width:auto;vertical-align:middle"></a>
     <span style="color:var(--text3);font-size:.85rem">/</span>
     <span style="font-size:.85rem;color:var(--text2)"><?= h($r['title']) ?></span>
   </div>

@@ -53,6 +53,8 @@ $levelLabels = ['primary'=>'Primaria','secondary'=>'Secundaria','ib'=>'IB','univ
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="iarepo">
 <link rel="canonical" href="https://iarepo.com/collection/?id=<?= $id ?>">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="/favicon.ico" sizes="any">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
 <style>
@@ -119,7 +121,7 @@ a{color:var(--accent2);text-decoration:none}
 
 <div class="topbar">
   <div class="topbar-left">
-    <a href="/">← iarepo</a>
+    <a href="/"><img src="/assets/img/logo.svg" alt="iarepo" style="height:24px;width:auto;vertical-align:middle"></a>
     <span style="color:var(--text3)">/</span>
     <span style="font-size:.85rem;color:var(--text2)">Colección</span>
   </div>

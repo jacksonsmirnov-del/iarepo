@@ -41,6 +41,8 @@ if (str_contains($accept, 'application/json') && !str_contains($accept, 'text/ht
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://iarepo.com">
 <link rel="canonical" href="https://iarepo.com">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="/favicon.ico" sizes="any">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
@@ -245,7 +247,7 @@ a:hover{opacity:.8}
 
 <section class="hero">
   <div class="hero-badge"><i data-lucide="sparkles" style="width:14px;height:14px"></i> Open Educational Resources</div>
-  <h1>iarepo</h1>
+  <h1><img src="/assets/img/logo.svg" alt="iarepo" style="height:48px;width:auto;display:inline-block;vertical-align:middle"></h1>
   <p>Repositorio abierto de recursos educativos interactivos. Descubre simulaciones, herramientas y modelos de IA — listos para usar en tu clase.</p>
   <div class="hero-stats">
     <div class="hero-stat"><strong id="stat-total">—</strong><span>Recursos</span></div>

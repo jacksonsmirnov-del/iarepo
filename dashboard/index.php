@@ -34,6 +34,8 @@ $collections = $collStmt->fetchAll(PDO::FETCH_ASSOC);
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Dashboard — iarepo</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="/favicon.ico" sizes="any">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
 <style>
@@ -114,7 +116,7 @@ a{color:var(--accent2);text-decoration:none}
 
 <div class="topbar">
   <div class="topbar-left">
-    <a href="/">← iarepo</a>
+    <a href="/"><img src="/assets/img/logo.svg" alt="iarepo" style="height:24px;width:auto;vertical-align:middle"></a>
     <span style="color:var(--text3)">·</span>
     <span style="font-weight:600;font-size:.9rem">Dashboard</span>
   </div>

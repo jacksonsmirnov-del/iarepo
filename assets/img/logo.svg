@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 196 48" fill="none">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="44" y2="44" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#7c3aed"/>
+      <stop offset="100%" stop-color="#06b6d4"/>
+    </linearGradient>
+    <linearGradient id="text-grad" x1="56" y1="0" x2="196" y2="0" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#7c3aed"/>
+      <stop offset="100%" stop-color="#06b6d4"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Icon (44x44, centered vertically in 48) -->
+  <g transform="translate(0, 2)">
+    <rect width="44" height="44" rx="10" fill="url(#bg)"/>
+
+    <!-- Network branches -->
+    <line x1="22" y1="15" x2="13" y2="8" stroke="white" stroke-width="1.6" stroke-linecap="round" stroke-opacity="0.72"/>
+    <line x1="22" y1="15" x2="31" y2="8" stroke="white" stroke-width="1.6" stroke-linecap="round" stroke-opacity="0.72"/>
+
+    <!-- Leaf nodes -->
+    <circle cx="13" cy="7.5" r="2.5" fill="white" fill-opacity="0.72"/>
+    <circle cx="31" cy="7.5" r="2.5" fill="white" fill-opacity="0.72"/>
+
+    <!-- Main node -->
+    <circle cx="22" cy="15" r="4" fill="white"/>
+
+    <!-- "i" stem -->
+    <rect x="18.5" y="21.5" width="7" height="15" rx="3.5" fill="white"/>
+  </g>
+
+  <!-- Wordmark: "iarepo" -->
+  <text
+    x="56" y="34"
+    font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+    font-weight="800"
+    font-size="26"
+    letter-spacing="-0.5"
+    fill="url(#text-grad)"
+  >iarepo</text>
+</svg>

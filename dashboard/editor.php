@@ -40,6 +40,8 @@ $pageTitle = $isEdit ? 'Editar Recurso' : 'Nuevo Recurso';
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title><?= h($pageTitle) ?> — iarepo</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="/favicon.ico" sizes="any">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fira+Code:wght@400&display=swap" rel="stylesheet">
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
@@ -94,7 +96,7 @@ textarea.form-control{resize:vertical;min-height:60px}
 <body>
 
 <div class="topbar">
-  <a href="/dashboard/">← Dashboard</a>
+  <a href="/dashboard/" style="display:flex;align-items:center;gap:8px"><img src="/assets/img/logo-icon.svg" alt="iarepo" style="height:22px;width:auto"> Dashboard</a>
   <span style="font-size:.85rem;color:var(--text2)"><?= h($user['name']) ?></span>
 </div>
 
