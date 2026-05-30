@@ -36,7 +36,7 @@ if (empty($resources)) {
 }
 
 $update = $db->prepare("
-    UPDATE resources SET link_status = ?, link_checked_at = NOW() WHERE id = ?
+    UPDATE resources SET link_status = ?, iframe_blocked = ?, link_checked_at = NOW() WHERE id = ?
 ");
 
 $checked = 0;
@@ -47,76 +47,74 @@ foreach ($resources as $r) {
     $id = (int) $r['id'];
 
     if (empty($url) || !filter_var($url, FILTER_VALIDATE_URL)) {
-        $update->execute(['broken', $id]);
+        $update->execute(['broken', 0, $id]);
         echo date('Y-m-d H:i:s') . " [INVALID]  ID=$id \"{$r['title']}\" — not a valid URL\n";
         $broken++;
         $checked++;
         continue;
     }
 
-    $status = checkUrl($url);
-    $update->execute([$status, $id]);
+    [$status, $iframeBlocked] = checkUrlFull($url);
+    $update->execute([$status, $iframeBlocked ? 1 : 0, $id]);
 
-    $icon = match ($status) {
-        'ok'      => '✅',
-        'broken'  => '❌',
-        'timeout' => '⏱️',
-        default   => '❓',
+    $icon = match (true) {
+        $iframeBlocked        => '🚫',
+        $status === 'ok'      => '✅',
+        $status === 'broken'  => '❌',
+        $status === 'timeout' => '⏱️',
+        default               => '❓',
     };
 
-    if ($status !== 'ok') {
-        echo date('Y-m-d H:i:s') . " $icon ID=$id \"{$r['title']}\" — $status ($url)\n";
-        $broken++;
+    if ($status !== 'ok' || $iframeBlocked) {
+        $reason = $iframeBlocked ? 'iframe blocked' : $status;
+        echo date('Y-m-d H:i:s') . " $icon ID=$id \"{$r['title']}\" — $reason ($url)\n";
+        if ($status !== 'ok') $broken++;
     }
 
     $checked++;
-
-    // Be polite: 1 second between requests
     usleep(500_000);
 }
 
 echo date('Y-m-d H:i:s') . " Checked $checked URLs, $broken issues found\n";
 
-// ── URL check function ──
-function checkUrl(string $url): string
+// ── URL check functions ──
+
+// Returns [status, iframe_blocked]
+function checkUrlFull(string $url): array
 {
     $ch = curl_init($url);
     curl_setopt_array($ch, [
-        CURLOPT_NOBODY         => true,        // HEAD request only
+        CURLOPT_NOBODY         => true,
         CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_HEADER         => true,
         CURLOPT_FOLLOWLOCATION => true,
         CURLOPT_MAXREDIRS      => 5,
-        CURLOPT_TIMEOUT        => 15,          // 15 second timeout
+        CURLOPT_TIMEOUT        => 15,
         CURLOPT_CONNECTTIMEOUT => 10,
         CURLOPT_SSL_VERIFYPEER => false,
         CURLOPT_USERAGENT      => 'iarepo-link-checker/1.0 (+https://iarepo.com)',
     ]);
-
-    curl_exec($ch);
+    $response = curl_exec($ch);
     $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    $error = curl_errno($ch);
+    $error    = curl_errno($ch);
     curl_close($ch);
 
-    // Timeout
-    if ($error === CURLE_OPERATION_TIMEDOUT || $error === CURLE_COULDNT_CONNECT) {
-        return 'timeout';
-    }
-
-    // Connection failed
-    if ($error !== 0 || $httpCode === 0) {
-        return 'broken';
-    }
-
-    // Server errors or not found
+    if ($error === CURLE_OPERATION_TIMEDOUT || $error === CURLE_COULDNT_CONNECT) return ['timeout', false];
+    if ($error !== 0 || $httpCode === 0) return ['broken', false];
     if ($httpCode >= 400) {
-        // Some sites block HEAD requests, try GET
-        if ($httpCode === 403 || $httpCode === 405 || $httpCode === 406) {
-            return checkUrlGet($url);
-        }
-        return 'broken';
+        if (in_array($httpCode, [403, 405, 406])) return [checkUrlGet($url), false];
+        return ['broken', false];
     }
 
-    return 'ok';
+    $iframeBlocked = headersBlockIframe((string) $response);
+    return ['ok', $iframeBlocked];
+}
+
+function headersBlockIframe(string $rawHeaders): bool
+{
+    if (preg_match('/x-frame-options:\s*(deny|sameorigin)/i', $rawHeaders)) return true;
+    if (preg_match('/content-security-policy:[^\n]*frame-ancestors[^\n]*(\'none\'|\'self\')/i', $rawHeaders)) return true;
+    return false;
 }
 
 // Fallback: GET request for sites that block HEAD

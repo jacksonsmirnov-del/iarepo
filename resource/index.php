@@ -233,7 +233,41 @@ a{color:var(--accent2);text-decoration:none}
       <?php if ($r['code_type'] === 'html'): ?>
         <iframe class="preview-frame" srcdoc="<?= h($r['code_content']) ?>" sandbox="allow-scripts allow-modals allow-popups" title="<?= h($r['title']) ?>"></iframe>
       <?php elseif ($r['code_type'] === 'url'): ?>
-        <iframe class="preview-frame" src="<?= h($r['code_content']) ?>" title="<?= h($r['title']) ?>"></iframe>
+        <?php if ($r['iframe_blocked']): ?>
+          <div style="height:500px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;background:var(--bg3);padding:32px;text-align:center">
+            <div style="font-size:3rem">🔗</div>
+            <p style="color:var(--text2);max-width:420px;line-height:1.6">Este sitio no permite ser embebido por políticas de seguridad. Ábrelo directamente.</p>
+            <a href="<?= h($r['code_content']) ?>" target="_blank" rel="noopener" class="btn btn-primary" style="padding:12px 28px">🚀 Abrir <?= h($r['source_name'] ?: 'recurso') ?></a>
+          </div>
+        <?php else: ?>
+          <iframe class="preview-frame" id="previewIframe" src="<?= h($r['code_content']) ?>" title="<?= h($r['title']) ?>"></iframe>
+          <script>
+          (function(){
+            const frame=document.getElementById('previewIframe');
+            let loaded=false;
+            frame.addEventListener('load',()=>loaded=true);
+            frame.addEventListener('error',()=>{
+              frame.style.display='none';
+              document.getElementById('iframeFallback').style.display='flex';
+            });
+            setTimeout(()=>{
+              if(!loaded) return;
+              try{
+                const doc=frame.contentDocument||frame.contentWindow.document;
+                if(!doc||!doc.body||doc.body.innerHTML===''){
+                  frame.style.display='none';
+                  document.getElementById('iframeFallback').style.display='flex';
+                }
+              }catch(e){}
+            },4000);
+          })();
+          </script>
+          <div id="iframeFallback" style="display:none;height:500px;flex-direction:column;align-items:center;justify-content:center;gap:16px;background:var(--bg3);padding:32px;text-align:center">
+            <div style="font-size:3rem">🔗</div>
+            <p style="color:var(--text2);max-width:420px;line-height:1.6">Este sitio bloqueó la vista previa. Ábrelo directamente.</p>
+            <a href="<?= h($r['code_content']) ?>" target="_blank" rel="noopener" class="btn btn-primary" style="padding:12px 28px">🚀 Abrir <?= h($r['source_name'] ?: 'recurso') ?></a>
+          </div>
+        <?php endif; ?>
       <?php elseif ($r['code_type'] === 'embed'): ?>
         <iframe class="preview-frame" srcdoc="<?= h($r['code_content']) ?>" sandbox="allow-scripts allow-modals allow-popups allow-forms" title="<?= h($r['title']) ?>"></iframe>
       <?php else: ?>

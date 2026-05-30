@@ -64,7 +64,7 @@ if ($job === 'link_check') {
         exit;
     }
 
-    $update  = $db->prepare("UPDATE resources SET link_status = ?, link_checked_at = NOW() WHERE id = ?");
+    $update  = $db->prepare("UPDATE resources SET link_status = ?, iframe_blocked = ?, link_checked_at = NOW() WHERE id = ?");
     $checked = 0;
     $broken  = 0;
     $log     = [];
@@ -74,18 +74,18 @@ if ($job === 'link_check') {
         $id  = (int) $r['id'];
 
         if (empty($url) || !filter_var($url, FILTER_VALIDATE_URL)) {
-            $update->execute(['broken', $id]);
+            $update->execute(['broken', 0, $id]);
             $log[] = ['id' => $id, 'status' => 'broken', 'reason' => 'invalid_url'];
             $broken++;
             $checked++;
             continue;
         }
 
-        $status = _checkUrl($url);
-        $update->execute([$status, $id]);
-        if ($status !== 'ok') {
-            $log[] = ['id' => $id, 'title' => $r['title'], 'status' => $status];
-            $broken++;
+        [$status, $iframeBlocked] = _checkUrlFull($url);
+        $update->execute([$status, $iframeBlocked ? 1 : 0, $id]);
+        if ($status !== 'ok' || $iframeBlocked) {
+            $log[] = ['id' => $id, 'title' => $r['title'], 'status' => $status, 'iframe_blocked' => $iframeBlocked];
+            if ($status !== 'ok') $broken++;
         }
         $checked++;
         usleep(300_000);
@@ -165,12 +165,14 @@ if ($job === 'moderation') {
 
 // ── URL check helpers ─────────────────────────────────────────
 
-function _checkUrl(string $url): string
+// Returns [status, iframe_blocked]
+function _checkUrlFull(string $url): array
 {
     $ch = curl_init($url);
     curl_setopt_array($ch, [
         CURLOPT_NOBODY         => true,
         CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_HEADER         => true,
         CURLOPT_FOLLOWLOCATION => true,
         CURLOPT_MAXREDIRS      => 5,
         CURLOPT_TIMEOUT        => 15,
@@ -178,18 +180,31 @@ function _checkUrl(string $url): string
         CURLOPT_SSL_VERIFYPEER => false,
         CURLOPT_USERAGENT      => 'iarepo-link-checker/1.0 (+https://iarepo.com)',
     ]);
-    curl_exec($ch);
+    $response = curl_exec($ch);
     $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
     $error    = curl_errno($ch);
     curl_close($ch);
 
-    if ($error === CURLE_OPERATION_TIMEDOUT || $error === CURLE_COULDNT_CONNECT) return 'timeout';
-    if ($error !== 0 || $httpCode === 0) return 'broken';
+    if ($error === CURLE_OPERATION_TIMEDOUT || $error === CURLE_COULDNT_CONNECT) return ['timeout', false];
+    if ($error !== 0 || $httpCode === 0) return ['broken', false];
     if ($httpCode >= 400) {
-        if (in_array($httpCode, [403, 405, 406])) return _checkUrlGet($url);
-        return 'broken';
+        if (in_array($httpCode, [403, 405, 406])) {
+            $status = _checkUrlGet($url);
+            return [$status, false];
+        }
+        return ['broken', false];
     }
-    return 'ok';
+
+    $iframeBlocked = _headersBlockIframe((string) $response);
+    return ['ok', $iframeBlocked];
+}
+
+function _headersBlockIframe(string $rawHeaders): bool
+{
+    $headers = strtolower($rawHeaders);
+    if (preg_match('/x-frame-options:\s*(deny|sameorigin)/i', $headers)) return true;
+    if (preg_match('/content-security-policy:[^\n]*frame-ancestors[^\n]*(\'none\'|\'self\')/i', $headers)) return true;
+    return false;
 }
 
 function _checkUrlGet(string $url): string
