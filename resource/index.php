@@ -50,7 +50,7 @@ if ($user) {
     $userLiked = (bool)$likeCheck->fetch();
 }
 
-// Similar resources (same category or subject_area)
+// Similar resources (same category)
 $similar = [];
 if ($r['category_id']) {
     $simStmt = $db->prepare("
@@ -61,6 +61,20 @@ if ($r['category_id']) {
     ");
     $simStmt->execute([$r['category_id'], $id]);
     $similar = $simStmt->fetchAll();
+}
+
+// More by same author
+$byAuthor = [];
+if ($r['author_user_id'] && $r['author_tenant_id'] == 0) {
+    $authorStmt = $db->prepare("
+        SELECT id, title, code_type, view_count, like_count
+        FROM resources
+        WHERE author_user_id = ? AND author_tenant_id = 0
+          AND id != ? AND is_active = 1 AND visibility = 'community'
+        ORDER BY like_count DESC, view_count DESC LIMIT 4
+    ");
+    $authorStmt->execute([$r['author_user_id'], $id]);
+    $byAuthor = $authorStmt->fetchAll();
 }
 
 $env = require __DIR__ . '/../.env.php';
@@ -393,7 +407,16 @@ a{color:var(--accent2);text-decoration:none}
         <?php endforeach; ?>
       </div>
       <?php endif; ?>
-      <div class="meta-row"><span class="meta-label">Autor</span><span class="meta-value"><?= h($r['author_display_name']) ?></span></div>
+      <div class="meta-row">
+        <span class="meta-label">Autor</span>
+        <span class="meta-value">
+          <?php if ($r['author_user_id'] && $r['author_tenant_id'] == 0): ?>
+            <a href="/profile/<?= (int)$r['author_user_id'] ?>" style="color:var(--accent2)"><?= h($r['author_display_name']) ?></a>
+          <?php else: ?>
+            <?= h($r['author_display_name']) ?>
+          <?php endif; ?>
+        </span>
+      </div>
       <?php if ($r['subject_area']): ?><div class="meta-row"><span class="meta-label">Área</span><span class="meta-value"><?= h($r['subject_area']) ?></span></div><?php endif; ?>
       <?php if ($r['topic_tag']): ?><div class="meta-row"><span class="meta-label">Tema</span><span class="meta-value"><?= h($r['topic_tag']) ?></span></div><?php endif; ?>
       <div class="meta-row"><span class="meta-label">Versión</span><span class="meta-value">v<?= (int)$r['current_version'] ?></span></div>
@@ -411,9 +434,31 @@ a{color:var(--accent2);text-decoration:none}
       <?php endif; ?>
     </div>
 
+    <?php if ($byAuthor): ?>
+    <div class="meta-card">
+      <h3 style="font-size:1rem;font-weight:600;margin-bottom:4px;display:flex;justify-content:space-between;align-items:center">
+        <span>Más de <?= h($r['author_display_name']) ?></span>
+        <a href="/profile/<?= (int)$r['author_user_id'] ?>" style="font-size:.78rem;font-weight:500;color:var(--accent2)">Ver perfil →</a>
+      </h3>
+      <div class="similar-grid">
+        <?php foreach ($byAuthor as $s): ?>
+          <a href="/resource/<?= (int)$s['id'] ?>" class="similar-card" style="text-decoration:none;color:var(--text)">
+            <h4><?= h($s['title']) ?></h4>
+            <span><?= strtoupper(h($s['code_type'])) ?> · 👁 <?= (int)$s['view_count'] ?> · ❤ <?= (int)$s['like_count'] ?></span>
+          </a>
+        <?php endforeach; ?>
+      </div>
+    </div>
+    <?php endif; ?>
+
     <?php if ($similar): ?>
     <div class="meta-card">
-      <h3 style="font-size:1rem;font-weight:600;margin-bottom:8px">Recursos similares</h3>
+      <h3 style="font-size:1rem;font-weight:600;margin-bottom:4px;display:flex;justify-content:space-between;align-items:center">
+        <span>Más en <?= h($r['category_name'] ?? 'esta categoría') ?></span>
+        <?php if ($r['category_id']): ?>
+          <a href="/?category=<?= (int)$r['category_id'] ?>" style="font-size:.78rem;font-weight:500;color:var(--accent2)">Ver todos →</a>
+        <?php endif; ?>
+      </h3>
       <div class="similar-grid">
         <?php foreach ($similar as $s): ?>
           <a href="/resource/<?= (int)$s['id'] ?>" class="similar-card" style="text-decoration:none;color:var(--text)">
