@@ -189,6 +189,19 @@ a:hover{opacity:.8}
 .result-count{font-size:.9rem;color:var(--text2)}
 .sort-select{padding:8px 12px;border-radius:8px;border:1px solid var(--border);background:var(--bg2);color:var(--text);font-family:inherit;font-size:.85rem;cursor:pointer}
 
+/* How it works */
+.how-it-works{max-width:800px;margin:0 auto 16px;padding:32px 24px;background:var(--card);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow)}
+.hiw-steps{display:flex;align-items:flex-start;gap:8px;justify-content:center;flex-wrap:wrap}
+.hiw-step{flex:1;min-width:160px;max-width:220px;text-align:center;padding:0 8px}
+.hiw-icon{font-size:2rem;margin-bottom:10px}
+.hiw-step h3{font-size:.95rem;font-weight:700;margin-bottom:6px;color:var(--text)}
+.hiw-step p{font-size:.8rem;color:var(--text2);line-height:1.5}
+.hiw-arrow{font-size:1.4rem;color:var(--text3);padding-top:28px;flex-shrink:0}
+@media(max-width:640px){.hiw-arrow{display:none}.hiw-step{min-width:120px}}
+
+/* IA badge on cards */
+.badge-ia{display:inline-flex;align-items:center;gap:3px;padding:2px 7px;border-radius:5px;font-size:.68rem;font-weight:700;background:linear-gradient(135deg,rgba(124,58,237,.12),rgba(6,182,212,.12));color:var(--accent);border:1px solid rgba(124,58,237,.2)}
+
 @media(max-width:640px){
   .hero{padding:48px 16px 24px}
   .grid{grid-template-columns:1fr}
@@ -259,6 +272,45 @@ a:hover{opacity:.8}
     <input type="search" id="search" placeholder="Buscar recursos... (ej: waves, pendulum, pH)" autocomplete="off">
   </div>
 </section>
+
+<?php if (!$sessionUser): ?>
+<section class="how-it-works">
+  <div class="hiw-steps">
+    <div class="hiw-step">
+      <div class="hiw-icon">🤖</div>
+      <h3>Genera con IA</h3>
+      <p>Pídele a Gemini o ChatGPT una simulación interactiva en HTML para tu clase.</p>
+    </div>
+    <div class="hiw-arrow">→</div>
+    <div class="hiw-step">
+      <div class="hiw-icon">⬆️</div>
+      <h3>Súbela en 30s</h3>
+      <p>Pega el código, elige la materia y publícala. Sin instalación, sin cuenta de pago.</p>
+    </div>
+    <div class="hiw-arrow">→</div>
+    <div class="hiw-step">
+      <div class="hiw-icon">🌍</div>
+      <h3>Profesores la usan</h3>
+      <p>Cualquier profesor del mundo puede encontrarla, usarla o adaptarla para su curso.</p>
+    </div>
+  </div>
+  <div style="text-align:center;margin-top:28px">
+    <div id="g_id_onload_hiw"
+         data-client_id="<?= htmlspecialchars($googleClientId) ?>"
+         data-login_uri="https://iarepo.com/auth/google.php"
+         data-auto_prompt="false"></div>
+    <div class="g_id_signin"
+         data-type="standard"
+         data-shape="pill"
+         data-theme="filled_blue"
+         data-text="signup_with"
+         data-size="large"
+         data-logo_alignment="left">
+    </div>
+    <p style="margin-top:10px;font-size:.78rem;color:var(--text3)">Gratis · Sin tarjeta · Solo con Google</p>
+  </div>
+</section>
+<?php endif; ?>
 
 <div id="categories" class="cats"></div>
 
@@ -438,7 +490,7 @@ function renderCard(r) {
     </div>
     <div class="card-body"><div class="card-desc">${esc(r.description || '')}</div></div>
     <div class="card-footer">
-      <div class="card-tags"><span class="badge-level ${levelClass}">${levelLabel}</span><span class="tag">${r.code_type}</span><span class="tag">${langFlag}</span>${(r.tags&&r.tags.length)?r.tags.slice(0,3).map(t=>`<a href="/?tag=${encodeURIComponent(t)}" class="tag" style="color:var(--accent2);text-decoration:none" onclick="event.stopPropagation()">${esc(t)}</a>`).join(''):''}</div>
+      <div class="card-tags">${r.code_type==='html'?'<span class="badge-ia">🤖 IA</span>':''}<span class="badge-level ${levelClass}">${levelLabel}</span><span class="tag">${r.code_type==='html'?'HTML':r.code_type}</span><span class="tag">${langFlag}</span>${(r.tags&&r.tags.length)?r.tags.slice(0,3).map(t=>`<a href="/?tag=${encodeURIComponent(t)}" class="tag" style="color:var(--accent2);text-decoration:none" onclick="event.stopPropagation()">${esc(t)}</a>`).join(''):''}</div>
       <div class="card-meta">
         <span><i data-lucide="eye" style="width:12px;height:12px"></i> ${r.view_count||0}</span>
         <span><i data-lucide="heart" style="width:12px;height:12px"></i> ${r.like_count||0}</span>
