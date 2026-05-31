@@ -32,6 +32,9 @@ RewriteRule ^setup/ - [F,L]
 # Block admin (requires session auth, not public)
 RewriteRule ^admin/ - [F,L]
 
+# Block shared PHP files from direct web access
+RewriteRule ^shared/ - [F,L]
+
 # Block raw SQL files everywhere
 <FilesMatch "\.sql$">
     Require all denied
