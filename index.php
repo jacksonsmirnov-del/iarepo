@@ -193,7 +193,7 @@ a:hover{opacity:.8}
 .how-it-works{max-width:800px;margin:0 auto 16px;padding:32px 24px;background:var(--card);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow)}
 .hiw-steps{display:flex;align-items:flex-start;gap:8px;justify-content:center;flex-wrap:wrap}
 .hiw-step{flex:1;min-width:160px;max-width:220px;text-align:center;padding:0 8px}
-.hiw-icon{font-size:2rem;margin-bottom:10px}
+.hiw-icon{width:56px;height:56px;border-radius:50%;background:var(--grad);display:flex;align-items:center;justify-content:center;margin:0 auto 12px;box-shadow:0 4px 16px rgba(124,58,237,.25)}
 .hiw-step h3{font-size:.95rem;font-weight:700;margin-bottom:6px;color:var(--text)}
 .hiw-step p{font-size:.8rem;color:var(--text2);line-height:1.5}
 .hiw-arrow{font-size:1.4rem;color:var(--text3);padding-top:28px;flex-shrink:0}
@@ -277,19 +277,19 @@ a:hover{opacity:.8}
 <section class="how-it-works">
   <div class="hiw-steps">
     <div class="hiw-step">
-      <div class="hiw-icon">🤖</div>
+      <div class="hiw-icon"><i data-lucide="sparkles" style="width:24px;height:24px;color:#fff"></i></div>
       <h3>Genera con IA</h3>
       <p>Pídele a Gemini o ChatGPT una simulación interactiva en HTML para tu clase.</p>
     </div>
     <div class="hiw-arrow">→</div>
     <div class="hiw-step">
-      <div class="hiw-icon">⬆️</div>
+      <div class="hiw-icon"><i data-lucide="upload" style="width:24px;height:24px;color:#fff"></i></div>
       <h3>Súbela en 30s</h3>
       <p>Pega el código, elige la materia y publícala. Sin instalación, sin cuenta de pago.</p>
     </div>
     <div class="hiw-arrow">→</div>
     <div class="hiw-step">
-      <div class="hiw-icon">🌍</div>
+      <div class="hiw-icon"><i data-lucide="globe" style="width:24px;height:24px;color:#fff"></i></div>
       <h3>Profesores la usan</h3>
       <p>Cualquier profesor del mundo puede encontrarla, usarla o adaptarla para su curso.</p>
     </div>
@@ -490,7 +490,7 @@ function renderCard(r) {
     </div>
     <div class="card-body"><div class="card-desc">${esc(r.description || '')}</div></div>
     <div class="card-footer">
-      <div class="card-tags">${r.code_type==='html'?'<span class="badge-ia">🤖 IA</span>':''}<span class="badge-level ${levelClass}">${levelLabel}</span><span class="tag">${r.code_type==='html'?'HTML':r.code_type}</span><span class="tag">${langFlag}</span>${(r.tags&&r.tags.length)?r.tags.slice(0,3).map(t=>`<a href="/?tag=${encodeURIComponent(t)}" class="tag" style="color:var(--accent2);text-decoration:none" onclick="event.stopPropagation()">${esc(t)}</a>`).join(''):''}</div>
+      <div class="card-tags">${r.code_type==='html'?'<span class="badge-ia"><svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/></svg> IA</span>':''}<span class="badge-level ${levelClass}">${levelLabel}</span><span class="tag">${r.code_type==='html'?'HTML':r.code_type}</span><span class="tag">${langFlag}</span>${(r.tags&&r.tags.length)?r.tags.slice(0,3).map(t=>`<a href="/?tag=${encodeURIComponent(t)}" class="tag" style="color:var(--accent2);text-decoration:none" onclick="event.stopPropagation()">${esc(t)}</a>`).join(''):''}</div>
       <div class="card-meta">
         <span><i data-lucide="eye" style="width:12px;height:12px"></i> ${r.view_count||0}</span>
         <span><i data-lucide="heart" style="width:12px;height:12px"></i> ${r.like_count||0}</span>
