@@ -8,6 +8,7 @@
 
 require_once __DIR__ . '/shared/auth.php';
 require_once __DIR__ . '/shared/db.php';
+require_once __DIR__ . '/shared/helpers.php';
 $sessionUser = getSessionUser();
 $env = require __DIR__ . '/.env.php';
 $googleClientId = $env['GOOGLE_CLIENT_ID'] ?? '';
