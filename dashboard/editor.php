@@ -92,6 +92,7 @@ textarea.form-control{resize:vertical;min-height:60px}
 .tag-chip-remove:hover{opacity:1}
 .tag-input-field{border:none;outline:none;background:none;font-family:inherit;font-size:.85rem;color:var(--text);min-width:120px;flex:1;padding:2px 4px}
 </style>
+<?php require_once __DIR__ . '/../shared/error_tracker.php'; ?>
 </head>
 <body>
 

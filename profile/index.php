@@ -118,6 +118,7 @@ a{color:var(--accent2);text-decoration:none}
 
 .theme-toggle{position:fixed;bottom:16px;right:16px;z-index:100;width:40px;height:40px;border-radius:50%;border:1px solid var(--border);background:var(--bg2);color:var(--text2);cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:var(--shadow)}
 </style>
+<?php require_once __DIR__ . '/../shared/error_tracker.php'; ?>
 </head>
 <body>
 

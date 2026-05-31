@@ -244,6 +244,7 @@ a:hover{opacity:.8}
   .present-btn{display:none}
 }
 </style>
+<?php require_once __DIR__ . '/../shared/error_tracker.php'; ?>
 </head>
 <body>
 

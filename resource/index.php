@@ -274,6 +274,7 @@ a{color:var(--accent2);text-decoration:none}
 .coll-dropdown-item:hover{background:var(--bg3);color:var(--accent)}
 .coll-dropdown-empty{padding:12px;font-size:.85rem;color:var(--text3);text-align:center}
 </style>
+<?php require_once __DIR__ . '/../shared/error_tracker.php'; ?>
 </head>
 <body>
 

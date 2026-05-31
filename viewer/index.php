@@ -186,6 +186,7 @@ $isPresent = ($mode === 'present');
         .fs-exit:hover { background: rgba(220,38,38,0.85); }
         body:hover .fs-exit.visible { opacity: 1; }
     </style>
+    <?php require_once __DIR__ . '/../shared/error_tracker.php'; ?>
 </head>
 <body>
     <div class="viewer-bar">

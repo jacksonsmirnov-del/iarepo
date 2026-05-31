@@ -157,6 +157,7 @@ a{color:var(--accent2);text-decoration:none}
 .btn-danger{background:transparent;border:1px solid #ef4444;color:#ef4444}
 .btn-danger:hover{background:rgba(239,68,68,.08)}
 </style>
+<?php require_once __DIR__ . '/../shared/error_tracker.php'; ?>
 </head>
 <body>
 
