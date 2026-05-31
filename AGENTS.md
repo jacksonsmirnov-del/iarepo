@@ -17,7 +17,7 @@ registrarse, subir y compartir recursos (HTML interactivo, embeds, URLs, Python,
 - **Dominio alias:** `resources.claseprivada.com` (también activo)
 - **Stack:** PHP 8+, MySQL/MariaDB, Vanilla JS — Zero dependencias (sin Composer, sin npm)
 - **Hosting:** Hostinger VPS (mismo servidor que Campus)
-- **Catálogo:** 578+ recursos activos (PhET, NASA, Walter Fendt, GeoGebra, Desmos, ToyTheater, Didax, etc.)
+- **Catálogo:** 543+ recursos activos aprobados (PhET, NASA, Walter Fendt, GeoGebra, Desmos, ToyTheater, Didax, etc.)
 - **Auth:** Google Sign-In (registro directo) + JWT (Campus)
 - **Relación con Campus:** Independiente. Campus se conecta vía JWT API para consumir recursos.
 
@@ -565,27 +565,59 @@ Campus .env.php:
 - [x] Thumbnails: screenshots reales con headless Chrome (motor propio, 108+ generados)
 - [x] Meta tags: og:image, og:type, twitter:card summary_large_image
 
-### ✅ Completado recientemente:
-- [x] **Rate limiting por IP** — `api_rate_limits` table + `rateLimit()` en todos los endpoints (`shared/helpers.php`, migration: `setup/migration_005_rate_limits.sql`)
-- [x] **Cron automático** — `cron/run.php` con token CRON_SECRET, llamable desde cron-job.org (jobs: `link_check` cada 6h, `moderation` cada 2min). Agregar `CRON_SECRET` al `.env.php` del servidor.
-- [x] **Colecciones UI** — Modal de creación/edición, botones editar/eliminar en dashboard, página `/collection/?id=X`, botón "Guardar en colección" en resource detail
-- [x] **Tags UI** — Chip input en editor, tags en cards del catálogo (máx. 3), tags clickables en resource detail, API lista incluye tags via GROUP_CONCAT, PUT actualiza tags
+### ✅ Completado (2026-05-31):
+- [x] **Rate limiting por IP** — `api_rate_limits` table + `rateLimit()` + `clientIp()` en `shared/helpers.php`. Aplicado en todos los endpoints API. Migration: `setup/migration_005_rate_limits.sql`
+- [x] **Cron automático** — `cron/run.php` con CRON_SECRET. Jobs en cron-job.org: `link_check` c/6h, `moderation` c/2min. CRON_SECRET en `.env.php` del servidor (no en git)
+- [x] **iframe_blocked detection** — link checker detecta `X-Frame-Options: DENY/SAMEORIGIN` y CSP `frame-ancestors`. Resource detail muestra fallback inmediato si `iframe_blocked=1`
+- [x] **Colecciones UI** — Modal crear/editar, botones editar/eliminar en dashboard, página `/collection/?id=X`, botón "Guardar en colección" en resource detail
+- [x] **Tags UI** — Chip input en editor, tags en cards (máx. 3), tags clickables en resource detail, API lista incluye tags via `GROUP_CONCAT`, PUT actualiza tags
+- [x] **Logo SVG oficial** — `assets/img/logo.svg`, `assets/img/logo-icon.svg`, `favicon.svg`. Diseño: ícono "i" con nodos de red, gradiente morado→cyan
+- [x] **SEO completo** — JSON-LD `LearningResource` en resource detail, `noindex` en viewer, sitemap limpio (sin `/view/`), `<image:image>` tags, Google Search Console conectado y sitemap enviado
+- [x] **Editor empuja hacia IA** — Banner informativo con link a Gemini, opciones reordenadas (HTML con IA primero), placeholders contextuales por tipo
+- [x] **Embed code** — Botón "Insertar" en resource detail, modal con 3 tamaños (responsivo/mediano/grande), código iframe listo para Moodle/Google Sites/Notion
+- [x] **Landing mejorada** — Sección "Más usados" (server-side, 8 cards PHP, SEO-friendly), sección "Cómo funciona" con Lucide icons para visitantes no logueados
+- [x] **Discovery en resource detail** — "Más de [autor]" + "Más en [categoría]" en sidebar, nombre de autor clickeable al perfil
+- [x] **Actividad reciente en dashboard** — Feed de likes, forks y comentarios recientes en los recursos del profesor
+- [x] **Profile page** — Bug fix (colecciones apuntaban a API), og:tags, JSON-LD Person schema, logo en topbar
+- [x] **Smoke tests** — `quality/smoke_test.sh`: 27 checks automáticos (páginas, assets, SEO, APIs, seguridad). Corre con `./quality/smoke_test.sh`, exit 1 si falla algo
+- [x] **Error tracking JS** — `shared/error_tracker.php` incluido en todas las páginas. Endpoint `api/log-error.php`, tabla `client_error_log`. Visor: `/admin/errors.php?pass=ADMIN_PASS`
+- [x] **Seguridad .htaccess** — `/shared/` ahora bloqueado (retornaba 200 antes)
+
+### ⚠️ Regla crítica — helpers.php en páginas HTML
+`shared/helpers.php` carga `shared/error_handler.php` que registra manejadores de excepción que **outputan JSON** y hacen `exit`. Esto **rompe páginas HTML** silenciosamente si ocurre cualquier error.
+
+**Regla:** NUNCA hacer `require_once 'shared/helpers.php'` en páginas que generan HTML (`index.php`, `resource/index.php`, etc.).
+
+En su lugar:
+- Definir `h()` localmente: `function h(string $s): string { return htmlspecialchars($s, ENT_QUOTES | ENT_HTML5, 'UTF-8'); }`
+- Incluir `shared/error_tracker.php` directamente (no carga el error handler)
+- `helpers.php` solo en endpoints API (`api/*.php`)
 
 ### 🔲 Pendiente:
-1. **Thumbnails restantes** — generar para los 578+ recursos (actualmente 108 generados). Ver comando batch abajo.
-2. **i18n** — UI bilingüe (ES/EN toggle). Posponer hasta haber tracción de usuarios en inglés.
-3. **Headless Chrome en servidor** — falta `libatk-bridge-2.0.so.0`, sin sudo no se puede instalar en Hostinger. Workaround: generar local + subir vía SCP.
+1. **Thumbnails restantes** — 108/543 generados. Ver comando batch abajo.
+2. **i18n** — Posponer hasta tracción de usuarios en inglés.
+3. **Headless Chrome en servidor** — Falta `libatk-bridge-2.0.so.0`. Workaround: generar local + subir vía SCP.
 
-### Thumbnails — Generación en batch (desde tu Mac/Linux):
+### Thumbnails — Generación en batch (desde Mac/Linux):
 ```bash
-# Prioridad alta: los 100 más vistos sin thumbnail
 cd resources/
-# 1. Obtener IDs sin thumbnail (query en el servidor o local si tienes acceso DB)
-# 2. Generar en lotes:
-./setup/tools/generate-thumbnails.sh 3 5 100   # Ejemplo: IDs 3, 5, 100
-# 3. El script sube automáticamente vía SCP a /thumbnails/og-{id}.png en el servidor
-# Repetir hasta cubrir los 578+
+./setup/tools/generate-thumbnails.sh 3 5 100   # IDs específicos
+# El script sube vía SCP a /thumbnails/og-{id}.png en el servidor
 ```
+
+### Error tracker — Cómo ver errores en producción:
+```
+https://iarepo.com/admin/errors.php?pass=TU_ADMIN_PASS
+```
+Muestra errores JS agrupados de los últimos 7 días.
+
+### Smoke test — Cómo correr:
+```bash
+cd /path/to/resources
+./quality/smoke_test.sh              # Testea https://iarepo.com
+./quality/smoke_test.sh https://staging.iarepo.com  # Otro entorno
+```
+**Correr siempre después de un deploy importante.**
 
 ---
 
@@ -601,6 +633,8 @@ Antes de hacer cualquier cambio, verifica:
 - [ ] ¿Verifiqué sintaxis con `php -l archivo.php`?
 - [ ] ¿Las respuestas JSON usan `json_ok()` / `json_error()`?
 - [ ] ¿Los nuevos endpoints llaman a `cors()` al inicio?
+- [ ] ¿Las páginas HTML NO cargan `shared/helpers.php` (ver regla crítica arriba)?
+- [ ] ¿Corrí `./quality/smoke_test.sh` después del deploy?
 
 ---
 
