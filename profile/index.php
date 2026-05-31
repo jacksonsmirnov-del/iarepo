@@ -59,8 +59,27 @@ $collections = $collStmt->fetchAll();
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title><?= h($name) ?> — iarepo</title>
-<meta name="description" content="Perfil de <?= h($name) ?> en iarepo — recursos educativos interactivos">
+<title><?= h($name) ?> — Recursos educativos en iarepo</title>
+<meta name="description" content="<?= h($name) ?> ha publicado <?= (int)($profile['resource_count'] ?? 0) ?> recursos educativos interactivos en iarepo.">
+<meta property="og:title" content="<?= h($name) ?> — iarepo">
+<meta property="og:description" content="<?= (int)($profile['resource_count'] ?? 0) ?> recursos · <?= (int)($profile['total_views'] ?? 0) ?> vistas en iarepo">
+<meta property="og:type" content="profile">
+<meta property="og:url" content="https://iarepo.com/profile/<?= $userId ?>">
+<?php if ($avatar): ?><meta property="og:image" content="<?= h($avatar) ?>"><?php endif; ?>
+<link rel="canonical" href="https://iarepo.com/profile/<?= $userId ?>">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="/favicon.ico" sizes="any">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "Person",
+  "name": <?= json_encode($name) ?>,
+  "url": "https://iarepo.com/profile/<?= $userId ?>"<?php if ($avatar): ?>,
+  "image": <?= json_encode($avatar) ?><?php endif; ?>,
+  "jobTitle": "Profesor",
+  "knowsAbout": "Recursos educativos interactivos"
+}
+</script>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
 <style>
@@ -102,7 +121,7 @@ a{color:var(--accent2);text-decoration:none}
 </head>
 <body>
 
-<div class="topbar"><a href="/">← iarepo</a></div>
+<div class="topbar"><a href="/"><img src="/assets/img/logo.svg" alt="iarepo" style="height:24px;width:auto;vertical-align:middle"></a></div>
 
 <div class="profile-header">
   <?php if ($avatar): ?>
@@ -151,7 +170,7 @@ a{color:var(--accent2);text-decoration:none}
     <h2 class="section-title"><i data-lucide="folder" style="width:18px;height:18px"></i> Colecciones</h2>
     <div class="grid">
       <?php foreach ($collections as $col): ?>
-        <div class="card coll-card" onclick="location='/api/collections.php?id=<?= (int)$col['id'] ?>'">
+        <div class="card coll-card" onclick="location='/collection/?id=<?= (int)$col['id'] ?>'">
           <h3><?= h($col['title']) ?></h3>
           <?php if ($col['description']): ?><p><?= h($col['description']) ?></p><?php endif; ?>
           <div class="card-meta"><span>📦 <?= (int)$col['item_count'] ?> recursos</span></div>
