@@ -7,9 +7,28 @@
 // ================================================================
 
 require_once __DIR__ . '/shared/auth.php';
+require_once __DIR__ . '/shared/db.php';
 $sessionUser = getSessionUser();
 $env = require __DIR__ . '/.env.php';
 $googleClientId = $env['GOOGLE_CLIENT_ID'] ?? '';
+
+// Featured: top 6 por uso + vistas (server-side para SEO)
+$db = getResourcesDB();
+$featuredStmt = $db->query("
+    SELECT r.id, r.title, r.description, r.code_type, r.source_name,
+           r.view_count, r.use_count, r.like_count, r.fork_count,
+           r.subject_area, r.level, r.lang,
+           c.name AS category_name, c.icon AS category_icon
+    FROM resources r
+    LEFT JOIN categories c ON c.id = r.category_id
+    WHERE r.is_active = 1
+      AND r.visibility = 'community'
+      AND r.moderation_status = 'approved'
+    ORDER BY (r.use_count * 3 + r.view_count + r.like_count * 2) DESC
+    LIMIT 8
+");
+$featured = $featuredStmt->fetchAll();
+$levelLabels = ['primary'=>'Primaria','secondary'=>'Secundaria','ib'=>'IB','university'=>'Universidad','general'=>'General'];
 
 $accept = $_SERVER['HTTP_ACCEPT'] ?? '';
 if (str_contains($accept, 'application/json') && !str_contains($accept, 'text/html')) {
@@ -189,6 +208,21 @@ a:hover{opacity:.8}
 .result-count{font-size:.9rem;color:var(--text2)}
 .sort-select{padding:8px 12px;border-radius:8px;border:1px solid var(--border);background:var(--bg2);color:var(--text);font-family:inherit;font-size:.85rem;cursor:pointer}
 
+/* Featured section */
+.featured{max-width:1100px;margin:0 auto 8px;padding:0 24px}
+.featured-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px}
+.featured-header h2{font-size:1.05rem;font-weight:700;display:flex;align-items:center;gap:8px}
+.featured-header a{font-size:.82rem;color:var(--accent2);text-decoration:none;font-weight:500}
+.featured-header a:hover{text-decoration:underline}
+.featured-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+@media(max-width:900px){.featured-grid{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:540px){.featured-grid{grid-template-columns:1fr 1fr;gap:10px}}
+.fcard{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:14px;box-shadow:var(--shadow);transition:.2s;text-decoration:none;display:flex;flex-direction:column;gap:6px}
+.fcard:hover{box-shadow:var(--shadow-hover);border-color:var(--accent);transform:translateY(-2px)}
+.fcard-type{display:inline-flex;align-items:center;gap:4px;font-size:.68rem;font-weight:700;padding:2px 7px;border-radius:5px;background:var(--bg3);color:var(--text3);width:fit-content}
+.fcard-title{font-size:.85rem;font-weight:600;color:var(--text);line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.fcard-meta{font-size:.72rem;color:var(--text3);margin-top:auto;display:flex;gap:8px}
+
 /* How it works */
 .how-it-works{max-width:800px;margin:0 auto 16px;padding:32px 24px;background:var(--card);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow)}
 .hiw-steps{display:flex;align-items:flex-start;gap:8px;justify-content:center;flex-wrap:wrap}
@@ -272,6 +306,33 @@ a:hover{opacity:.8}
     <input type="search" id="search" placeholder="Buscar recursos... (ej: waves, pendulum, pH)" autocomplete="off">
   </div>
 </section>
+
+<?php if ($featured): ?>
+<section class="featured">
+  <div class="featured-header">
+    <h2><i data-lucide="flame" style="width:18px;height:18px;color:#f97316"></i> Más usados</h2>
+    <a href="/?sort=popular">Ver todos →</a>
+  </div>
+  <div class="featured-grid">
+    <?php foreach ($featured as $f):
+      $typeLabel = $f['code_type'] === 'html' ? '⭐ IA' : strtoupper($f['code_type']);
+      $typeStyle = $f['code_type'] === 'html'
+        ? 'background:linear-gradient(135deg,rgba(124,58,237,.1),rgba(6,182,212,.1));color:var(--accent);border:1px solid rgba(124,58,237,.15)'
+        : '';
+    ?>
+    <a href="/resource/<?= (int)$f['id'] ?>" class="fcard">
+      <span class="fcard-type" style="<?= $typeStyle ?>"><?= h($typeLabel) ?></span>
+      <div class="fcard-title"><?= h($f['title']) ?></div>
+      <div class="fcard-meta">
+        <span>👁 <?= (int)$f['view_count'] ?></span>
+        <span>❤ <?= (int)$f['like_count'] ?></span>
+        <?php if ($f['category_name']): ?><span><?= h($f['category_icon'] ?? '') ?> <?= h($f['category_name']) ?></span><?php endif; ?>
+      </div>
+    </a>
+    <?php endforeach; ?>
+  </div>
+</section>
+<?php endif; ?>
 
 <?php if (!$sessionUser): ?>
 <section class="how-it-works">
