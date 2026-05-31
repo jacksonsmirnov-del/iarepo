@@ -23,6 +23,41 @@ $totalViews = array_sum(array_column($resources, 'view_count'));
 $totalLikes = array_sum(array_column($resources, 'like_count'));
 $totalForks = array_sum(array_column($resources, 'fork_count'));
 
+// Recent activity on user's resources
+$myIds = array_column($resources, 'id');
+$activity = [];
+if ($myIds) {
+    $inClause = implode(',', array_map('intval', $myIds));
+
+    // Recent likes
+    $likeAct = $db->query("
+        SELECT 'like' AS type, rl.user_name AS actor, r.title AS resource_title, r.id AS resource_id, rl.created_at
+        FROM resource_likes rl JOIN resources r ON r.id = rl.resource_id
+        WHERE rl.resource_id IN ($inClause)
+        ORDER BY rl.created_at DESC LIMIT 5
+    ")->fetchAll();
+
+    // Recent forks
+    $forkAct = $db->query("
+        SELECT 'fork' AS type, r2.author_display_name AS actor, r.title AS resource_title, r.id AS resource_id, r2.created_at
+        FROM resources r2 JOIN resources r ON r.id = r2.fork_of
+        WHERE r2.fork_of IN ($inClause) AND r2.is_active = 1
+        ORDER BY r2.created_at DESC LIMIT 5
+    ")->fetchAll();
+
+    // Recent comments
+    $commentAct = $db->query("
+        SELECT 'comment' AS type, rc.user_name AS actor, r.title AS resource_title, r.id AS resource_id, rc.created_at
+        FROM resource_comments rc JOIN resources r ON r.id = rc.resource_id
+        WHERE rc.resource_id IN ($inClause) AND rc.is_active = 1
+        ORDER BY rc.created_at DESC LIMIT 5
+    ")->fetchAll();
+
+    $activity = array_merge($likeAct, $forkAct, $commentAct);
+    usort($activity, fn($a, $b) => strtotime($b['created_at']) - strtotime($a['created_at']));
+    $activity = array_slice($activity, 0, 10);
+}
+
 // Collections
 $collStmt = $db->prepare("SELECT id, title, is_public, item_count, created_at FROM collections WHERE user_id = ? ORDER BY created_at DESC");
 $collStmt->execute([$user['id']]);
@@ -95,6 +130,17 @@ a{color:var(--accent2);text-decoration:none}
 .theme-toggle{position:fixed;bottom:16px;right:16px;z-index:100;width:40px;height:40px;border-radius:50%;border:1px solid var(--border);background:var(--bg2);color:var(--text2);cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:var(--shadow)}
 .theme-toggle:hover{border-color:var(--accent);color:var(--accent)}
 
+.activity-list{display:flex;flex-direction:column;gap:8px;margin-bottom:32px}
+.activity-item{display:flex;align-items:center;gap:12px;padding:12px 16px;background:var(--card);border:1px solid var(--border);border-radius:10px;font-size:.85rem}
+.activity-icon{width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:.85rem}
+.activity-icon.like{background:rgba(239,68,68,.1);color:#ef4444}
+.activity-icon.fork{background:rgba(124,58,237,.1);color:var(--accent)}
+.activity-icon.comment{background:rgba(6,182,212,.1);color:var(--accent2)}
+.activity-text{flex:1;line-height:1.4}
+.activity-text strong{color:var(--text)}
+.activity-text a{color:var(--accent2)}
+.activity-time{font-size:.75rem;color:var(--text3);white-space:nowrap}
+
 .coll-link{color:var(--text);text-decoration:none}
 .coll-link:hover{color:var(--accent)}
 
@@ -135,6 +181,34 @@ a{color:var(--accent2);text-decoration:none}
     <div class="stat-card"><strong><?= $totalLikes ?></strong><span>Likes</span></div>
     <div class="stat-card"><strong><?= $totalForks ?></strong><span>Forks</span></div>
   </div>
+
+  <?php if ($activity): ?>
+  <div class="header" style="margin-bottom:12px">
+    <h2>Actividad reciente</h2>
+  </div>
+  <div class="activity-list">
+    <?php foreach ($activity as $act):
+      $icons = ['like' => '❤', 'fork' => '⑂', 'comment' => '💬'];
+      $labels = [
+        'like'    => "<strong>{$act['actor']}</strong> le dio like a <a href=\"/resource/{$act['resource_id']}\">{$act['resource_title']}</a>",
+        'fork'    => "<strong>{$act['actor']}</strong> forkeó <a href=\"/resource/{$act['resource_id']}\">{$act['resource_title']}</a>",
+        'comment' => "<strong>{$act['actor']}</strong> comentó en <a href=\"/resource/{$act['resource_id']}\">{$act['resource_title']}</a>",
+      ];
+      $timeAgo = function($dt) {
+        $diff = time() - strtotime($dt);
+        if ($diff < 3600) return round($diff/60) . 'm';
+        if ($diff < 86400) return round($diff/3600) . 'h';
+        return round($diff/86400) . 'd';
+      };
+    ?>
+    <div class="activity-item">
+      <div class="activity-icon <?= $act['type'] ?>"><?= $icons[$act['type']] ?></div>
+      <div class="activity-text"><?= $labels[$act['type']] ?></div>
+      <div class="activity-time">hace <?= $timeAgo($act['created_at']) ?></div>
+    </div>
+    <?php endforeach; ?>
+  </div>
+  <?php endif; ?>
 
   <div class="tabs">
     <button class="tab active" data-tab="resources">📦 Recursos</button>
