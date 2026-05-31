@@ -8,28 +8,38 @@
 
 require_once __DIR__ . '/shared/auth.php';
 require_once __DIR__ . '/shared/db.php';
-require_once __DIR__ . '/shared/helpers.php';
+
+// h() local — no cargamos helpers.php porque su error_handler registra
+// manejadores de excepción que outputan JSON, rompiendo páginas HTML.
+function h(string $s): string {
+    return htmlspecialchars($s, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+}
+
 $sessionUser = getSessionUser();
 $env = require __DIR__ . '/.env.php';
 $googleClientId = $env['GOOGLE_CLIENT_ID'] ?? '';
 
-// Featured: top 6 por uso + vistas (server-side para SEO)
-$db = getResourcesDB();
-$featuredStmt = $db->query("
-    SELECT r.id, r.title, r.description, r.code_type, r.source_name,
-           r.view_count, r.use_count, r.like_count, r.fork_count,
-           r.subject_area, r.level, r.lang,
-           c.name AS category_name, c.icon AS category_icon
-    FROM resources r
-    LEFT JOIN categories c ON c.id = r.category_id
-    WHERE r.is_active = 1
-      AND r.visibility = 'community'
-      AND r.moderation_status = 'approved'
-    ORDER BY (r.use_count * 3 + r.view_count + r.like_count * 2) DESC
-    LIMIT 8
-");
-$featured = $featuredStmt->fetchAll();
+// Featured: top 8 por popularidad — falla silenciosamente si hay error DB
+$featured = [];
 $levelLabels = ['primary'=>'Primaria','secondary'=>'Secundaria','ib'=>'IB','university'=>'Universidad','general'=>'General'];
+try {
+    $db = getResourcesDB();
+    $featuredStmt = $db->query("
+        SELECT r.id, r.title, r.code_type,
+               r.view_count, r.like_count,
+               c.name AS category_name, c.icon AS category_icon
+        FROM resources r
+        LEFT JOIN categories c ON c.id = r.category_id
+        WHERE r.is_active = 1
+          AND r.visibility = 'community'
+          AND r.moderation_status = 'approved'
+        ORDER BY (r.use_count * 3 + r.view_count + r.like_count * 2) DESC
+        LIMIT 8
+    ");
+    $featured = $featuredStmt->fetchAll(PDO::FETCH_ASSOC);
+} catch (Throwable $e) {
+    $featured = [];
+}
 
 $accept = $_SERVER['HTTP_ACCEPT'] ?? '';
 if (str_contains($accept, 'application/json') && !str_contains($accept, 'text/html')) {
