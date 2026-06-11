@@ -27,4 +27,5 @@ past-papers/
 # AI / Agents
 .gemini/
 .agents/
+.claude/
 AGENTS.md
