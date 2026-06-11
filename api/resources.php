@@ -19,6 +19,7 @@ require_once __DIR__ . '/../shared/auth.php';
 require_once __DIR__ . '/../shared/cors.php';
 require_once __DIR__ . '/../shared/helpers.php';
 require_once __DIR__ . '/../shared/moderation.php';
+require_once __DIR__ . '/../shared/notify.php';
 
 cors();
 
@@ -255,6 +256,10 @@ if ($method === 'POST') {
             ")->execute([$originalId, $user['user_id'], $user['tenant_id'], $user['name'], $user['tenant_name']]);
 
             $db->commit();
+
+            // Notify the original author about the fork (best-effort, never blocks).
+            notifyResourceAuthor($db, $originalId, (int) $user['user_id'], (string) $user['name'], 'fork');
+
             json_ok(['id' => $forkId, 'message' => 'Resource forked successfully']);
         } catch (Throwable $e) {
             $db->rollBack();

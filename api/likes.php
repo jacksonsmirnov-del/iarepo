@@ -12,6 +12,7 @@ require_once __DIR__ . '/../shared/db.php';
 require_once __DIR__ . '/../shared/auth.php';
 require_once __DIR__ . '/../shared/cors.php';
 require_once __DIR__ . '/../shared/helpers.php';
+require_once __DIR__ . '/../shared/notify.php';
 
 cors();
 
@@ -83,6 +84,11 @@ if ($method === 'POST') {
         $countStmt = $db->prepare("SELECT like_count FROM resources WHERE id = ?");
         $countStmt->execute([$resourceId]);
         $newCount = (int) $countStmt->fetchColumn();
+
+        // Notify the author on a new like (best-effort, never blocks).
+        if ($action === 'liked') {
+            notifyResourceAuthor($db, $resourceId, (int) $user['user_id'], (string) $user['name'], 'like');
+        }
 
         json_ok([
             'action'     => $action,

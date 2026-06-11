@@ -13,6 +13,7 @@ require_once __DIR__ . '/../shared/db.php';
 require_once __DIR__ . '/../shared/auth.php';
 require_once __DIR__ . '/../shared/cors.php';
 require_once __DIR__ . '/../shared/helpers.php';
+require_once __DIR__ . '/../shared/notify.php';
 
 cors();
 
@@ -126,6 +127,9 @@ if ($method === 'POST') {
     ]);
 
     $commentId = (int) $db->lastInsertId();
+
+    // Notify the author about the new comment (best-effort, never blocks).
+    notifyResourceAuthor($db, $resourceId, (int) $user['user_id'], (string) $user['name'], 'comment', ['body' => $body]);
 
     json_ok([
         'id'      => $commentId,
