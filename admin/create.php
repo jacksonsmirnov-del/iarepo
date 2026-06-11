@@ -10,15 +10,15 @@ require_once __DIR__ . '/../shared/db.php';
 require_once __DIR__ . '/../shared/helpers.php';
 require_once __DIR__ . '/../shared/moderation.php';
 
-// Admin password — change this in production
+// Admin password — must be set in .env.php (no public fallback)
 $config = require __DIR__ . '/../.env.php';
-$ADMIN_PASS = $config['ADMIN_PASS'] ?? 'iarepo2026';
+$ADMIN_PASS = $config['ADMIN_PASS'] ?? '';
 
 session_start();
 
-// Login
+// Login — fail closed if ADMIN_PASS is not configured, constant-time compare
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['admin_pass'])) {
-    if ($_POST['admin_pass'] === $ADMIN_PASS) {
+    if ($ADMIN_PASS !== '' && hash_equals($ADMIN_PASS, (string) $_POST['admin_pass'])) {
         $_SESSION['admin'] = true;
         header('Location: create.php');
         exit;

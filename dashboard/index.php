@@ -231,7 +231,7 @@ a{color:var(--accent2);text-decoration:none}
     <?php else: ?>
       <div class="resource-list">
         <?php foreach ($resources as $r): ?>
-          <div class="resource-item">
+          <div class="resource-item" id="res-<?= (int)$r['id'] ?>">
             <div class="resource-info">
               <h3>
                 <a href="/resource/<?= (int)$r['id'] ?>"><?= h($r['title']) ?></a>
@@ -249,6 +249,7 @@ a{color:var(--accent2);text-decoration:none}
             <div class="resource-actions">
               <a href="/view/<?= (int)$r['id'] ?>" target="_blank" class="btn btn-outline btn-sm">👁 Ver</a>
               <a href="/dashboard/editor.php?id=<?= (int)$r['id'] ?>" class="btn btn-outline btn-sm">✏️ Editar</a>
+              <button class="btn btn-outline btn-sm btn-danger" onclick="deleteResource(<?= (int)$r['id'] ?>, '<?= h(addslashes($r['title'])) ?>')" title="Eliminar recurso">🗑</button>
             </div>
           </div>
         <?php endforeach; ?>
@@ -422,6 +423,17 @@ async function deleteColl(id, title) {
     const data = await res.json();
     if (!data.ok) throw new Error(data.error);
     document.getElementById(`coll-${id}`)?.remove();
+  } catch(e) { alert(e.message); }
+}
+
+// Resources — delete
+async function deleteResource(id, title) {
+  if (!confirm(`¿Eliminar el recurso "${title}"? Esta acción no se puede deshacer.`)) return;
+  try {
+    const res = await fetch(`/api/resources.php?id=${id}`, {method: 'DELETE'});
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error);
+    document.getElementById(`res-${id}`)?.remove();
   } catch(e) { alert(e.message); }
 }
 

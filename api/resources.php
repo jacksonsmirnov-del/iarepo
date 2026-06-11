@@ -278,7 +278,22 @@ if ($method === 'POST') {
 
     $hash = $codeContent ? contentHash($codeContent) : null;
 
-    // Fast check: exact duplicate (1 query, instant)
+    // Safety net: block the same author from re-posting identical content.
+    // Runs ALWAYS (even with moderation off) — stops accidental duplicates from
+    // double-submits / network retries. Author should edit the existing one instead.
+    if ($hash) {
+        $selfDup = $db->prepare("
+            SELECT id, title FROM resources
+            WHERE content_hash = ? AND author_user_id = ? AND author_tenant_id = ? AND is_active = 1
+            LIMIT 1
+        ");
+        $selfDup->execute([$hash, $user['user_id'], $user['tenant_id']]);
+        $mine = $selfDup->fetch();
+        if ($mine)
+            json_error("Ya publicaste este mismo contenido: \"{$mine['title']}\" (ID: {$mine['id']})", 409, 'DUPLICATE_OWN');
+    }
+
+    // Fast check: exact duplicate across all authors (1 query, instant)
     if ($hash && isModerationEnabled()) {
         $dup = $db->prepare("SELECT id, title FROM resources WHERE content_hash = ? AND is_active = 1 LIMIT 1");
         $dup->execute([$hash]);

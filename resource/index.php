@@ -37,6 +37,11 @@ if ($r['visibility'] !== 'community') {
     if (in_array($vis, ['area','school']) && ($user['tenant_id'] ?? 0) != $r['author_tenant_id']) { header('Location: /'); exit; }
 }
 
+// Is the logged-in user the owner of this resource?
+$isOwner = $user
+    && (int)($user['user_id'] ?? 0) === (int)$r['author_user_id']
+    && (int)($user['tenant_id'] ?? 0) === (int)$r['author_tenant_id'];
+
 // Fetch tags
 $tagStmt = $db->prepare("SELECT tag FROM resource_tags WHERE resource_id = ? ORDER BY tag");
 $tagStmt->execute([$id]);
@@ -361,6 +366,10 @@ a{color:var(--accent2);text-decoration:none}
         <?php endif; ?>
         <button class="btn btn-outline share-inline" id="shareInlineBtn"><i data-lucide="share-2" style="width:14px;height:14px"></i> Compartir</button>
         <button class="btn btn-outline" id="embedBtn"><i data-lucide="code-2" style="width:14px;height:14px"></i> Insertar</button>
+        <?php if ($isOwner): ?>
+          <a href="/dashboard/editor.php?id=<?= $id ?>" class="btn btn-outline"><i data-lucide="pencil" style="width:14px;height:14px"></i> Editar</a>
+          <button class="btn btn-outline" id="deleteResBtn" style="color:#ef4444;border-color:rgba(239,68,68,.35)"><i data-lucide="trash-2" style="width:14px;height:14px"></i> Eliminar</button>
+        <?php endif; ?>
       </div>
     </div>
 
@@ -566,6 +575,21 @@ document.getElementById('forkBtn').addEventListener('click', async()=>{
     alert('¡Fork creado! Revisa tu dashboard.');
   }catch(e){alert(e.message)}
 });
+
+// Delete (owner only — button only rendered for the author)
+const deleteResBtn=document.getElementById('deleteResBtn');
+if(deleteResBtn){
+  deleteResBtn.addEventListener('click', async()=>{
+    if(!confirm('¿Eliminar este recurso? Esta acción no se puede deshacer.')) return;
+    deleteResBtn.disabled=true;
+    try{
+      const res=await fetch(`/api/resources.php?id=${RID}`,{method:'DELETE'});
+      const data=await res.json();
+      if(!data.ok) throw new Error(data.error);
+      window.location='/dashboard/';
+    }catch(e){alert(e.message);deleteResBtn.disabled=false}
+  });
+}
 
 // Comments
 async function loadComments(){

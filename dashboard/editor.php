@@ -286,7 +286,10 @@ document.getElementById('codeType').addEventListener('change',()=>{
 });
 
 // Save
+let isSaving=false;  // blocks concurrent requests while one is in flight
+let created=false;   // once created we lock the button and redirect (no duplicates)
 document.getElementById('saveBtn').addEventListener('click', async()=>{
+  if(isSaving||created) return;  // ignore extra clicks while saving / after publishing
   const title=document.getElementById('title').value.trim();
   const code=document.getElementById('codeContent').value;
   if(!title){showStatus('error','El título es obligatorio');return}
@@ -306,6 +309,7 @@ document.getElementById('saveBtn').addEventListener('click', async()=>{
   };
 
   const btn=document.getElementById('saveBtn');
+  isSaving=true;
   btn.disabled=true;btn.textContent='⏳ Guardando...';
 
   try{
@@ -313,11 +317,26 @@ document.getElementById('saveBtn').addEventListener('click', async()=>{
     const method=EDIT_ID?'PUT':'POST';
     const res=await fetch(url,{method,headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     const data=await res.json();
-    if(!data.ok) throw new Error(data.error);
-    showStatus('success',EDIT_ID?'¡Recurso actualizado!':'¡Recurso creado exitosamente!');
-    if(!EDIT_ID && data.resource?.id) setTimeout(()=>window.location='/resource/'+data.resource.id,1500);
-  }catch(e){showStatus('error',e.message)}
-  finally{btn.disabled=false;btn.textContent='💾 '+(EDIT_ID?'Guardar cambios':'Publicar recurso')}
+    if(!data.ok) throw new Error(data.error||'No se pudo guardar el recurso');
+
+    if(EDIT_ID){
+      // Edit: re-enable so the user can keep refining.
+      showStatus('success','¡Recurso actualizado!');
+      isSaving=false;
+      btn.disabled=false;btn.textContent='💾 Guardar cambios';
+    }else{
+      // Create: keep the button locked and redirect to the new resource.
+      // This is what stops extra clicks from creating duplicates.
+      created=true;
+      btn.textContent='✅ ¡Publicado!';
+      showStatus('success','¡Recurso creado exitosamente! Redirigiendo...');
+      setTimeout(()=>{ window.location = data.id ? '/resource/'+data.id : '/dashboard/'; },1200);
+    }
+  }catch(e){
+    showStatus('error',e.message);
+    isSaving=false;
+    btn.disabled=false;btn.textContent='💾 '+(EDIT_ID?'Guardar cambios':'Publicar recurso');
+  }
 });
 
 function showStatus(type,msg){

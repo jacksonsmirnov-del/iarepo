@@ -545,7 +545,7 @@ function renderCard(r) {
   const icon = r.category_icon || 'file-code';
   const levelClass = r.level || 'general';
   const levelLabel = {primary:'Primaria',secondary:'Secundaria',ib:'IB',university:'Universidad',general:'General'}[levelClass] || levelClass;
-  const source = r.source_name ? `<span class="source-badge">${r.source_name}</span>` : '';
+  const source = r.source_name ? `<span class="source-badge">${esc(r.source_name)}</span>` : '';
   const langFlag = {'es':'🇪🇸','en':'🇬🇧','pt':'🇧🇷'}[r.lang] || '🌐';
   // Favicon from source URL
   let favicon = '';
