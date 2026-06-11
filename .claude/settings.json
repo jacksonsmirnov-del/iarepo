@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -s -o /tmp/adm.html -w \"HTTP %{http_code}\\\\n\" https://iarepo.com/admin/errors.php)",
+      "Bash(curl -s -o /tmp/adm2.html -w \"HTTP %{http_code}\\\\n\" https://iarepo.com/admin/create.php)",
+      "Bash(php -l api/log-error.php)"
+    ]
+  }
+}

@@ -10,6 +10,7 @@
 
 require_once __DIR__ . '/../shared/db.php';
 require_once __DIR__ . '/../shared/cors.php';
+require_once __DIR__ . '/../shared/helpers.php';
 
 cors();
 
@@ -40,10 +41,20 @@ if ($message === 'Script error.' || $message === '') {
 
 try {
     $db = getResourcesDB();
+
+    // Throttle floods: max 60 client errors/min per IP (429 if exceeded).
+    rateLimit($db, 'log_error', 60);
+
     $db->prepare("
         INSERT INTO client_error_log (message, source, lineno, page_url, user_agent)
         VALUES (?, ?, ?, ?, ?)
     ")->execute([$message, $source, $lineno, $page, $userAgent]);
+
+    // Retention: 1% chance, purge entries older than 30 days so the table
+    // (publicly writable) can't grow unbounded. The viewer only shows 7 days.
+    if (random_int(1, 100) === 1) {
+        $db->prepare("DELETE FROM client_error_log WHERE created_at < NOW() - INTERVAL 30 DAY")->execute();
+    }
 } catch (Throwable $e) {
     // Silencioso — no queremos cascada de errores
 }
