@@ -59,6 +59,11 @@ RewriteRule ^shared/ - [F,L]
     Header always set Referrer-Policy "strict-origin-when-cross-origin"
 </IfModule>
 
+# ── MIME types (PWA) ─────────────────────────────
+<IfModule mod_mime.c>
+    AddType application/manifest+json .webmanifest
+</IfModule>
+
 # ── PHP settings ─────────────────────────────────
 <IfModule mod_php.c>
     php_value upload_max_filesize 10M

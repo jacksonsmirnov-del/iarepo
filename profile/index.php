@@ -69,6 +69,10 @@ $collections = $collStmt->fetchAll();
 <link rel="canonical" href="https://iarepo.com/profile/<?= $userId ?>">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="icon" href="/favicon.ico" sizes="any">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#7c3aed">
+<script src="/assets/js/pwa.js" defer></script>
 <script type="application/ld+json">
 {
   "@context": "https://schema.org",

@@ -92,6 +92,10 @@ $isPresent = ($mode === 'present');
     <link rel="canonical" href="https://iarepo.com/resource/<?= $id ?>">
     <link rel="icon" href="/favicon.svg" type="image/svg+xml">
     <link rel="icon" href="/favicon.ico" sizes="any">
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+    <link rel="manifest" href="/manifest.webmanifest">
+    <meta name="theme-color" content="#7c3aed">
+    <script src="/assets/js/pwa.js" defer></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         html, body { height: 100%; overflow: hidden; font-family: system-ui, sans-serif; }
