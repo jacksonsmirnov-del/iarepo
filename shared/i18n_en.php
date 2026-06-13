@@ -116,6 +116,26 @@ return [
     'Esta página no existe' => 'This page does not exist',
     'El recurso que buscas se movió, fue eliminado o el enlace está mal escrito. Pero hay cientos de recursos esperándote.' => 'The page you are looking for moved, was deleted or the link is misspelled. But there are hundreds of resources waiting for you.',
 
+    // ── Profile ──
+    'Recursos educativos en iarepo' => 'Educational resources on iarepo',
+    'Miembro desde' => 'Member since',
+    'Recursos publicados' => 'Published resources',
+    'Este usuario aún no tiene recursos públicos.' => 'This user has no public resources yet.',
+    'Colecciones' => 'Collections',
+    'recursos' => 'resources',
+
+    // ── Collection ──
+    'Colección' => 'Collection',
+    'Pública' => 'Public',
+    'Privada' => 'Private',
+    'Creada' => 'Created',
+    'Ir a mi dashboard' => 'Go to my dashboard',
+    'Esta colección está vacía' => 'This collection is empty',
+    'Agrega recursos desde sus páginas de detalle.' => 'Add resources from their detail pages.',
+    'Quitar de la colección' => 'Remove from collection',
+    'Ver recurso' => 'View resource',
+    '¿Quitar este recurso de la colección?' => 'Remove this resource from the collection?',
+
     // ── Viewer ──
     'Cerrar' => 'Close',
     'Abrir' => 'Open',

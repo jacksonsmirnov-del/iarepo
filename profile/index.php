@@ -8,6 +8,8 @@ session_start();
 require_once __DIR__ . '/../shared/auth.php';
 require_once __DIR__ . '/../shared/db.php';
 require_once __DIR__ . '/../shared/helpers.php';
+require_once __DIR__ . '/../shared/i18n.php';
+lang();
 
 $userId = (int)($_GET['id'] ?? 0);
 if (!$userId) { header('Location: /'); exit; }
@@ -55,11 +57,11 @@ $collStmt->execute([$userId]);
 $collections = $collStmt->fetchAll();
 ?>
 <!DOCTYPE html>
-<html lang="es">
+<html lang="<?= lang() ?>">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title><?= h($name) ?> — Recursos educativos en iarepo</title>
+<title><?= h($name) ?> — <?= h(t('Recursos educativos en iarepo')) ?></title>
 <meta name="description" content="<?= h($name) ?> ha publicado <?= (int)($profile['resource_count'] ?? 0) ?> recursos educativos interactivos en iarepo.">
 <meta property="og:title" content="<?= h($name) ?> — iarepo">
 <meta property="og:description" content="<?= (int)($profile['resource_count'] ?? 0) ?> recursos · <?= (int)($profile['total_views'] ?? 0) ?> vistas en iarepo">
@@ -136,18 +138,18 @@ a{color:var(--accent2);text-decoration:none}
   <?php endif; ?>
   <div class="profile-name"><?= h($name) ?></div>
   <?php if ($memberSince): ?>
-    <div class="profile-joined">Miembro desde <?= date('M Y', strtotime($memberSince)) ?></div>
+    <div class="profile-joined"><?= h(t('Miembro desde')) ?> <?= date('M Y', strtotime($memberSince)) ?></div>
   <?php endif; ?>
   <div class="profile-stats">
-    <div class="profile-stat"><strong><?= (int)($profile['resource_count'] ?? 0) ?></strong><span>Recursos</span></div>
-    <div class="profile-stat"><strong><?= (int)($profile['total_views'] ?? 0) ?></strong><span>Vistas</span></div>
-    <div class="profile-stat"><strong><?= (int)($profile['total_likes'] ?? 0) ?></strong><span>Likes</span></div>
-    <div class="profile-stat"><strong><?= (int)($profile['total_forks'] ?? 0) ?></strong><span>Forks</span></div>
+    <div class="profile-stat"><strong><?= (int)($profile['resource_count'] ?? 0) ?></strong><span><?= h(t('Recursos')) ?></span></div>
+    <div class="profile-stat"><strong><?= (int)($profile['total_views'] ?? 0) ?></strong><span><?= h(t('Vistas')) ?></span></div>
+    <div class="profile-stat"><strong><?= (int)($profile['total_likes'] ?? 0) ?></strong><span><?= h(t('Likes')) ?></span></div>
+    <div class="profile-stat"><strong><?= (int)($profile['total_forks'] ?? 0) ?></strong><span><?= h(t('Forks')) ?></span></div>
   </div>
 </div>
 
 <div class="container">
-  <h2 class="section-title"><i data-lucide="file-code" style="width:18px;height:18px"></i> Recursos publicados</h2>
+  <h2 class="section-title"><i data-lucide="file-code" style="width:18px;height:18px"></i> <?= h(t('Recursos publicados')) ?></h2>
   <?php if ($resources): ?>
     <div class="grid">
       <?php foreach ($resources as $res): ?>
@@ -168,17 +170,17 @@ a{color:var(--accent2);text-decoration:none}
       <?php endforeach; ?>
     </div>
   <?php else: ?>
-    <div class="empty">Este usuario aún no tiene recursos públicos.</div>
+    <div class="empty"><?= h(t('Este usuario aún no tiene recursos públicos.')) ?></div>
   <?php endif; ?>
 
   <?php if ($collections): ?>
-    <h2 class="section-title"><i data-lucide="folder" style="width:18px;height:18px"></i> Colecciones</h2>
+    <h2 class="section-title"><i data-lucide="folder" style="width:18px;height:18px"></i> <?= h(t('Colecciones')) ?></h2>
     <div class="grid">
       <?php foreach ($collections as $col): ?>
         <div class="card coll-card" onclick="location='/collection/?id=<?= (int)$col['id'] ?>'">
           <h3><?= h($col['title']) ?></h3>
           <?php if ($col['description']): ?><p><?= h($col['description']) ?></p><?php endif; ?>
-          <div class="card-meta"><span>📦 <?= (int)$col['item_count'] ?> recursos</span></div>
+          <div class="card-meta"><span>📦 <?= (int)$col['item_count'] ?> <?= h(t('recursos')) ?></span></div>
         </div>
       <?php endforeach; ?>
     </div>

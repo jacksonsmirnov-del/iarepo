@@ -8,6 +8,8 @@ session_start();
 require_once __DIR__ . '/../shared/auth.php';
 require_once __DIR__ . '/../shared/db.php';
 require_once __DIR__ . '/../shared/helpers.php';
+require_once __DIR__ . '/../shared/i18n.php';
+lang();
 
 $id = (int)($_GET['id'] ?? 0);
 if (!$id) { header('Location: /'); exit; }
@@ -42,11 +44,11 @@ $resources = $items->fetchAll();
 $levelLabels = ['primary'=>'Primaria','secondary'=>'Secundaria','ib'=>'IB','university'=>'Universidad','general'=>'General'];
 ?>
 <!DOCTYPE html>
-<html lang="es">
+<html lang="<?= lang() ?>">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title><?= h($coll['title']) ?> — Colección · iarepo</title>
+<title><?= h($coll['title']) ?> — <?= h(t('Colección')) ?> · iarepo</title>
 <meta name="description" content="<?= h($coll['description'] ?: 'Colección de recursos educativos en iarepo') ?>">
 <meta property="og:title" content="<?= h($coll['title']) ?> — iarepo">
 <meta property="og:description" content="<?= h($coll['description'] ?: 'Colección de recursos educativos') ?>">
@@ -128,7 +130,7 @@ a{color:var(--accent2);text-decoration:none}
   <div class="topbar-left">
     <a href="/"><img src="/assets/img/logo.svg" alt="iarepo" style="height:24px;width:auto;vertical-align:middle"></a>
     <span style="color:var(--text3)">/</span>
-    <span style="font-size:.85rem;color:var(--text2)">Colección</span>
+    <span style="font-size:.85rem;color:var(--text2)"><?= h(t('Colección')) ?></span>
   </div>
   <div style="display:flex;align-items:center;gap:10px;font-size:.85rem">
     <?php if ($sessionUser): ?>
@@ -145,21 +147,21 @@ a{color:var(--accent2);text-decoration:none}
       <p><?= h($coll['description']) ?></p>
     <?php endif; ?>
     <div class="coll-meta">
-      <span class="badge <?= $coll['is_public'] ? 'badge-pub' : 'badge-priv' ?>"><?= $coll['is_public'] ? 'Pública' : 'Privada' ?></span>
-      <span>📦 <?= count($resources) ?> recursos</span>
-      <span>Creada <?= date('d/m/Y', strtotime($coll['created_at'])) ?></span>
+      <span class="badge <?= $coll['is_public'] ? 'badge-pub' : 'badge-priv' ?>"><?= $coll['is_public'] ? h(t('Pública')) : h(t('Privada')) ?></span>
+      <span>📦 <?= count($resources) ?> <?= h(t('recursos')) ?></span>
+      <span><?= h(t('Creada')) ?> <?= date('d/m/Y', strtotime($coll['created_at'])) ?></span>
       <?php if ($isOwner): ?>
-        <a href="/dashboard/" style="color:var(--accent)">← Ir a mi dashboard</a>
+        <a href="/dashboard/" style="color:var(--accent)">← <?= h(t('Ir a mi dashboard')) ?></a>
       <?php endif; ?>
     </div>
   </div>
 
   <?php if (empty($resources)): ?>
     <div class="empty">
-      <h3>Esta colección está vacía</h3>
-      <p>Agrega recursos desde sus páginas de detalle.</p>
+      <h3><?= h(t('Esta colección está vacía')) ?></h3>
+      <p><?= h(t('Agrega recursos desde sus páginas de detalle.')) ?></p>
       <?php if ($isOwner): ?>
-        <a href="/" class="btn btn-primary" style="margin-top:16px;padding:10px 24px">Explorar recursos</a>
+        <a href="/" class="btn btn-primary" style="margin-top:16px;padding:10px 24px"><?= h(t('Explorar recursos')) ?></a>
       <?php endif; ?>
     </div>
   <?php else: ?>
@@ -171,7 +173,7 @@ a{color:var(--accent2);text-decoration:none}
         ?>
         <div class="card" id="item-<?= (int)$r['item_id'] ?>">
           <?php if ($isOwner): ?>
-            <button class="btn btn-danger-sm remove-btn" onclick="removeFromCollection(<?= (int)$r['item_id'] ?>, <?= (int)$r['id'] ?>)" title="Quitar de la colección">✕</button>
+            <button class="btn btn-danger-sm remove-btn" onclick="removeFromCollection(<?= (int)$r['item_id'] ?>, <?= (int)$r['id'] ?>)" title="<?= h(t('Quitar de la colección')) ?>">✕</button>
           <?php endif; ?>
           <div class="card-header">
             <div class="type-icon <?= $typeClass ?>"><?= $typeLabel ?></div>
@@ -194,8 +196,8 @@ a{color:var(--accent2);text-decoration:none}
             <span>· <?= h($r['author_display_name']) ?></span>
           </div>
           <div class="card-actions">
-            <a href="/resource/<?= (int)$r['id'] ?>" class="btn btn-primary">Ver recurso</a>
-            <a href="/view/<?= (int)$r['id'] ?>" target="_blank" class="btn btn-outline">Abrir</a>
+            <a href="/resource/<?= (int)$r['id'] ?>" class="btn btn-primary"><?= h(t('Ver recurso')) ?></a>
+            <a href="/view/<?= (int)$r['id'] ?>" target="_blank" class="btn btn-outline"><?= h(t('Abrir')) ?></a>
           </div>
         </div>
       <?php endforeach; ?>
@@ -203,7 +205,7 @@ a{color:var(--accent2);text-decoration:none}
   <?php endif; ?>
 </div>
 
-<button class="theme-toggle" aria-label="Cambiar tema" id="themeBtn"><i data-lucide="moon" style="width:18px;height:18px"></i></button>
+<button class="theme-toggle" aria-label="<?= h(t('Cambiar tema')) ?>" id="themeBtn"><i data-lucide="moon" style="width:18px;height:18px"></i></button>
 
 <script>
 const COLL_ID = <?= $id ?>;
@@ -218,7 +220,7 @@ document.getElementById('themeBtn').addEventListener('click',()=>{
 
 async function removeFromCollection(itemId, resourceId) {
   if (!IS_OWNER) return;
-  if (!confirm('¿Quitar este recurso de la colección?')) return;
+  if (!confirm(<?= json_encode(t('¿Quitar este recurso de la colección?')) ?>)) return;
   try {
     const res = await fetch(`/api/collections.php?action=remove&id=${COLL_ID}`, {
       method: 'POST',
