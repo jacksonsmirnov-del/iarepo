@@ -1,0 +1,103 @@
+<?php
+// ================================================================
+// i18n_en.php — English overrides. Keyed by the Spanish source string.
+// (If a key is missing, t() falls back to the Spanish text.)
+// ================================================================
+return [
+    // ── Common / nav ──
+    'Salir' => 'Sign out',
+    'Mis Recursos' => 'My Resources',
+    'Mi perfil' => 'My profile',
+    'Dashboard' => 'Dashboard',
+    'Modo presentación' => 'Presentation mode',
+    'Presentar' => 'Present',
+    'Cambiar tema' => 'Toggle theme',
+    'Presiona ESC para salir' => 'Press ESC to exit',
+    'Notificaciones' => 'Notifications',
+    'Cancelar' => 'Cancel',
+    'Ir al inicio' => 'Go home',
+    'Explorar recursos' => 'Explore resources',
+
+    // ── Home: hero ──
+    'iarepo — Repositorio abierto de recursos educativos interactivos' => 'iarepo — Open repository of interactive educational resources',
+    'Descubre, comparte y ejecuta simulaciones, herramientas y recursos educativos interactivos. El GitHub para profesores.' => 'Discover, share and run interactive simulations, tools and educational resources. The GitHub for teachers.',
+    'iarepo — Recursos educativos interactivos' => 'iarepo — Interactive educational resources',
+    'Repositorio abierto de simulaciones, herramientas y recursos interactivos para la enseñanza.' => 'Open repository of interactive simulations, tools and resources for teaching.',
+    'Repositorio abierto de recursos educativos interactivos. Descubre simulaciones, herramientas y modelos de IA — listos para usar en tu clase.' => 'Open repository of interactive educational resources. Discover simulations, tools and AI-generated models — ready to use in your class.',
+    'Recursos' => 'Resources',
+    'Categorías' => 'Categories',
+    'Tipos' => 'Types',
+    'Buscar recursos... (ej: waves, pendulum, pH)' => 'Search resources... (e.g. waves, pendulum, pH)',
+
+    // ── Home: featured ──
+    'Más usados' => 'Most used',
+    'Ver todos →' => 'View all →',
+
+    // ── Home: how it works ──
+    'Genera con IA' => 'Generate with AI',
+    'Pídele a Gemini o ChatGPT una simulación interactiva en HTML para tu clase.' => 'Ask Gemini or ChatGPT for an interactive HTML simulation for your class.',
+    'Súbela en 30s' => 'Upload it in 30s',
+    'Pega el código, elige la materia y publícala. Sin instalación, sin cuenta de pago.' => 'Paste the code, pick the subject and publish. No install, no paid account.',
+    'Profesores la usan' => 'Teachers use it',
+    'Cualquier profesor del mundo puede encontrarla, usarla o adaptarla para su curso.' => 'Any teacher in the world can find it, use it or adapt it for their course.',
+    'Gratis · Sin tarjeta · Solo con Google' => 'Free · No card · Just with Google',
+
+    // ── Home: toolbar / filters ──
+    'Idioma' => 'Language',
+    'Nivel' => 'Level',
+    'Error al cargar recursos' => 'Error loading resources',
+    '🌐 Idioma' => '🌐 Language',
+    '🇪🇸 Español' => '🇪🇸 Spanish',
+    '🇬🇧 English' => '🇬🇧 English',
+    '🇧🇷 Português' => '🇧🇷 Portuguese',
+    '📚 Nivel' => '📚 Level',
+    'Primaria' => 'Primary',
+    'Secundaria' => 'Secondary',
+    'IB' => 'IB',
+    'Universidad' => 'University',
+    'General' => 'General',
+    'Más recientes' => 'Most recent',
+    'Más vistos' => 'Most viewed',
+    'Alfabético' => 'Alphabetical',
+    'Cargando recursos...' => 'Loading resources...',
+    'No se encontraron recursos' => 'No resources found',
+    'Error de conexión' => 'Connection error',
+
+    // ── Home: footer ──
+    'Repositorio abierto de recursos educativos interactivos' => 'Open repository of interactive educational resources',
+    'Términos de uso' => 'Terms of use',
+    'Los recursos externos pertenecen a sus respectivos autores. iarepo solo enlaza y cataloga.' => 'External resources belong to their respective authors. iarepo only links and catalogs them.',
+
+    // ── Resource page ──
+    'Pantalla completa' => 'Fullscreen',
+    'Fork' => 'Fork',
+    'Guardar' => 'Save',
+    'Fuente' => 'Source',
+    'Compartir' => 'Share',
+    'Insertar' => 'Embed',
+    'Editar' => 'Edit',
+    'Eliminar' => 'Delete',
+    'Comentarios' => 'Comments',
+    'Comparte una idea, sugerencia o cómo usas este recurso...' => 'Share an idea, suggestion or how you use this resource...',
+    'Enviar' => 'Send',
+    'Inicia sesión con Google para comentar' => 'Sign in with Google to comment',
+    'Vistas' => 'Views',
+    'Likes' => 'Likes',
+    'Forks' => 'Forks',
+    'Autor' => 'Author',
+    'Área' => 'Subject',
+    'Tema' => 'Topic',
+    'Versión' => 'Version',
+    'Creado' => 'Created',
+    'Aún no hay comentarios. ¡Sé el primero!' => 'No comments yet. Be the first!',
+    '🤖 Prompt original' => '🤖 Original prompt',
+
+    // ── 404 ──
+    'Página no encontrada — iarepo' => 'Page not found — iarepo',
+    'Esta página no existe' => 'This page does not exist',
+    'El recurso que buscas se movió, fue eliminado o el enlace está mal escrito. Pero hay cientos de recursos esperándote.' => 'The page you are looking for moved, was deleted or the link is misspelled. But there are hundreds of resources waiting for you.',
+
+    // ── Viewer ──
+    'Cerrar' => 'Close',
+    'Abrir' => 'Open',
+];

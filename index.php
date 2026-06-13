@@ -8,6 +8,8 @@
 
 require_once __DIR__ . '/shared/auth.php';
 require_once __DIR__ . '/shared/db.php';
+require_once __DIR__ . '/shared/i18n.php';
+lang(); // resolve + persist ES/EN before any output
 
 // h() local — no cargamos helpers.php porque su error_handler registra
 // manejadores de excepción que outputan JSON, rompiendo páginas HTML.
@@ -60,14 +62,14 @@ if (str_contains($accept, 'application/json') && !str_contains($accept, 'text/ht
 }
 ?>
 <!DOCTYPE html>
-<html lang="es">
+<html lang="<?= lang() ?>">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>iarepo — Repositorio abierto de recursos educativos interactivos</title>
-<meta name="description" content="Descubre, comparte y ejecuta simulaciones, herramientas y recursos educativos interactivos. El GitHub para profesores.">
-<meta property="og:title" content="iarepo — Recursos educativos interactivos">
-<meta property="og:description" content="Repositorio abierto de simulaciones, herramientas y recursos interactivos para la enseñanza.">
+<title><?= h(t('iarepo — Repositorio abierto de recursos educativos interactivos')) ?></title>
+<meta name="description" content="<?= h(t('Descubre, comparte y ejecuta simulaciones, herramientas y recursos educativos interactivos. El GitHub para profesores.')) ?>">
+<meta property="og:title" content="<?= h(t('iarepo — Recursos educativos interactivos')) ?>">
+<meta property="og:description" content="<?= h(t('Repositorio abierto de simulaciones, herramientas y recursos interactivos para la enseñanza.')) ?>">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://iarepo.com">
 <meta property="og:site_name" content="iarepo">
@@ -75,8 +77,8 @@ if (str_contains($accept, 'application/json') && !str_contains($accept, 'text/ht
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="iarepo — Recursos educativos interactivos">
-<meta name="twitter:description" content="Repositorio abierto de simulaciones, herramientas y recursos interactivos para la enseñanza.">
+<meta name="twitter:title" content="<?= h(t('iarepo — Recursos educativos interactivos')) ?>">
+<meta name="twitter:description" content="<?= h(t('Repositorio abierto de simulaciones, herramientas y recursos interactivos para la enseñanza.')) ?>">
 <meta name="twitter:image" content="https://iarepo.com/assets/img/og-default.png">
 <link rel="canonical" href="https://iarepo.com">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
@@ -275,13 +277,13 @@ a:hover{opacity:.8}
 <!-- User auth bar -->
 <div class="auth-bar">
 <?php if ($sessionUser): ?>
-  <a href="/dashboard/" class="auth-user" title="Mis Recursos">
+  <a href="/dashboard/" class="auth-user" title="<?= h(t('Mis Recursos')) ?>">
     <?php if ($sessionUser['avatar_url']): ?>
       <img src="<?= htmlspecialchars($sessionUser['avatar_url']) ?>" alt="" class="auth-avatar">
     <?php endif; ?>
     <span><?= htmlspecialchars($sessionUser['name']) ?></span>
   </a>
-  <a href="/auth/logout.php" class="auth-logout" title="Salir">Salir</a>
+  <a href="/auth/logout.php" class="auth-logout" title="<?= h(t('Salir')) ?>"><?= h(t('Salir')) ?></a>
 <?php else: ?>
   <div id="g_id_onload"
        data-client_id="<?= htmlspecialchars($googleClientId) ?>"
@@ -298,12 +300,15 @@ a:hover{opacity:.8}
 </div>
 
 <!-- Present mode button -->
-<button class="present-btn" id="presentBtn" title="Modo presentación">
-  <i data-lucide="maximize" style="width:14px;height:14px"></i> Presentar
+<button class="present-btn" id="presentBtn" title="<?= h(t('Modo presentación')) ?>">
+  <i data-lucide="maximize" style="width:14px;height:14px"></i> <?= h(t('Presentar')) ?>
 </button>
 
+<!-- Language switcher -->
+<a class="present-btn" href="<?= h(langSwitchUrl(lang()==='en'?'es':'en')) ?>" title="<?= lang()==='en'?'Cambiar a español':'Switch to English' ?>" style="text-decoration:none;font-weight:700"><?= lang()==='en'?'ES':'EN' ?></a>
+
 <!-- Theme toggle -->
-<button class="theme-toggle" aria-label="Cambiar tema" title="Cambiar tema" id="theme-btn">
+<button class="theme-toggle" aria-label="<?= h(t('Cambiar tema')) ?>" title="<?= h(t('Cambiar tema')) ?>" id="theme-btn">
   <i data-lucide="moon" style="width:18px;height:18px" id="theme-icon-dark"></i>
   <i data-lucide="sun" style="width:18px;height:18px" id="theme-icon-light" style="display:none"></i>
 </button>
@@ -313,29 +318,29 @@ a:hover{opacity:.8}
 <!-- Presentation overlay -->
 <div class="present-overlay" id="present-overlay">
   <div class="present-content" id="present-content"></div>
-  <div class="present-esc">Presiona ESC para salir</div>
+  <div class="present-esc"><?= h(t('Presiona ESC para salir')) ?></div>
 </div>
 
 <section class="hero">
   <div class="hero-badge"><i data-lucide="sparkles" style="width:14px;height:14px"></i> Open Educational Resources</div>
   <h1><img src="/assets/img/logo.svg" alt="iarepo" style="height:48px;width:auto;display:inline-block;vertical-align:middle"></h1>
-  <p>Repositorio abierto de recursos educativos interactivos. Descubre simulaciones, herramientas y modelos de IA — listos para usar en tu clase.</p>
+  <p><?= h(t('Repositorio abierto de recursos educativos interactivos. Descubre simulaciones, herramientas y modelos de IA — listos para usar en tu clase.')) ?></p>
   <div class="hero-stats">
-    <div class="hero-stat"><strong id="stat-total">—</strong><span>Recursos</span></div>
-    <div class="hero-stat"><strong id="stat-cats">—</strong><span>Categorías</span></div>
-    <div class="hero-stat"><strong id="stat-types">—</strong><span>Tipos</span></div>
+    <div class="hero-stat"><strong id="stat-total">—</strong><span><?= h(t('Recursos')) ?></span></div>
+    <div class="hero-stat"><strong id="stat-cats">—</strong><span><?= h(t('Categorías')) ?></span></div>
+    <div class="hero-stat"><strong id="stat-types">—</strong><span><?= h(t('Tipos')) ?></span></div>
   </div>
   <div class="search-wrap">
     <i data-lucide="search" class="search-icon" style="width:20px;height:20px"></i>
-    <input type="search" id="search" placeholder="Buscar recursos... (ej: waves, pendulum, pH)" autocomplete="off">
+    <input type="search" id="search" placeholder="<?= h(t('Buscar recursos... (ej: waves, pendulum, pH)')) ?>" autocomplete="off">
   </div>
 </section>
 
 <?php if ($featured): ?>
 <section class="featured">
   <div class="featured-header">
-    <h2><i data-lucide="flame" style="width:18px;height:18px;color:#f97316"></i> Más usados</h2>
-    <a href="/?sort=popular">Ver todos →</a>
+    <h2><i data-lucide="flame" style="width:18px;height:18px;color:#f97316"></i> <?= h(t('Más usados')) ?></h2>
+    <a href="/?sort=popular"><?= h(t('Ver todos →')) ?></a>
   </div>
   <div class="featured-grid">
     <?php foreach ($featured as $f):
@@ -363,20 +368,20 @@ a:hover{opacity:.8}
   <div class="hiw-steps">
     <div class="hiw-step">
       <div class="hiw-icon"><i data-lucide="sparkles" style="width:24px;height:24px;color:#fff"></i></div>
-      <h3>Genera con IA</h3>
-      <p>Pídele a Gemini o ChatGPT una simulación interactiva en HTML para tu clase.</p>
+      <h3><?= h(t('Genera con IA')) ?></h3>
+      <p><?= h(t('Pídele a Gemini o ChatGPT una simulación interactiva en HTML para tu clase.')) ?></p>
     </div>
     <div class="hiw-arrow">→</div>
     <div class="hiw-step">
       <div class="hiw-icon"><i data-lucide="upload" style="width:24px;height:24px;color:#fff"></i></div>
-      <h3>Súbela en 30s</h3>
-      <p>Pega el código, elige la materia y publícala. Sin instalación, sin cuenta de pago.</p>
+      <h3><?= h(t('Súbela en 30s')) ?></h3>
+      <p><?= h(t('Pega el código, elige la materia y publícala. Sin instalación, sin cuenta de pago.')) ?></p>
     </div>
     <div class="hiw-arrow">→</div>
     <div class="hiw-step">
       <div class="hiw-icon"><i data-lucide="globe" style="width:24px;height:24px;color:#fff"></i></div>
-      <h3>Profesores la usan</h3>
-      <p>Cualquier profesor del mundo puede encontrarla, usarla o adaptarla para su curso.</p>
+      <h3><?= h(t('Profesores la usan')) ?></h3>
+      <p><?= h(t('Cualquier profesor del mundo puede encontrarla, usarla o adaptarla para su curso.')) ?></p>
     </div>
   </div>
   <div style="text-align:center;margin-top:28px">
@@ -392,7 +397,7 @@ a:hover{opacity:.8}
          data-size="large"
          data-logo_alignment="left">
     </div>
-    <p style="margin-top:10px;font-size:.78rem;color:var(--text3)">Gratis · Sin tarjeta · Solo con Google</p>
+    <p style="margin-top:10px;font-size:.78rem;color:var(--text3)"><?= h(t('Gratis · Sin tarjeta · Solo con Google')) ?></p>
   </div>
 </section>
 <?php endif; ?>
@@ -403,44 +408,54 @@ a:hover{opacity:.8}
   <div class="toolbar">
     <span class="result-count" id="result-count"></span>
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-      <select class="sort-select" id="filter-lang" title="Idioma">
-        <option value="">🌐 Idioma</option>
-        <option value="es">🇪🇸 Español</option>
-        <option value="en">🇬🇧 English</option>
-        <option value="pt">🇧🇷 Português</option>
+      <select class="sort-select" id="filter-lang" title="<?= h(t('Idioma')) ?>">
+        <option value=""><?= h(t('🌐 Idioma')) ?></option>
+        <option value="es"><?= h(t('🇪🇸 Español')) ?></option>
+        <option value="en"><?= h(t('🇬🇧 English')) ?></option>
+        <option value="pt"><?= h(t('🇧🇷 Português')) ?></option>
       </select>
-      <select class="sort-select" id="filter-level" title="Nivel">
-        <option value="">📚 Nivel</option>
-        <option value="primary">Primaria</option>
-        <option value="secondary">Secundaria</option>
-        <option value="ib">IB</option>
-        <option value="university">Universidad</option>
-        <option value="general">General</option>
+      <select class="sort-select" id="filter-level" title="<?= h(t('Nivel')) ?>">
+        <option value=""><?= h(t('📚 Nivel')) ?></option>
+        <option value="primary"><?= h(t('Primaria')) ?></option>
+        <option value="secondary"><?= h(t('Secundaria')) ?></option>
+        <option value="ib"><?= h(t('IB')) ?></option>
+        <option value="university"><?= h(t('Universidad')) ?></option>
+        <option value="general"><?= h(t('General')) ?></option>
       </select>
       <select class="sort-select" id="sort">
-        <option value="recent">Más recientes</option>
-        <option value="popular">Más usados</option>
-        <option value="views">Más vistos</option>
-        <option value="title">Alfabético</option>
+        <option value="recent"><?= h(t('Más recientes')) ?></option>
+        <option value="popular"><?= h(t('Más usados')) ?></option>
+        <option value="views"><?= h(t('Más vistos')) ?></option>
+        <option value="title"><?= h(t('Alfabético')) ?></option>
       </select>
     </div>
   </div>
   <div id="grid" class="grid">
-    <div class="loading"><div class="spinner"></div>Cargando recursos...</div>
+    <div class="loading"><div class="spinner"></div><?= h(t('Cargando recursos...')) ?></div>
   </div>
 </div>
 
 <footer class="footer">
-  <p><strong>iarepo.com</strong> — Repositorio abierto de recursos educativos interactivos</p>
+  <p><strong>iarepo.com</strong> — <?= h(t('Repositorio abierto de recursos educativos interactivos')) ?></p>
   <p style="margin-top:8px">
-    <a href="/legal/terms.php">Términos de uso</a> ·
+    <a href="/legal/terms.php"><?= h(t('Términos de uso')) ?></a> ·
     <a href="https://github.com/claseprivada/iarepo" target="_blank">GitHub (MIT)</a> ·
     <a href="https://claseprivada.com">Clase Privada</a>
   </p>
-  <p style="margin-top:6px;font-size:.78rem;color:var(--text3)">Los recursos externos pertenecen a sus respectivos autores. iarepo solo enlaza y cataloga.</p>
+  <p style="margin-top:6px;font-size:.78rem;color:var(--text3)"><?= h(t('Los recursos externos pertenecen a sus respectivos autores. iarepo solo enlaza y cataloga.')) ?></p>
 </footer>
 
 <script>
+// i18n strings for dynamic content
+const T = {
+  noResults: <?= json_encode(t('No se encontraron recursos')) ?>,
+  connError: <?= json_encode(t('Error de conexión')) ?>,
+  loadError: <?= json_encode(t('Error al cargar recursos')) ?>,
+  resource: <?= json_encode(lang()==='en'?'resource':'recurso') ?>,
+  resources: <?= json_encode(lang()==='en'?'resources':'recursos') ?>,
+  levels: <?= json_encode(['primary'=>t('Primaria'),'secondary'=>t('Secundaria'),'ib'=>t('IB'),'university'=>t('Universidad'),'general'=>t('General')], JSON_UNESCAPED_UNICODE) ?>,
+};
+
 // ── Theme ──
 function initTheme() {
   const saved = localStorage.getItem('iarepo-theme');
@@ -513,19 +528,19 @@ async function loadResources() {
   try {
     const res = await fetch(url);
     const data = await res.json();
-    if (!data.ok) { grid.innerHTML = '<div class="empty">Error loading resources</div>'; return; }
+    if (!data.ok) { grid.innerHTML = `<div class="empty">${T.loadError}</div>`; return; }
 
     document.getElementById('stat-total').textContent = data.total;
-    document.getElementById('result-count').textContent = `${data.total} recurso${data.total !== 1 ? 's' : ''}`;
+    document.getElementById('result-count').textContent = `${data.total} ${data.total !== 1 ? T.resources : T.resource}`;
 
     if (data.categories && !document.querySelector('.cat-pill')) renderCategories(data.categories);
 
-    if (data.resources.length === 0) { grid.innerHTML = '<div class="empty">No se encontraron recursos</div>'; return; }
+    if (data.resources.length === 0) { grid.innerHTML = `<div class="empty">${T.noResults}</div>`; return; }
 
     grid.innerHTML = data.resources.map(r => renderCard(r)).join('');
     lucide.createIcons();
   } catch (e) {
-    grid.innerHTML = '<div class="empty">Error de conexión</div>';
+    grid.innerHTML = `<div class="empty">${T.connError}</div>`;
   }
 }
 
@@ -556,7 +571,7 @@ function renderCategories(cats) {
 function renderCard(r) {
   const icon = r.category_icon || 'file-code';
   const levelClass = r.level || 'general';
-  const levelLabel = {primary:'Primaria',secondary:'Secundaria',ib:'IB',university:'Universidad',general:'General'}[levelClass] || levelClass;
+  const levelLabel = T.levels[levelClass] || levelClass;
   const source = r.source_name ? `<span class="source-badge">${esc(r.source_name)}</span>` : '';
   const langFlag = {'es':'🇪🇸','en':'🇬🇧','pt':'🇧🇷'}[r.lang] || '🌐';
   // Favicon from source URL
