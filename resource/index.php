@@ -170,12 +170,18 @@ a{color:var(--accent2);text-decoration:none}
 .topbar-right img{width:28px;height:28px;border-radius:50%}
 
 .layout{max-width:1200px;margin:0 auto;padding:24px;display:grid;grid-template-columns:1fr 360px;gap:24px}
-@media(max-width:900px){.layout{grid-template-columns:1fr}.sidebar{order:-1}}
+.mobile-title{display:none}
+@media(max-width:900px){
+  .layout{grid-template-columns:1fr;padding:14px;gap:16px}
+  .preview-frame{height:68vh;min-height:380px}
+  .mobile-title{display:block;font-size:1.2rem;font-weight:700;line-height:1.3;margin:0 2px 10px}
+  .meta-card h2{display:none}
+}
 
 /* Preview */
 .preview-card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;box-shadow:var(--shadow)}
 .preview-frame{width:100%;height:500px;border:none;background:#fff}
-.preview-actions{display:flex;gap:8px;padding:12px 16px;border-top:1px solid var(--border);background:var(--bg3)}
+.preview-actions{display:flex;flex-wrap:wrap;gap:8px;padding:12px 16px;border-top:1px solid var(--border);background:var(--bg3)}
 .btn{padding:8px 18px;border-radius:8px;border:none;cursor:pointer;font-family:inherit;font-size:.85rem;font-weight:600;transition:all .2s;display:inline-flex;align-items:center;gap:6px}
 .btn-primary{background:var(--grad);color:#fff}
 .btn-primary:hover{transform:translateY(-1px);box-shadow:0 4px 16px rgba(124,58,237,.3)}
@@ -308,6 +314,7 @@ a{color:var(--accent2);text-decoration:none}
 <div class="layout">
   <!-- Preview -->
   <div>
+    <h1 class="mobile-title"><?= h($r['title']) ?></h1>
     <div class="preview-card">
       <?php if ($r['code_type'] === 'html'): ?>
         <iframe class="preview-frame" srcdoc="<?= h($r['code_content']) ?>" sandbox="allow-scripts allow-modals allow-popups" title="<?= h($r['title']) ?>"></iframe>
@@ -353,7 +360,7 @@ a{color:var(--accent2);text-decoration:none}
         <pre style="height:500px;overflow:auto;padding:20px;background:#1e1e2e;color:#cdd6f4;font-size:14px;font-family:'Fira Code',monospace;white-space:pre-wrap"><?= h($r['code_content']) ?></pre>
       <?php endif; ?>
       <div class="preview-actions">
-        <a href="/view/<?= $id ?>" target="_blank" class="btn btn-primary"><i data-lucide="maximize" style="width:14px;height:14px"></i> Abrir en Viewer</a>
+        <a href="/view/<?= $id ?>" target="_blank" class="btn btn-primary"><i data-lucide="maximize" style="width:14px;height:14px"></i> Pantalla completa</a>
         <button class="btn btn-like <?= $userLiked ? 'liked' : '' ?>" id="likeBtn" data-id="<?= $id ?>">
           <i data-lucide="heart" style="width:14px;height:14px"></i>
           <span id="likeCount"><?= (int)($r['like_count'] ?? 0) ?></span>
@@ -375,20 +382,6 @@ a{color:var(--accent2);text-decoration:none}
           <button class="btn btn-outline" id="deleteResBtn" style="color:#ef4444;border-color:rgba(239,68,68,.35)"><i data-lucide="trash-2" style="width:14px;height:14px"></i> Eliminar</button>
         <?php endif; ?>
       </div>
-    </div>
-
-    <!-- Comments -->
-    <div class="comments-section">
-      <h3><i data-lucide="message-circle" style="width:18px;height:18px"></i> Comentarios <span id="commentCount" style="color:var(--text3);font-weight:400;font-size:.9rem"></span></h3>
-      <?php if ($sessionUser || $user): ?>
-        <div class="comment-form">
-          <textarea id="commentBody" placeholder="Comparte una idea, sugerencia o cómo usas este recurso..."></textarea>
-          <button class="btn btn-primary" id="postComment" style="align-self:flex-end">Enviar</button>
-        </div>
-      <?php else: ?>
-        <div class="login-prompt">Inicia sesión con Google para comentar</div>
-      <?php endif; ?>
-      <div id="commentsList"></div>
     </div>
   </div>
 
@@ -483,6 +476,20 @@ a{color:var(--accent2);text-decoration:none}
       </div>
     </div>
     <?php endif; ?>
+  </div>
+
+  <!-- Comments -->
+  <div class="comments-section">
+    <h3><i data-lucide="message-circle" style="width:18px;height:18px"></i> Comentarios <span id="commentCount" style="color:var(--text3);font-weight:400;font-size:.9rem"></span></h3>
+    <?php if ($sessionUser || $user): ?>
+      <div class="comment-form">
+        <textarea id="commentBody" placeholder="Comparte una idea, sugerencia o cómo usas este recurso..."></textarea>
+        <button class="btn btn-primary" id="postComment" style="align-self:flex-end">Enviar</button>
+      </div>
+    <?php else: ?>
+      <div class="login-prompt">Inicia sesión con Google para comentar</div>
+    <?php endif; ?>
+    <div id="commentsList"></div>
   </div>
 </div>
 
