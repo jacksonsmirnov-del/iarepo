@@ -45,6 +45,15 @@ RewriteRule ^shared/ - [F,L]
     Require all denied
 </FilesMatch>
 
+# ── Branded 404 for unknown paths ────────────────
+# LiteSpeed/Hostinger ignores ErrorDocument here, so route any path that
+# isn't a real file/dir to 404.php (which sets the 404 status itself).
+# /api/ is excluded so missing endpoints don't return an HTML page.
+RewriteCond %{REQUEST_URI} !^/api/
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^ /404.php [L]
+
 # ── CORS Headers ─────────────────────────────────
 <IfModule mod_headers.c>
     # Allow Campus domains (any subdomain) + iarepo.com
