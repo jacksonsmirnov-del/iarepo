@@ -4,16 +4,18 @@
 // HTML page → no helpers.php; h() defined locally.
 // ================================================================
 http_response_code(404);
+require_once __DIR__ . '/shared/i18n.php';
+lang();
 function h(string $s): string { return htmlspecialchars($s, ENT_QUOTES, 'UTF-8'); }
 $q = trim($_GET['q'] ?? '');
 ?>
 <!DOCTYPE html>
-<html lang="es">
+<html lang="<?= lang() ?>">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
-<title>Página no encontrada — iarepo</title>
+<title><?= h(t('Página no encontrada — iarepo')) ?></title>
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="icon" href="/favicon.ico" sizes="any">
 <meta name="theme-color" content="#7c3aed">
@@ -51,11 +53,11 @@ p{color:#475569;font-size:.95rem;line-height:1.6;margin-bottom:26px}
       </svg>
     </div>
     <div class="code">404</div>
-    <h1>Esta página no existe</h1>
-    <p>El recurso que buscas se movió, fue eliminado o el enlace está mal escrito. Pero hay cientos de recursos esperándote.</p>
+    <h1><?= h(t('Esta página no existe')) ?></h1>
+    <p><?= h(t('El recurso que buscas se movió, fue eliminado o el enlace está mal escrito. Pero hay cientos de recursos esperándote.')) ?></p>
     <div class="actions">
-      <a class="btn btn-primary" href="/">🏠 Ir al inicio</a>
-      <a class="btn btn-outline" href="/?focus=search">🔍 Explorar recursos</a>
+      <a class="btn btn-primary" href="/">🏠 <?= h(t('Ir al inicio')) ?></a>
+      <a class="btn btn-outline" href="/?focus=search">🔍 <?= h(t('Explorar recursos')) ?></a>
     </div>
   </div>
 </body>

@@ -15,6 +15,8 @@
 require_once __DIR__ . '/../shared/db.php';
 require_once __DIR__ . '/../shared/auth.php';
 require_once __DIR__ . '/../shared/helpers.php';
+require_once __DIR__ . '/../shared/i18n.php';
+lang();
 
 $id = (int)($_GET['id'] ?? 0);
 if (!$id) { showViewerError(400, 'Missing resource ID', 'No se proporcionó un ID de recurso.'); }
@@ -83,7 +85,7 @@ $mode = $_GET['mode'] ?? 'view'; // 'view' or 'present'
 $isPresent = ($mode === 'present');
 ?>
 <!DOCTYPE html>
-<html lang="es">
+<html lang="<?= lang() ?>">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -205,12 +207,12 @@ $isPresent = ($mode === 'present');
             <?php endif; ?>
         </div>
         <div class="actions">
-            <button class="btn btn-present" id="btnPresent">📺 Presentar</button>
-            <button class="btn btn-close" id="btnClose">✕ Cerrar</button>
+            <button class="btn btn-present" id="btnPresent">📺 <?= h(t('Presentar')) ?></button>
+            <button class="btn btn-close" id="btnClose">✕ <?= h(t('Cerrar')) ?></button>
         </div>
     </div>
 
-    <button class="fs-exit" id="fs-exit">✕ Salir de pantalla completa</button>
+    <button class="fs-exit" id="fs-exit">✕ <?= h(t('Salir de pantalla completa')) ?></button>
 
     <?php if ($resource['code_type'] === 'html'): ?>
         <iframe class="viewer-frame"
@@ -229,12 +231,12 @@ $isPresent = ($mode === 'present');
         <div class="external-fallback" id="url-fallback" style="display:none;">
             <div style="font-size:3rem;margin-bottom:16px;">🔗</div>
             <h2><?= h($resource['title']) ?></h2>
-            <p>Este recurso no permite ser embebido en iframe por políticas de seguridad del sitio original. Haz click para abrirlo directamente.</p>
+            <p><?= h(t('Este recurso no permite ser embebido en iframe por políticas de seguridad del sitio original. Haz click para abrirlo directamente.')) ?></p>
             <a href="<?= h($url) ?>" target="_blank" rel="noopener" class="ext-btn">
-                🚀 Abrir <?= h($resource['source_name'] ?? 'recurso') ?>
+                🚀 <?= h(t('Abrir')) ?> <?= h($resource['source_name'] ?? t('recurso')) ?>
             </a>
             <?php if ($resource['source_name']): ?>
-                <div class="source">Fuente: <?= h($resource['source_name']) ?></div>
+                <div class="source"><?= h(t('Fuente')) ?>: <?= h($resource['source_name']) ?></div>
             <?php endif; ?>
         </div>
         <!-- Floating open-external button (always visible for URLs) -->
@@ -246,7 +248,7 @@ $isPresent = ($mode === 'present');
                   transition:background .2s"
            onmouseover="this.style.background='rgba(59,130,246,.9)'"
            onmouseout="this.style.background='rgba(30,41,59,.9)'"
-           title="Abrir en pestaña nueva">↗ Abrir externo</a>
+           title="<?= h(t('Abrir en pestaña nueva')) ?>">↗ <?= h(t('Abrir externo')) ?></a>
         <script>
         // Detect iframe block: if iframe doesn't load in 4s, show fallback
         (function(){
@@ -385,7 +387,7 @@ function showViewerError(int $httpCode, string $title, string $message): never {
             <div class="error-code"><?= $httpCode ?></div>
             <h1><?= htmlspecialchars($title) ?></h1>
             <p><?= htmlspecialchars($message) ?></p>
-            <a href="/" class="back-btn">← Volver a iarepo</a>
+            <a href="/" class="back-btn">← <?= h(t('Volver a iarepo')) ?></a>
         </div>
     </body>
     </html>

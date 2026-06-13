@@ -10,6 +10,8 @@ session_start();
 require_once __DIR__ . '/../shared/auth.php';
 require_once __DIR__ . '/../shared/db.php';
 require_once __DIR__ . '/../shared/helpers.php';
+require_once __DIR__ . '/../shared/i18n.php';
+lang();
 
 $id = (int)($_GET['id'] ?? 0);
 if (!$id) { header('Location: /'); exit; }
@@ -87,7 +89,7 @@ $googleClientId = $env['GOOGLE_CLIENT_ID'] ?? '';
 $levelLabels = ['primary'=>'Primaria','secondary'=>'Secundaria','ib'=>'IB','university'=>'Universidad','general'=>'General'];
 ?>
 <!DOCTYPE html>
-<html lang="es">
+<html lang="<?= lang() ?>">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -300,6 +302,7 @@ a{color:var(--accent2);text-decoration:none}
     <span style="font-size:.85rem;color:var(--text2)"><?= h($r['title']) ?></span>
   </div>
   <div class="topbar-right">
+    <a href="<?= h(langSwitchUrl(lang()==='en'?'es':'en')) ?>" title="<?= lang()==='en'?'Cambiar a español':'Switch to English' ?>" style="font-size:.78rem;font-weight:700;color:var(--text2);border:1px solid var(--border);border-radius:14px;padding:3px 10px;text-decoration:none"><?= lang()==='en'?'ES':'EN' ?></a>
     <?php if ($sessionUser): ?>
       <?php if ($sessionUser['avatar_url']): ?><img src="<?= h($sessionUser['avatar_url']) ?>" alt=""><?php endif; ?>
       <span style="font-size:.85rem"><?= h($sessionUser['name']) ?></span>
@@ -360,26 +363,26 @@ a{color:var(--accent2);text-decoration:none}
         <pre style="height:500px;overflow:auto;padding:20px;background:#1e1e2e;color:#cdd6f4;font-size:14px;font-family:'Fira Code',monospace;white-space:pre-wrap"><?= h($r['code_content']) ?></pre>
       <?php endif; ?>
       <div class="preview-actions">
-        <a href="/view/<?= $id ?>" target="_blank" class="btn btn-primary"><i data-lucide="maximize" style="width:14px;height:14px"></i> Pantalla completa</a>
+        <a href="/view/<?= $id ?>" target="_blank" class="btn btn-primary"><i data-lucide="maximize" style="width:14px;height:14px"></i> <?= h(t('Pantalla completa')) ?></a>
         <button class="btn btn-like <?= $userLiked ? 'liked' : '' ?>" id="likeBtn" aria-label="Me gusta" data-id="<?= $id ?>">
           <i data-lucide="heart" style="width:14px;height:14px"></i>
           <span id="likeCount"><?= (int)($r['like_count'] ?? 0) ?></span>
         </button>
-        <button class="btn btn-outline" id="forkBtn" data-id="<?= $id ?>"><i data-lucide="git-fork" style="width:14px;height:14px"></i> Fork</button>
+        <button class="btn btn-outline" id="forkBtn" data-id="<?= $id ?>"><i data-lucide="git-fork" style="width:14px;height:14px"></i> <?= h(t('Fork')) ?></button>
         <?php if ($sessionUser || $user): ?>
         <div class="save-coll-wrap">
-          <button class="btn btn-outline" id="saveCollBtn"><i data-lucide="bookmark" style="width:14px;height:14px"></i> Guardar</button>
-          <div class="coll-dropdown" id="collDropdown"><div class="coll-dropdown-empty">Cargando...</div></div>
+          <button class="btn btn-outline" id="saveCollBtn"><i data-lucide="bookmark" style="width:14px;height:14px"></i> <?= h(t('Guardar')) ?></button>
+          <div class="coll-dropdown" id="collDropdown"><div class="coll-dropdown-empty"><?= h(t('Cargando...')) ?></div></div>
         </div>
         <?php endif; ?>
         <?php if ($r['source_url']): ?>
-          <a href="<?= h($r['source_url']) ?>" target="_blank" class="btn btn-outline"><i data-lucide="external-link" style="width:14px;height:14px"></i> Fuente</a>
+          <a href="<?= h($r['source_url']) ?>" target="_blank" class="btn btn-outline"><i data-lucide="external-link" style="width:14px;height:14px"></i> <?= h(t('Fuente')) ?></a>
         <?php endif; ?>
-        <button class="btn btn-outline share-inline" id="shareInlineBtn"><i data-lucide="share-2" style="width:14px;height:14px"></i> Compartir</button>
-        <button class="btn btn-outline" id="embedBtn"><i data-lucide="code-2" style="width:14px;height:14px"></i> Insertar</button>
+        <button class="btn btn-outline share-inline" id="shareInlineBtn"><i data-lucide="share-2" style="width:14px;height:14px"></i> <?= h(t('Compartir')) ?></button>
+        <button class="btn btn-outline" id="embedBtn"><i data-lucide="code-2" style="width:14px;height:14px"></i> <?= h(t('Insertar')) ?></button>
         <?php if ($isOwner): ?>
-          <a href="/dashboard/editor.php?id=<?= $id ?>" class="btn btn-outline"><i data-lucide="pencil" style="width:14px;height:14px"></i> Editar</a>
-          <button class="btn btn-outline" id="deleteResBtn" style="color:#ef4444;border-color:rgba(239,68,68,.35)"><i data-lucide="trash-2" style="width:14px;height:14px"></i> Eliminar</button>
+          <a href="/dashboard/editor.php?id=<?= $id ?>" class="btn btn-outline"><i data-lucide="pencil" style="width:14px;height:14px"></i> <?= h(t('Editar')) ?></a>
+          <button class="btn btn-outline" id="deleteResBtn" style="color:#ef4444;border-color:rgba(239,68,68,.35)"><i data-lucide="trash-2" style="width:14px;height:14px"></i> <?= h(t('Eliminar')) ?></button>
         <?php endif; ?>
       </div>
     </div>
@@ -402,9 +405,9 @@ a{color:var(--accent2);text-decoration:none}
       </div>
 
       <div class="stats-row">
-        <div class="stat-item"><strong><?= (int)$r['view_count'] ?></strong><span>Vistas</span></div>
-        <div class="stat-item"><strong><?= (int)($r['like_count'] ?? 0) ?></strong><span>Likes</span></div>
-        <div class="stat-item"><strong><?= (int)$r['fork_count'] ?></strong><span>Forks</span></div>
+        <div class="stat-item"><strong><?= (int)$r['view_count'] ?></strong><span><?= h(t('Vistas')) ?></span></div>
+        <div class="stat-item"><strong><?= (int)($r['like_count'] ?? 0) ?></strong><span><?= h(t('Likes')) ?></span></div>
+        <div class="stat-item"><strong><?= (int)$r['fork_count'] ?></strong><span><?= h(t('Forks')) ?></span></div>
       </div>
 
       <?php if ($resourceTags): ?>
@@ -415,7 +418,7 @@ a{color:var(--accent2);text-decoration:none}
       </div>
       <?php endif; ?>
       <div class="meta-row">
-        <span class="meta-label">Autor</span>
+        <span class="meta-label"><?= h(t('Autor')) ?></span>
         <span class="meta-value">
           <?php if ($r['author_user_id'] && $r['author_tenant_id'] == 0): ?>
             <a href="/profile/<?= (int)$r['author_user_id'] ?>" style="color:var(--accent2)"><?= h($r['author_display_name']) ?></a>
@@ -424,17 +427,17 @@ a{color:var(--accent2);text-decoration:none}
           <?php endif; ?>
         </span>
       </div>
-      <?php if ($r['subject_area']): ?><div class="meta-row"><span class="meta-label">Área</span><span class="meta-value"><?= h($r['subject_area']) ?></span></div><?php endif; ?>
-      <?php if ($r['topic_tag']): ?><div class="meta-row"><span class="meta-label">Tema</span><span class="meta-value"><?= h($r['topic_tag']) ?></span></div><?php endif; ?>
-      <div class="meta-row"><span class="meta-label">Versión</span><span class="meta-value">v<?= (int)$r['current_version'] ?></span></div>
-      <div class="meta-row"><span class="meta-label">Creado</span><span class="meta-value"><?= date('d/m/Y', strtotime($r['created_at'])) ?></span></div>
+      <?php if ($r['subject_area']): ?><div class="meta-row"><span class="meta-label"><?= h(t('Área')) ?></span><span class="meta-value"><?= h($r['subject_area']) ?></span></div><?php endif; ?>
+      <?php if ($r['topic_tag']): ?><div class="meta-row"><span class="meta-label"><?= h(t('Tema')) ?></span><span class="meta-value"><?= h($r['topic_tag']) ?></span></div><?php endif; ?>
+      <div class="meta-row"><span class="meta-label"><?= h(t('Versión')) ?></span><span class="meta-value">v<?= (int)$r['current_version'] ?></span></div>
+      <div class="meta-row"><span class="meta-label"><?= h(t('Creado')) ?></span><span class="meta-value"><?= date('d/m/Y', strtotime($r['created_at'])) ?></span></div>
       <?php if ($r['source_name']): ?>
-        <div class="meta-row"><span class="meta-label">Fuente</span><span class="meta-value"><a href="<?= h($r['source_url'] ?? '#') ?>" target="_blank"><?= h($r['source_name']) ?></a></span></div>
+        <div class="meta-row"><span class="meta-label"><?= h(t('Fuente')) ?></span><span class="meta-value"><a href="<?= h($r['source_url'] ?? '#') ?>" target="_blank"><?= h($r['source_name']) ?></a></span></div>
       <?php endif; ?>
       <?php if ($r['source_prompt']): ?>
         <div style="margin-top:12px">
           <details>
-            <summary style="cursor:pointer;font-size:.85rem;color:var(--text3)">🤖 Prompt original</summary>
+            <summary style="cursor:pointer;font-size:.85rem;color:var(--text3)"><?= h(t('🤖 Prompt original')) ?></summary>
             <pre style="margin-top:8px;padding:12px;background:var(--bg3);border-radius:8px;font-size:.8rem;white-space:pre-wrap;color:var(--text2);max-height:200px;overflow:auto"><?= h($r['source_prompt']) ?></pre>
           </details>
         </div>
@@ -444,8 +447,8 @@ a{color:var(--accent2);text-decoration:none}
     <?php if ($byAuthor): ?>
     <div class="meta-card">
       <h3 style="font-size:1rem;font-weight:600;margin-bottom:4px;display:flex;justify-content:space-between;align-items:center">
-        <span>Más de <?= h($r['author_display_name']) ?></span>
-        <a href="/profile/<?= (int)$r['author_user_id'] ?>" style="font-size:.78rem;font-weight:500;color:var(--accent2)">Ver perfil →</a>
+        <span><?= h(t('Más de')) ?> <?= h($r['author_display_name']) ?></span>
+        <a href="/profile/<?= (int)$r['author_user_id'] ?>" style="font-size:.78rem;font-weight:500;color:var(--accent2)"><?= h(t('Ver perfil →')) ?></a>
       </h3>
       <div class="similar-grid">
         <?php foreach ($byAuthor as $s): ?>
@@ -461,9 +464,9 @@ a{color:var(--accent2);text-decoration:none}
     <?php if ($similar): ?>
     <div class="meta-card">
       <h3 style="font-size:1rem;font-weight:600;margin-bottom:4px;display:flex;justify-content:space-between;align-items:center">
-        <span>Más en <?= h($r['category_name'] ?? 'esta categoría') ?></span>
+        <span><?= h(t('Más en')) ?> <?= h($r['category_name'] ?? t('esta categoría')) ?></span>
         <?php if ($r['category_id']): ?>
-          <a href="/?category=<?= (int)$r['category_id'] ?>" style="font-size:.78rem;font-weight:500;color:var(--accent2)">Ver todos →</a>
+          <a href="/?category=<?= (int)$r['category_id'] ?>" style="font-size:.78rem;font-weight:500;color:var(--accent2)"><?= h(t('Ver todos →')) ?></a>
         <?php endif; ?>
       </h3>
       <div class="similar-grid">
@@ -480,14 +483,14 @@ a{color:var(--accent2);text-decoration:none}
 
   <!-- Comments -->
   <div class="comments-section">
-    <h3><i data-lucide="message-circle" style="width:18px;height:18px"></i> Comentarios <span id="commentCount" style="color:var(--text3);font-weight:400;font-size:.9rem"></span></h3>
+    <h3><i data-lucide="message-circle" style="width:18px;height:18px"></i> <?= h(t('Comentarios')) ?> <span id="commentCount" style="color:var(--text3);font-weight:400;font-size:.9rem"></span></h3>
     <?php if ($sessionUser || $user): ?>
       <div class="comment-form">
-        <textarea id="commentBody" placeholder="Comparte una idea, sugerencia o cómo usas este recurso..."></textarea>
-        <button class="btn btn-primary" id="postComment" style="align-self:flex-end">Enviar</button>
+        <textarea id="commentBody" placeholder="<?= h(t('Comparte una idea, sugerencia o cómo usas este recurso...')) ?>"></textarea>
+        <button class="btn btn-primary" id="postComment" style="align-self:flex-end"><?= h(t('Enviar')) ?></button>
       </div>
     <?php else: ?>
-      <div class="login-prompt">Inicia sesión con Google para comentar</div>
+      <div class="login-prompt"><?= h(t('Inicia sesión con Google para comentar')) ?></div>
     <?php endif; ?>
     <div id="commentsList"></div>
   </div>
@@ -496,29 +499,29 @@ a{color:var(--accent2);text-decoration:none}
 <!-- Embed Modal -->
 <div class="embed-modal-overlay" id="embedModal">
   <div class="embed-modal">
-    <h3><i data-lucide="code-2" style="width:16px;height:16px"></i> Insertar en tu web o LMS</h3>
+    <h3><i data-lucide="code-2" style="width:16px;height:16px"></i> <?= h(t('Insertar en tu web o LMS')) ?></h3>
     <div class="embed-sizes">
-      <button class="embed-size-btn active" onclick="setEmbedSize('responsive')">Responsivo</button>
-      <button class="embed-size-btn" onclick="setEmbedSize('medium')">Mediano</button>
-      <button class="embed-size-btn" onclick="setEmbedSize('large')">Grande</button>
+      <button class="embed-size-btn active" onclick="setEmbedSize('responsive')"><?= h(t('Responsivo')) ?></button>
+      <button class="embed-size-btn" onclick="setEmbedSize('medium')"><?= h(t('Mediano')) ?></button>
+      <button class="embed-size-btn" onclick="setEmbedSize('large')"><?= h(t('Grande')) ?></button>
     </div>
     <div class="embed-code-wrap">
       <textarea class="embed-code" id="embedCode" readonly></textarea>
     </div>
-    <button class="embed-copy-btn" id="embedCopyBtn">Copiar código</button>
-    <p class="embed-note">Pega este código en cualquier página HTML, Moodle, Google Sites o Notion. El recurso se mostrará en modo presentación completo.</p>
-    <button onclick="document.getElementById('embedModal').classList.remove('open')" style="margin-top:12px;background:none;border:none;color:var(--text3);font-size:.82rem;cursor:pointer;font-family:inherit;width:100%">Cerrar</button>
+    <button class="embed-copy-btn" id="embedCopyBtn"><?= h(t('Copiar código')) ?></button>
+    <p class="embed-note"><?= h(t('Pega este código en cualquier página HTML, Moodle, Google Sites o Notion. El recurso se mostrará en modo presentación completo.')) ?></p>
+    <button onclick="document.getElementById('embedModal').classList.remove('open')" style="margin-top:12px;background:none;border:none;color:var(--text3);font-size:.82rem;cursor:pointer;font-family:inherit;width:100%"><?= h(t('Cerrar')) ?></button>
   </div>
 </div>
 
 <!-- Share FAB (prominent on mobile) -->
-<button class="share-fab" aria-label="Compartir recurso" id="shareFab" title="Compartir recurso">
+<button class="share-fab" aria-label="<?= h(t('Compartir recurso')) ?>" id="shareFab" title="<?= h(t('Compartir recurso')) ?>">
   <svg viewBox="0 0 24 24"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
 </button>
 
 <!-- Share Panel -->
 <div class="share-panel" id="sharePanel">
-  <h4><i data-lucide="share-2" style="width:16px;height:16px"></i> Compartir recurso</h4>
+  <h4><i data-lucide="share-2" style="width:16px;height:16px"></i> <?= h(t('Compartir recurso')) ?></h4>
   <div class="share-options">
     <a class="share-btn whatsapp" id="shareWhatsApp" href="#" target="_blank" rel="noopener">
       <span class="share-icon">💬</span> WhatsApp
@@ -537,7 +540,7 @@ a{color:var(--accent2);text-decoration:none}
     </a>
     <div class="share-divider"></div>
     <button class="share-btn copy" id="shareCopy">
-      <span class="share-icon"><i data-lucide="link" style="width:16px;height:16px"></i></span> Copiar enlace
+      <span class="share-icon"><i data-lucide="link" style="width:16px;height:16px"></i></span> <?= h(t('Copiar enlace')) ?>
     </button>
   </div>
 </div>
@@ -549,6 +552,16 @@ a{color:var(--accent2);text-decoration:none}
 <script>
 const RID = <?= $id ?>;
 const IS_AUTH = <?= ($sessionUser || $user) ? 'true' : 'false' ?>;
+const T = {
+  loginLike: <?= json_encode(t('Inicia sesión para dar like')) ?>,
+  loginFork: <?= json_encode(t('Inicia sesión para forkear')) ?>,
+  confirmFork: <?= json_encode(t('¿Crear un fork de este recurso?')) ?>,
+  forkDone: <?= json_encode(t('¡Fork creado! Revisa tu dashboard.')) ?>,
+  confirmDelete: <?= json_encode(t('¿Eliminar este recurso? Esta acción no se puede deshacer.')) ?>,
+  noComments: <?= json_encode(t('Aún no hay comentarios. ¡Sé el primero!')) ?>,
+  copied: <?= json_encode(t('¡Copiado!')) ?>,
+  copyCode: <?= json_encode(t('Copiar código')) ?>,
+};
 
 // Theme
 (function(){
@@ -564,7 +577,7 @@ function esc(s){const d=document.createElement('div');d.textContent=s||'';return
 
 // Like
 document.getElementById('likeBtn').addEventListener('click', async()=>{
-  if(!IS_AUTH){alert('Inicia sesión para dar like');return}
+  if(!IS_AUTH){alert(T.loginLike);return}
   try{
     const res=await fetch(`/api/likes.php?id=${RID}`,{method:'POST'});
     const data=await res.json();
@@ -577,13 +590,13 @@ document.getElementById('likeBtn').addEventListener('click', async()=>{
 
 // Fork
 document.getElementById('forkBtn').addEventListener('click', async()=>{
-  if(!IS_AUTH){alert('Inicia sesión para forkear');return}
-  if(!confirm('¿Crear un fork de este recurso?')) return;
+  if(!IS_AUTH){alert(T.loginFork);return}
+  if(!confirm(T.confirmFork)) return;
   try{
     const res=await fetch(`/api/resources.php?action=fork&id=${RID}`,{method:'POST'});
     const data=await res.json();
     if(!data.ok) throw new Error(data.error);
-    alert('¡Fork creado! Revisa tu dashboard.');
+    alert(T.forkDone);
   }catch(e){alert(e.message)}
 });
 
@@ -591,7 +604,7 @@ document.getElementById('forkBtn').addEventListener('click', async()=>{
 const deleteResBtn=document.getElementById('deleteResBtn');
 if(deleteResBtn){
   deleteResBtn.addEventListener('click', async()=>{
-    if(!confirm('¿Eliminar este recurso? Esta acción no se puede deshacer.')) return;
+    if(!confirm(T.confirmDelete)) return;
     deleteResBtn.disabled=true;
     try{
       const res=await fetch(`/api/resources.php?id=${RID}`,{method:'DELETE'});
@@ -610,7 +623,7 @@ async function loadComments(){
     if(!data.ok) return;
     document.getElementById('commentCount').textContent=`(${data.total})`;
     const list=document.getElementById('commentsList');
-    if(!data.comments.length){list.innerHTML='<p style="color:var(--text3);text-align:center;padding:24px">Aún no hay comentarios. ¡Sé el primero!</p>';return}
+    if(!data.comments.length){list.innerHTML=`<p style="color:var(--text3);text-align:center;padding:24px">${T.noComments}</p>`;return}
     list.innerHTML=data.comments.map(c=>{
       const avatar=c.user_avatar?`<img src="${esc(c.user_avatar)}" alt="">`:'';
       const date=new Date(c.created_at).toLocaleDateString('es',{day:'numeric',month:'short',year:'numeric'});
@@ -718,8 +731,8 @@ document.getElementById('embedCopyBtn')?.addEventListener('click', async () => {
   try { await navigator.clipboard.writeText(code); }
   catch { const ta=document.createElement('textarea');ta.value=code;document.body.appendChild(ta);ta.select();document.execCommand('copy');document.body.removeChild(ta); }
   const btn = document.getElementById('embedCopyBtn');
-  btn.textContent = '✓ Copiado';
-  setTimeout(() => btn.textContent = 'Copiar código', 2000);
+  btn.textContent = '✓ ' + T.copied;
+  setTimeout(() => btn.textContent = T.copyCode, 2000);
 });
 
 document.getElementById('embedModal')?.addEventListener('click', e => {
