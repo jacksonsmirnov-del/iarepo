@@ -85,7 +85,7 @@ $collections = $collStmt->fetchAll();
 }
 </script>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+<script src="/assets/js/lucide.min.js"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{--bg:#f8fafc;--bg2:#fff;--bg3:#f1f5f9;--text:#1e293b;--text2:#475569;--text3:#94a3b8;--accent:#7c3aed;--accent2:#06b6d4;--grad:linear-gradient(135deg,#7c3aed,#06b6d4);--card:#fff;--border:#e2e8f0;--radius:12px;--shadow:0 1px 3px rgba(0,0,0,.06)}
@@ -185,7 +185,7 @@ a{color:var(--accent2);text-decoration:none}
   <?php endif; ?>
 </div>
 
-<button class="theme-toggle" id="themeBtn"><i data-lucide="moon" style="width:18px;height:18px"></i></button>
+<button class="theme-toggle" aria-label="Cambiar tema" id="themeBtn"><i data-lucide="moon" style="width:18px;height:18px"></i></button>
 
 <script>
 if(localStorage.getItem('iarepo-theme')==='dark') document.documentElement.setAttribute('data-theme','dark');

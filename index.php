@@ -87,7 +87,7 @@ if (str_contains($accept, 'application/json') && !str_contains($accept, 'text/ht
 <script src="/assets/js/pwa.js" defer></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+<script src="/assets/js/lucide.min.js"></script>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 
 <!-- AI Crawlers: JSON-LD Structured Data -->
@@ -303,7 +303,7 @@ a:hover{opacity:.8}
 </button>
 
 <!-- Theme toggle -->
-<button class="theme-toggle" title="Cambiar tema" id="theme-btn">
+<button class="theme-toggle" aria-label="Cambiar tema" title="Cambiar tema" id="theme-btn">
   <i data-lucide="moon" style="width:18px;height:18px" id="theme-icon-dark"></i>
   <i data-lucide="sun" style="width:18px;height:18px" id="theme-icon-light" style="display:none"></i>
 </button>

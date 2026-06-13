@@ -152,7 +152,7 @@ $metaDesc = mb_substr($metaDesc, 0, 160);
   }<?php endif; ?>
 }
 </script>
-<script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+<script src="/assets/js/lucide.min.js"></script>
 <?php if (!$sessionUser): ?>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <?php endif; ?>
@@ -361,7 +361,7 @@ a{color:var(--accent2);text-decoration:none}
       <?php endif; ?>
       <div class="preview-actions">
         <a href="/view/<?= $id ?>" target="_blank" class="btn btn-primary"><i data-lucide="maximize" style="width:14px;height:14px"></i> Pantalla completa</a>
-        <button class="btn btn-like <?= $userLiked ? 'liked' : '' ?>" id="likeBtn" data-id="<?= $id ?>">
+        <button class="btn btn-like <?= $userLiked ? 'liked' : '' ?>" id="likeBtn" aria-label="Me gusta" data-id="<?= $id ?>">
           <i data-lucide="heart" style="width:14px;height:14px"></i>
           <span id="likeCount"><?= (int)($r['like_count'] ?? 0) ?></span>
         </button>
@@ -512,7 +512,7 @@ a{color:var(--accent2);text-decoration:none}
 </div>
 
 <!-- Share FAB (prominent on mobile) -->
-<button class="share-fab" id="shareFab" title="Compartir recurso">
+<button class="share-fab" aria-label="Compartir recurso" id="shareFab" title="Compartir recurso">
   <svg viewBox="0 0 24 24"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
 </button>
 
@@ -544,7 +544,7 @@ a{color:var(--accent2);text-decoration:none}
 
 <div class="share-toast" id="shareToast">✓ Enlace copiado al portapapeles</div>
 
-<button class="theme-toggle" id="themeBtn" title="Cambiar tema"><i data-lucide="moon" style="width:18px;height:18px"></i></button>
+<button class="theme-toggle" aria-label="Cambiar tema" id="themeBtn" title="Cambiar tema"><i data-lucide="moon" style="width:18px;height:18px"></i></button>
 
 <script>
 const RID = <?= $id ?>;
