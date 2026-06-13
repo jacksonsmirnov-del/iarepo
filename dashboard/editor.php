@@ -61,7 +61,16 @@ a{color:var(--accent2);text-decoration:none}
 h1{font-size:1.4rem;font-weight:700;margin-bottom:24px;display:flex;align-items:center;gap:8px}
 
 .editor-layout{display:grid;grid-template-columns:1fr 1fr;gap:20px;min-height:70vh}
-@media(max-width:900px){.editor-layout{grid-template-columns:1fr}}
+.mobile-tabs{display:none}
+@media(max-width:900px){
+  .editor-layout{grid-template-columns:1fr;min-height:auto}
+  .mobile-tabs{display:flex;gap:8px;margin-bottom:16px}
+  .mtab{flex:1;padding:11px;border:1px solid var(--border);background:var(--bg2);color:var(--text2);border-radius:10px;font-weight:600;cursor:pointer;font-family:inherit;font-size:.88rem;transition:.15s}
+  .mtab.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+  .editor-layout.show-form .preview-panel{display:none}
+  .editor-layout.show-preview .form-panel{display:none}
+  .preview-panel{min-height:62vh}
+}
 
 .form-panel{display:flex;flex-direction:column;gap:16px}
 .form-group label{display:block;font-size:.85rem;font-weight:600;margin-bottom:6px;color:var(--text2)}
@@ -118,7 +127,11 @@ textarea.form-control{resize:vertical;min-height:60px}
   </div>
   <?php endif; ?>
 
-  <div class="editor-layout">
+  <div class="mobile-tabs">
+    <button type="button" class="mtab active" data-panel="form">✏️ Editar</button>
+    <button type="button" class="mtab" data-panel="preview">👁 Vista previa</button>
+  </div>
+  <div class="editor-layout show-form">
     <div class="form-panel">
       <div class="form-group">
         <label>Título *</label>
@@ -258,6 +271,19 @@ renderTags();
 
 // Theme
 if(localStorage.getItem('iarepo-theme')==='dark') document.documentElement.setAttribute('data-theme','dark');
+
+// Mobile tabs (Editar / Vista previa)
+const editorLayout=document.querySelector('.editor-layout');
+document.querySelectorAll('.mtab').forEach(tab=>{
+  tab.addEventListener('click',()=>{
+    document.querySelectorAll('.mtab').forEach(t=>t.classList.remove('active'));
+    tab.classList.add('active');
+    const showPreview=tab.dataset.panel==='preview';
+    editorLayout.classList.toggle('show-preview',showPreview);
+    editorLayout.classList.toggle('show-form',!showPreview);
+    if(showPreview) updatePreview();
+  });
+});
 
 // Live preview
 function updatePreview(){
