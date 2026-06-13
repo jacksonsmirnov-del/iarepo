@@ -61,8 +61,9 @@ function emailShell(string $innerHtml): string
     return '<!DOCTYPE html><html><body style="margin:0;background:#f1f5f9;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif">'
         . '<table width="100%" cellpadding="0" cellspacing="0" style="background:#f1f5f9;padding:24px 0"><tr><td align="center">'
         . '<table width="100%" cellpadding="0" cellspacing="0" style="max-width:480px;background:#fff;border-radius:14px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.08)">'
-        . '<tr><td style="background:linear-gradient(135deg,#7c3aed,#06b6d4);padding:18px 24px">'
-        . '<span style="color:#fff;font-size:1.1rem;font-weight:700;letter-spacing:.5px">iarepo</span></td></tr>'
+        . '<tr><td style="background:linear-gradient(135deg,#7c3aed,#06b6d4);padding:16px 24px">'
+        . '<img src="https://iarepo.com/apple-touch-icon.png" width="30" height="30" alt="iarepo" style="display:inline-block;vertical-align:middle;border-radius:8px;border:0">'
+        . '<span style="color:#fff;font-size:1.15rem;font-weight:700;letter-spacing:.5px;vertical-align:middle;margin-left:10px">iarepo</span></td></tr>'
         . '<tr><td style="padding:24px">' . $innerHtml . '</td></tr>'
         . '</table></td></tr></table></body></html>';
 }

@@ -1,5 +1,8 @@
 RewriteEngine On
 
+# ── Branded error page ───────────────────────────
+ErrorDocument 404 /404.php
+
 # ── CORS Preflight ───────────────────────────────
 RewriteCond %{REQUEST_METHOD} OPTIONS
 RewriteRule .* - [R=200,L]
