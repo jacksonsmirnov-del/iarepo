@@ -90,6 +90,27 @@ a{color:var(--accent2);text-decoration:none}
 .topbar-right{display:flex;align-items:center;gap:12px;font-size:.85rem}
 .topbar-right img{width:28px;height:28px;border-radius:50%}
 
+/* Notifications bell */
+.notif-wrap{position:relative;display:flex}
+.notif-bell{position:relative;width:36px;height:36px;border-radius:50%;border:1px solid var(--border);background:var(--bg2);color:var(--text2);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:.2s}
+.notif-bell:hover{border-color:var(--accent);color:var(--accent)}
+.notif-badge{position:absolute;top:-3px;right:-3px;min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:#ef4444;color:#fff;font-size:.66rem;font-weight:700;display:flex;align-items:center;justify-content:center;border:2px solid var(--bg2)}
+.notif-panel{position:absolute;top:46px;right:0;width:330px;max-width:88vw;background:var(--card);border:1px solid var(--border);border-radius:14px;box-shadow:0 12px 40px rgba(0,0,0,.18);opacity:0;visibility:hidden;transform:translateY(8px);transition:all .2s;z-index:300;overflow:hidden}
+.notif-panel.open{opacity:1;visibility:visible;transform:translateY(0)}
+.notif-head{padding:14px 16px;font-weight:700;font-size:.92rem;border-bottom:1px solid var(--border)}
+.notif-list{max-height:380px;overflow-y:auto}
+.notif-item{display:flex;gap:10px;padding:12px 16px;border-bottom:1px solid var(--border);font-size:.84rem;text-decoration:none;color:var(--text);transition:.15s}
+.notif-item:hover{background:var(--bg3)}
+.notif-item:last-child{border-bottom:none}
+.notif-ico{width:30px;height:30px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:.85rem}
+.notif-ico.like{background:rgba(239,68,68,.12);color:#ef4444}
+.notif-ico.fork{background:rgba(124,58,237,.12);color:var(--accent)}
+.notif-ico.comment{background:rgba(6,182,212,.12);color:var(--accent2)}
+.notif-txt{flex:1;line-height:1.45}
+.notif-txt strong{color:var(--text);font-weight:600}
+.notif-time{font-size:.72rem;color:var(--text3);margin-top:2px}
+.notif-empty{padding:30px 16px;text-align:center;color:var(--text3);font-size:.85rem}
+
 .container{max-width:1000px;margin:0 auto;padding:32px 24px}
 
 /* Stats */
@@ -172,6 +193,16 @@ a{color:var(--accent2);text-decoration:none}
     <span style="font-weight:600;font-size:.9rem">Dashboard</span>
   </div>
   <div class="topbar-right">
+    <div class="notif-wrap">
+      <button class="notif-bell" id="notifBell" aria-label="Notificaciones" title="Notificaciones">
+        <i data-lucide="bell" style="width:18px;height:18px"></i>
+        <span class="notif-badge" id="notifBadge" style="display:none">0</span>
+      </button>
+      <div class="notif-panel" id="notifPanel">
+        <div class="notif-head">Notificaciones</div>
+        <div class="notif-list" id="notifList"><div class="notif-empty">Cargando…</div></div>
+      </div>
+    </div>
     <?php if ($user['avatar_url']): ?><img src="<?= h($user['avatar_url']) ?>" alt=""><?php endif; ?>
     <span><?= h($user['name']) ?></span>
     <a href="/profile/<?= (int)$user['id'] ?>" style="font-size:.8rem">Mi perfil</a>
@@ -445,6 +476,47 @@ async function deleteResource(id, title) {
 document.querySelectorAll('.modal-overlay').forEach(o => {
   o.addEventListener('click', e => { if (e.target === o) o.classList.remove('open'); });
 });
+
+// Notifications bell
+(function(){
+  const bell=document.getElementById('notifBell');
+  const panel=document.getElementById('notifPanel');
+  const badge=document.getElementById('notifBadge');
+  const list=document.getElementById('notifList');
+  if(!bell) return;
+  const ico={like:'❤',fork:'⑂',comment:'💬'};
+  const verb={like:'le dio like a',fork:'hizo un fork de',comment:'comentó en'};
+  function esc(s){const e=document.createElement('div');e.textContent=s||'';return e.innerHTML;}
+  function ago(dt){const d=(Date.now()-new Date(dt.replace(' ','T')+'Z').getTime())/1000;if(d<60)return 'ahora';if(d<3600)return Math.round(d/60)+'m';if(d<86400)return Math.round(d/3600)+'h';return Math.round(d/86400)+'d';}
+  async function load(){
+    try{
+      const res=await fetch('/api/notifications.php');
+      const data=await res.json();
+      if(!data.ok) return;
+      if(data.unread>0){badge.textContent=data.unread>9?'9+':data.unread;badge.style.display='flex';}
+      else badge.style.display='none';
+      if(!data.notifications.length){list.innerHTML='<div class="notif-empty">Sin notificaciones todavía 🔔</div>';return;}
+      list.innerHTML=data.notifications.map(n=>`<a class="notif-item" href="/resource/${n.resource_id}">
+        <div class="notif-ico ${n.type}">${ico[n.type]||'•'}</div>
+        <div class="notif-txt"><strong>${esc(n.actor)}</strong> ${verb[n.type]||'interactuó con'} <strong>${esc(n.resource_title)}</strong>
+        <div class="notif-time">hace ${ago(n.created_at)}</div></div></a>`).join('');
+    }catch(e){}
+  }
+  load();
+  bell.addEventListener('click', async (e)=>{
+    e.stopPropagation();
+    const opening=!panel.classList.contains('open');
+    panel.classList.toggle('open');
+    if(opening){
+      await load();
+      if(badge.style.display!=='none'){
+        badge.style.display='none';
+        fetch('/api/notifications.php',{method:'POST'}).catch(()=>{});
+      }
+    }
+  });
+  document.addEventListener('click',(e)=>{ if(!panel.contains(e.target)&&!bell.contains(e.target)) panel.classList.remove('open'); });
+})();
 
 lucide.createIcons();
 </script>
