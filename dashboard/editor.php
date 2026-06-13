@@ -10,6 +10,8 @@ session_start();
 require_once __DIR__ . '/../shared/auth.php';
 require_once __DIR__ . '/../shared/db.php';
 require_once __DIR__ . '/../shared/helpers.php';
+require_once __DIR__ . '/../shared/i18n.php';
+lang();
 
 $user = getSessionUser();
 if (!$user) { header('Location: /'); exit; }
@@ -32,10 +34,10 @@ if ($editId) {
 // Fetch categories for dropdown
 $cats = $db->query("SELECT id, name, icon FROM categories ORDER BY name")->fetchAll();
 $isEdit = $resource !== null;
-$pageTitle = $isEdit ? 'Editar Recurso' : 'Nuevo Recurso';
+$pageTitle = $isEdit ? t('Editar Recurso') : t('Nuevo Recurso');
 ?>
 <!DOCTYPE html>
-<html lang="es">
+<html lang="<?= lang() ?>">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -121,54 +123,54 @@ textarea.form-control{resize:vertical;min-height:60px}
   <div style="background:rgba(124,58,237,.06);border:1px solid rgba(124,58,237,.2);border-radius:12px;padding:14px 18px;margin-bottom:20px;display:flex;align-items:flex-start;gap:12px">
     <span style="font-size:1.4rem;flex-shrink:0">🤖</span>
     <div>
-      <strong style="font-size:.9rem">¿Tienes un recurso HTML generado con IA?</strong>
-      <p style="font-size:.82rem;color:var(--text2);margin-top:3px;line-height:1.5">Pídele a Gemini, ChatGPT o Claude que genere una simulación interactiva en HTML, pega el código aquí y compártela con la comunidad. <a href="https://gemini.google.com" target="_blank" rel="noopener" style="color:var(--accent)">Abrir Gemini →</a></p>
+      <strong style="font-size:.9rem"><?= h(t('¿Tienes un recurso HTML generado con IA?')) ?></strong>
+      <p style="font-size:.82rem;color:var(--text2);margin-top:3px;line-height:1.5"><?= h(t('Pídele a Gemini, ChatGPT o Claude que genere una simulación interactiva en HTML, pega el código aquí y compártela con la comunidad.')) ?> <a href="https://gemini.google.com" target="_blank" rel="noopener" style="color:var(--accent)"><?= h(t('Abrir Gemini →')) ?></a></p>
     </div>
   </div>
   <?php endif; ?>
 
   <div class="mobile-tabs">
-    <button type="button" class="mtab active" data-panel="form">✏️ Editar</button>
-    <button type="button" class="mtab" data-panel="preview">👁 Vista previa</button>
+    <button type="button" class="mtab active" data-panel="form">✏️ <?= h(t('Editar')) ?></button>
+    <button type="button" class="mtab" data-panel="preview">👁 <?= h(t('Vista previa')) ?></button>
   </div>
   <div class="editor-layout show-form">
     <div class="form-panel">
       <div class="form-group">
-        <label>Título *</label>
-        <input type="text" class="form-control" id="title" placeholder="ej. Simulador de Caída Libre" value="<?= $resource ? h($resource['title']) : '' ?>">
+        <label><?= h(t('Título *')) ?></label>
+        <input type="text" class="form-control" id="title" placeholder="<?= h(t('ej. Simulador de Caída Libre')) ?>" value="<?= $resource ? h($resource['title']) : '' ?>">
       </div>
       <div class="form-group">
-        <label>Descripción</label>
-        <textarea class="form-control" id="description" rows="2" placeholder="Breve descripción del recurso..."><?= $resource ? h($resource['description']) : '' ?></textarea>
+        <label><?= h(t('Descripción')) ?></label>
+        <textarea class="form-control" id="description" rows="2" placeholder="<?= h(t('Breve descripción del recurso...')) ?>"><?= $resource ? h($resource['description']) : '' ?></textarea>
       </div>
       <div class="form-row">
         <div class="form-group">
-          <label>Tipo de contenido</label>
+          <label><?= h(t('Tipo de contenido')) ?></label>
           <select class="form-control" id="codeType">
-            <option value="html" <?= ($resource && $resource['code_type']==='html') ? 'selected' : '' ?>>⭐ HTML generado con IA</option>
-            <option value="prompt" <?= ($resource && $resource['code_type']==='prompt') ? 'selected' : '' ?>>💡 Prompt de IA</option>
-            <option value="url" <?= ($resource && $resource['code_type']==='url') ? 'selected' : '' ?>>🔗 URL externa</option>
-            <option value="embed" <?= ($resource && $resource['code_type']==='embed') ? 'selected' : '' ?>>📋 Embed</option>
-            <option value="python" <?= ($resource && $resource['code_type']==='python') ? 'selected' : '' ?>>🐍 Python</option>
+            <option value="html" <?= ($resource && $resource['code_type']==='html') ? 'selected' : '' ?>>⭐ <?= h(t('HTML generado con IA')) ?></option>
+            <option value="prompt" <?= ($resource && $resource['code_type']==='prompt') ? 'selected' : '' ?>>💡 <?= h(t('Prompt de IA')) ?></option>
+            <option value="url" <?= ($resource && $resource['code_type']==='url') ? 'selected' : '' ?>>🔗 <?= h(t('URL externa')) ?></option>
+            <option value="embed" <?= ($resource && $resource['code_type']==='embed') ? 'selected' : '' ?>>📋 <?= h(t('Embed')) ?></option>
+            <option value="python" <?= ($resource && $resource['code_type']==='python') ? 'selected' : '' ?>>🐍 <?= h(t('Python')) ?></option>
           </select>
         </div>
         <div class="form-group">
-          <label>Visibilidad</label>
+          <label><?= h(t('Visibilidad')) ?></label>
           <select class="form-control" id="visibility">
-            <option value="draft" <?= ($resource && $resource['visibility']==='draft') ? 'selected' : '' ?>>🔒 Borrador</option>
-            <option value="community" <?= (!$resource || ($resource && $resource['visibility']==='community')) ? 'selected' : '' ?>>🌍 Comunidad</option>
+            <option value="draft" <?= ($resource && $resource['visibility']==='draft') ? 'selected' : '' ?>>🔒 <?= h(t('Borrador')) ?></option>
+            <option value="community" <?= (!$resource || ($resource && $resource['visibility']==='community')) ? 'selected' : '' ?>>🌍 <?= h(t('Comunidad')) ?></option>
           </select>
         </div>
       </div>
       <div class="form-row">
         <div class="form-group">
-          <label>Área / Materia</label>
-          <input type="text" class="form-control" id="subjectArea" placeholder="ej. Physics" value="<?= $resource ? h($resource['subject_area'] ?? '') : '' ?>">
+          <label><?= h(t('Área / Materia')) ?></label>
+          <input type="text" class="form-control" id="subjectArea" placeholder="<?= h(t('ej. Physics')) ?>" value="<?= $resource ? h($resource['subject_area'] ?? '') : '' ?>">
         </div>
         <div class="form-group">
-          <label>Categoría</label>
+          <label><?= h(t('Categoría')) ?></label>
           <select class="form-control" id="categoryId">
-            <option value="">— Sin categoría —</option>
+            <option value=""><?= h(t('— Sin categoría —')) ?></option>
             <?php foreach ($cats as $c): ?>
               <option value="<?= (int)$c['id'] ?>" <?= ($resource && $resource['category_id'] == $c['id']) ? 'selected' : '' ?>><?= h($c['name']) ?></option>
             <?php endforeach; ?>
@@ -177,17 +179,17 @@ textarea.form-control{resize:vertical;min-height:60px}
       </div>
       <div class="form-row">
         <div class="form-group">
-          <label>Nivel educativo</label>
+          <label><?= h(t('Nivel educativo')) ?></label>
           <select class="form-control" id="level">
-            <option value="general">General</option>
-            <option value="primary" <?= ($resource && $resource['level']==='primary') ? 'selected' : '' ?>>Primaria</option>
-            <option value="secondary" <?= ($resource && $resource['level']==='secondary') ? 'selected' : '' ?>>Secundaria</option>
-            <option value="ib" <?= ($resource && $resource['level']==='ib') ? 'selected' : '' ?>>IB</option>
-            <option value="university" <?= ($resource && $resource['level']==='university') ? 'selected' : '' ?>>Universidad</option>
+            <option value="general"><?= h(t('General')) ?></option>
+            <option value="primary" <?= ($resource && $resource['level']==='primary') ? 'selected' : '' ?>><?= h(t('Primaria')) ?></option>
+            <option value="secondary" <?= ($resource && $resource['level']==='secondary') ? 'selected' : '' ?>><?= h(t('Secundaria')) ?></option>
+            <option value="ib" <?= ($resource && $resource['level']==='ib') ? 'selected' : '' ?>><?= h(t('IB')) ?></option>
+            <option value="university" <?= ($resource && $resource['level']==='university') ? 'selected' : '' ?>><?= h(t('Universidad')) ?></option>
           </select>
         </div>
         <div class="form-group">
-          <label>Idioma</label>
+          <label><?= h(t('Idioma')) ?></label>
           <select class="form-control" id="lang">
             <option value="es" <?= ($resource && $resource['lang']==='es') ? 'selected' : '' ?>>Español</option>
             <option value="en" <?= ($resource && $resource['lang']==='en') ? 'selected' : '' ?>>English</option>
@@ -196,29 +198,29 @@ textarea.form-control{resize:vertical;min-height:60px}
         </div>
       </div>
       <div class="form-group">
-        <label>Tags <span style="font-weight:400;color:var(--text3);font-size:.8rem">· Enter para agregar · máx. 20</span></label>
+        <label>Tags <span style="font-weight:400;color:var(--text3);font-size:.8rem"><?= h(t('· Enter para agregar · máx. 20')) ?></span></label>
         <div class="tag-input-wrap" id="tagWrap" onclick="document.getElementById('tagInput').focus()">
-          <input type="text" class="tag-input-field" id="tagInput" placeholder="ej. gravedad, simulación..." maxlength="50" autocomplete="off">
+          <input type="text" class="tag-input-field" id="tagInput" placeholder="<?= h(t('ej. gravedad, simulación...')) ?>" maxlength="50" autocomplete="off">
         </div>
       </div>
       <div class="form-group" style="flex:1;display:flex;flex-direction:column">
-        <label>Código / Contenido *</label>
-        <textarea class="form-control code-editor" id="codeContent" placeholder="Pega tu código HTML aquí..."><?= $resource ? h($resource['code_content']) : '' ?></textarea>
+        <label><?= h(t('Código / Contenido *')) ?></label>
+        <textarea class="form-control code-editor" id="codeContent" placeholder="<?= h(t('Pega tu código HTML aquí...')) ?>"><?= $resource ? h($resource['code_content']) : '' ?></textarea>
       </div>
     </div>
 
     <div class="preview-panel">
       <div class="preview-header">
-        <span>👁 Vista previa</span>
-        <button class="btn btn-secondary" style="padding:4px 12px;font-size:.78rem" id="refreshPreview">↻ Actualizar</button>
+        <span>👁 <?= h(t('Vista previa')) ?></span>
+        <button class="btn btn-secondary" style="padding:4px 12px;font-size:.78rem" id="refreshPreview">↻ <?= h(t('Actualizar')) ?></button>
       </div>
       <iframe class="preview-frame" id="previewFrame" sandbox="allow-scripts allow-modals allow-popups"></iframe>
     </div>
   </div>
 
   <div class="actions">
-    <a href="/dashboard/" class="btn btn-secondary">Cancelar</a>
-    <button class="btn btn-primary" id="saveBtn">💾 <?= $isEdit ? 'Guardar cambios' : 'Publicar recurso' ?></button>
+    <a href="/dashboard/" class="btn btn-secondary"><?= h(t('Cancelar')) ?></a>
+    <button class="btn btn-primary" id="saveBtn">💾 <?= $isEdit ? h(t('Guardar cambios')) : h(t('Publicar recurso')) ?></button>
   </div>
   <div class="status-msg" id="statusMsg"></div>
 </div>
@@ -226,6 +228,20 @@ textarea.form-control{resize:vertical;min-height:60px}
 <script>
 const EDIT_ID = <?= $editId ?: 'null' ?>;
 const tags = new Set(<?= json_encode($existingTags, JSON_UNESCAPED_UNICODE) ?>);
+const T = {
+  titleReq: <?= json_encode(t('El título es obligatorio')) ?>,
+  contentReq: <?= json_encode(t('El contenido es obligatorio')) ?>,
+  saving: <?= json_encode(t('⏳ Guardando...')) ?>,
+  saveFail: <?= json_encode(t('No se pudo guardar el recurso')) ?>,
+  updated: <?= json_encode(t('¡Recurso actualizado!')) ?>,
+  saveChanges: <?= json_encode(t('Guardar cambios')) ?>,
+  published: <?= json_encode(t('✅ ¡Publicado!')) ?>,
+  createdMsg: <?= json_encode(t('¡Recurso creado exitosamente! Redirigiendo...')) ?>,
+  publishResource: <?= json_encode(t('Publicar recurso')) ?>,
+  phDefault: <?= json_encode(t('Pega tu contenido aquí...')) ?>,
+  phHtml: <?= json_encode(t('<!-- Pega aquí el HTML generado con Gemini, ChatGPT o Claude -->')) ?> + '\n<!DOCTYPE html>\n<html>...',
+  phPrompt: <?= json_encode(t('Escribe el prompt que usaste para generar el recurso. Otros profesores podrán replicarlo y adaptarlo.')) ?>,
+};
 
 function esc(s){const d=document.createElement('div');d.textContent=s||'';return d.innerHTML}
 
@@ -302,8 +318,8 @@ document.getElementById('codeContent').addEventListener('input',()=>{
 });
 document.getElementById('refreshPreview').addEventListener('click',updatePreview);
 const placeholders = {
-  html: '<!-- Pega aquí el HTML generado con Gemini, ChatGPT o Claude -->\n<!DOCTYPE html>\n<html>...',
-  prompt: 'Escribe el prompt que usaste para generar el recurso. Otros profesores podrán replicarlo y adaptarlo.',
+  html: T.phHtml,
+  prompt: T.phPrompt,
   url: 'https://phet.colorado.edu/sims/html/...',
   embed: '<iframe src="..." width="100%" height="500" frameborder="0"></iframe>',
   python: '# Código Python\nprint("Hola mundo")',
@@ -311,7 +327,7 @@ const placeholders = {
 document.getElementById('codeType').addEventListener('change',()=>{
   const type=document.getElementById('codeType').value;
   if(!document.getElementById('codeContent').value)
-    document.getElementById('codeContent').placeholder=placeholders[type]||'Pega tu contenido aquí...';
+    document.getElementById('codeContent').placeholder=placeholders[type]||T.phDefault;
   updatePreview();
 });
 
@@ -322,8 +338,8 @@ document.getElementById('saveBtn').addEventListener('click', async()=>{
   if(isSaving||created) return;  // ignore extra clicks while saving / after publishing
   const title=document.getElementById('title').value.trim();
   const code=document.getElementById('codeContent').value;
-  if(!title){showStatus('error','El título es obligatorio');return}
-  if(!code){showStatus('error','El contenido es obligatorio');return}
+  if(!title){showStatus('error',T.titleReq);return}
+  if(!code){showStatus('error',T.contentReq);return}
 
   const body={
     title,
@@ -340,32 +356,32 @@ document.getElementById('saveBtn').addEventListener('click', async()=>{
 
   const btn=document.getElementById('saveBtn');
   isSaving=true;
-  btn.disabled=true;btn.textContent='⏳ Guardando...';
+  btn.disabled=true;btn.textContent=T.saving;
 
   try{
     const url=EDIT_ID?`/api/resources.php?id=${EDIT_ID}`:'/api/resources.php';
     const method=EDIT_ID?'PUT':'POST';
     const res=await fetch(url,{method,headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     const data=await res.json();
-    if(!data.ok) throw new Error(data.error||'No se pudo guardar el recurso');
+    if(!data.ok) throw new Error(data.error||T.saveFail);
 
     if(EDIT_ID){
       // Edit: re-enable so the user can keep refining.
-      showStatus('success','¡Recurso actualizado!');
+      showStatus('success',T.updated);
       isSaving=false;
-      btn.disabled=false;btn.textContent='💾 Guardar cambios';
+      btn.disabled=false;btn.textContent='💾 '+T.saveChanges;
     }else{
       // Create: keep the button locked and redirect to the new resource.
       // This is what stops extra clicks from creating duplicates.
       created=true;
-      btn.textContent='✅ ¡Publicado!';
-      showStatus('success','¡Recurso creado exitosamente! Redirigiendo...');
+      btn.textContent=T.published;
+      showStatus('success',T.createdMsg);
       setTimeout(()=>{ window.location = data.id ? '/resource/'+data.id : '/dashboard/'; },1200);
     }
   }catch(e){
     showStatus('error',e.message);
     isSaving=false;
-    btn.disabled=false;btn.textContent='💾 '+(EDIT_ID?'Guardar cambios':'Publicar recurso');
+    btn.disabled=false;btn.textContent='💾 '+(EDIT_ID?T.saveChanges:T.publishResource);
   }
 });
 

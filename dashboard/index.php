@@ -7,6 +7,8 @@ session_start();
 require_once __DIR__ . '/../shared/auth.php';
 require_once __DIR__ . '/../shared/db.php';
 require_once __DIR__ . '/../shared/helpers.php';
+require_once __DIR__ . '/../shared/i18n.php';
+lang();
 
 $user = getSessionUser();
 if (!$user) { header('Location: /'); exit; }
@@ -64,7 +66,7 @@ $collStmt->execute([$user['id']]);
 $collections = $collStmt->fetchAll(PDO::FETCH_ASSOC);
 ?>
 <!DOCTYPE html>
-<html lang="es">
+<html lang="<?= lang() ?>">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -194,41 +196,41 @@ a{color:var(--accent2);text-decoration:none}
   </div>
   <div class="topbar-right">
     <div class="notif-wrap">
-      <button class="notif-bell" id="notifBell" aria-label="Notificaciones" title="Notificaciones">
+      <button class="notif-bell" id="notifBell" aria-label="<?= h(t('Notificaciones')) ?>" title="<?= h(t('Notificaciones')) ?>">
         <i data-lucide="bell" style="width:18px;height:18px"></i>
         <span class="notif-badge" id="notifBadge" style="display:none">0</span>
       </button>
       <div class="notif-panel" id="notifPanel">
-        <div class="notif-head">Notificaciones</div>
-        <div class="notif-list" id="notifList"><div class="notif-empty">Cargando…</div></div>
+        <div class="notif-head"><?= h(t('Notificaciones')) ?></div>
+        <div class="notif-list" id="notifList"><div class="notif-empty"><?= h(t('Cargando…')) ?></div></div>
       </div>
     </div>
     <?php if ($user['avatar_url']): ?><img src="<?= h($user['avatar_url']) ?>" alt=""><?php endif; ?>
     <span><?= h($user['name']) ?></span>
-    <a href="/profile/<?= (int)$user['id'] ?>" style="font-size:.8rem">Mi perfil</a>
-    <a href="/auth/logout.php" style="color:var(--text3);font-size:.8rem">Salir</a>
+    <a href="/profile/<?= (int)$user['id'] ?>" style="font-size:.8rem"><?= h(t('Mi perfil')) ?></a>
+    <a href="/auth/logout.php" style="color:var(--text3);font-size:.8rem"><?= h(t('Salir')) ?></a>
   </div>
 </div>
 
 <div class="container">
   <div class="stats-grid">
-    <div class="stat-card"><strong><?= count($resources) ?></strong><span>Recursos</span></div>
-    <div class="stat-card"><strong><?= $totalViews ?></strong><span>Vistas</span></div>
-    <div class="stat-card"><strong><?= $totalLikes ?></strong><span>Likes</span></div>
-    <div class="stat-card"><strong><?= $totalForks ?></strong><span>Forks</span></div>
+    <div class="stat-card"><strong><?= count($resources) ?></strong><span><?= h(t('Recursos')) ?></span></div>
+    <div class="stat-card"><strong><?= $totalViews ?></strong><span><?= h(t('Vistas')) ?></span></div>
+    <div class="stat-card"><strong><?= $totalLikes ?></strong><span><?= h(t('Likes')) ?></span></div>
+    <div class="stat-card"><strong><?= $totalForks ?></strong><span><?= h(t('Forks')) ?></span></div>
   </div>
 
   <?php if ($activity): ?>
   <div class="header" style="margin-bottom:12px">
-    <h2>Actividad reciente</h2>
+    <h2><?= h(t('Actividad reciente')) ?></h2>
   </div>
   <div class="activity-list">
     <?php foreach ($activity as $act):
       $icons = ['like' => '❤', 'fork' => '⑂', 'comment' => '💬'];
       $labels = [
-        'like'    => "<strong>{$act['actor']}</strong> le dio like a <a href=\"/resource/{$act['resource_id']}\">{$act['resource_title']}</a>",
-        'fork'    => "<strong>{$act['actor']}</strong> forkeó <a href=\"/resource/{$act['resource_id']}\">{$act['resource_title']}</a>",
-        'comment' => "<strong>{$act['actor']}</strong> comentó en <a href=\"/resource/{$act['resource_id']}\">{$act['resource_title']}</a>",
+        'like'    => "<strong>{$act['actor']}</strong> " . t('le dio like a') . " <a href=\"/resource/{$act['resource_id']}\">{$act['resource_title']}</a>",
+        'fork'    => "<strong>{$act['actor']}</strong> " . t('forkeó') . " <a href=\"/resource/{$act['resource_id']}\">{$act['resource_title']}</a>",
+        'comment' => "<strong>{$act['actor']}</strong> " . t('comentó en') . " <a href=\"/resource/{$act['resource_id']}\">{$act['resource_title']}</a>",
       ];
       $timeAgo = function($dt) {
         $diff = time() - strtotime($dt);
@@ -240,28 +242,28 @@ a{color:var(--accent2);text-decoration:none}
     <div class="activity-item">
       <div class="activity-icon <?= $act['type'] ?>"><?= $icons[$act['type']] ?></div>
       <div class="activity-text"><?= $labels[$act['type']] ?></div>
-      <div class="activity-time">hace <?= $timeAgo($act['created_at']) ?></div>
+      <div class="activity-time"><?= lang()==='en' ? $timeAgo($act['created_at']).' ago' : 'hace '.$timeAgo($act['created_at']) ?></div>
     </div>
     <?php endforeach; ?>
   </div>
   <?php endif; ?>
 
   <div class="tabs">
-    <button class="tab active" data-tab="resources">📦 Recursos</button>
-    <button class="tab" data-tab="collections">📁 Colecciones (<?= count($collections) ?>)</button>
+    <button class="tab active" data-tab="resources">📦 <?= h(t('Recursos')) ?></button>
+    <button class="tab" data-tab="collections">📁 <?= h(t('Colecciones')) ?> (<?= count($collections) ?>)</button>
   </div>
 
   <!-- Resources Tab -->
   <div class="tab-content active" id="tab-resources">
     <div class="header">
-      <h2>Mis Recursos</h2>
-      <a href="/dashboard/editor.php" class="btn btn-primary">➕ Nuevo Recurso</a>
+      <h2><?= h(t('Mis Recursos')) ?></h2>
+      <a href="/dashboard/editor.php" class="btn btn-primary">➕ <?= h(t('Nuevo Recurso')) ?></a>
     </div>
     <?php if (empty($resources)): ?>
       <div class="empty">
-        <h3>Aún no tienes recursos</h3>
-        <p>Comparte tu primer recurso educativo con la comunidad.</p>
-        <a href="/dashboard/editor.php" class="btn btn-primary" style="margin-top:16px">➕ Crear mi primer recurso</a>
+        <h3><?= h(t('Aún no tienes recursos')) ?></h3>
+        <p><?= h(t('Comparte tu primer recurso educativo con la comunidad.')) ?></p>
+        <a href="/dashboard/editor.php" class="btn btn-primary" style="margin-top:16px">➕ <?= h(t('Crear mi primer recurso')) ?></a>
       </div>
     <?php else: ?>
       <div class="resource-list">
@@ -282,9 +284,9 @@ a{color:var(--accent2);text-decoration:none}
               </div>
             </div>
             <div class="resource-actions">
-              <a href="/view/<?= (int)$r['id'] ?>" target="_blank" class="btn btn-outline btn-sm">👁 Ver</a>
-              <a href="/dashboard/editor.php?id=<?= (int)$r['id'] ?>" class="btn btn-outline btn-sm">✏️ Editar</a>
-              <button class="btn btn-outline btn-sm btn-danger" onclick="deleteResource(<?= (int)$r['id'] ?>, '<?= h(addslashes($r['title'])) ?>')" title="Eliminar recurso">🗑</button>
+              <a href="/view/<?= (int)$r['id'] ?>" target="_blank" class="btn btn-outline btn-sm">👁 <?= h(t('Ver')) ?></a>
+              <a href="/dashboard/editor.php?id=<?= (int)$r['id'] ?>" class="btn btn-outline btn-sm">✏️ <?= h(t('Editar')) ?></a>
+              <button class="btn btn-outline btn-sm btn-danger" onclick="deleteResource(<?= (int)$r['id'] ?>, '<?= h(addslashes($r['title'])) ?>')" title="<?= h(t('Eliminar recurso')) ?>">🗑</button>
             </div>
           </div>
         <?php endforeach; ?>
@@ -295,13 +297,13 @@ a{color:var(--accent2);text-decoration:none}
   <!-- Collections Tab -->
   <div class="tab-content" id="tab-collections">
     <div class="header">
-      <h2>Mis Colecciones</h2>
-      <button class="btn btn-primary" id="newCollBtn">➕ Nueva Colección</button>
+      <h2><?= h(t('Mis Colecciones')) ?></h2>
+      <button class="btn btn-primary" id="newCollBtn">➕ <?= h(t('Nueva Colección')) ?></button>
     </div>
     <?php if (empty($collections)): ?>
       <div class="empty">
-        <h3>Sin colecciones</h3>
-        <p>Organiza tus recursos favoritos en colecciones temáticas.</p>
+        <h3><?= h(t('Sin colecciones')) ?></h3>
+        <p><?= h(t('Organiza tus recursos favoritos en colecciones temáticas.')) ?></p>
       </div>
     <?php else: ?>
       <div class="resource-list">
@@ -310,15 +312,15 @@ a{color:var(--accent2);text-decoration:none}
             <div class="resource-info">
               <h3>
                 <a href="/collection/?id=<?= (int)$c['id'] ?>" class="coll-link">📁 <?= h($c['title']) ?></a>
-                <span class="badge <?= $c['is_public'] ? 'badge-community' : 'badge-draft' ?>"><?= $c['is_public'] ? 'público' : 'privado' ?></span>
+                <span class="badge <?= $c['is_public'] ? 'badge-community' : 'badge-draft' ?>"><?= $c['is_public'] ? h(t('público')) : h(t('privado')) ?></span>
               </h3>
               <div class="resource-meta">
-                <span>📦 <?= (int)$c['item_count'] ?> recursos</span>
+                <span>📦 <?= (int)$c['item_count'] ?> <?= h(t('recursos')) ?></span>
                 <span><?= date('d/m/Y', strtotime($c['created_at'])) ?></span>
               </div>
             </div>
             <div class="resource-actions">
-              <button class="btn btn-outline btn-sm" onclick="openEditColl(<?= (int)$c['id'] ?>, '<?= h(addslashes($c['title'])) ?>', '<?= h(addslashes($c['description'] ?? '')) ?>', <?= $c['is_public'] ? 1 : 0 ?>)">✏️ Editar</button>
+              <button class="btn btn-outline btn-sm" onclick="openEditColl(<?= (int)$c['id'] ?>, '<?= h(addslashes($c['title'])) ?>', '<?= h(addslashes($c['description'] ?? '')) ?>', <?= $c['is_public'] ? 1 : 0 ?>)">✏️ <?= h(t('Editar')) ?></button>
               <button class="btn btn-outline btn-sm btn-danger" onclick="deleteColl(<?= (int)$c['id'] ?>, '<?= h(addslashes($c['title'])) ?>')">🗑</button>
             </div>
           </div>
@@ -331,19 +333,19 @@ a{color:var(--accent2);text-decoration:none}
 <!-- New Collection Modal -->
 <div class="modal-overlay" id="newCollModal">
   <div class="modal">
-    <h3>Nueva Colección</h3>
-    <label>Nombre *</label>
-    <input type="text" id="newCollTitle" placeholder="Ej: Simulaciones de Física" maxlength="150">
-    <label>Descripción</label>
-    <textarea id="newCollDesc" placeholder="Breve descripción (opcional)" maxlength="500"></textarea>
-    <label>Visibilidad</label>
+    <h3><?= h(t('Nueva Colección')) ?></h3>
+    <label><?= h(t('Nombre *')) ?></label>
+    <input type="text" id="newCollTitle" placeholder="<?= h(t('Ej: Simulaciones de Física')) ?>" maxlength="150">
+    <label><?= h(t('Descripción')) ?></label>
+    <textarea id="newCollDesc" placeholder="<?= h(t('Breve descripción (opcional)')) ?>" maxlength="500"></textarea>
+    <label><?= h(t('Visibilidad')) ?></label>
     <select id="newCollPublic">
-      <option value="1">Pública — cualquier profesor puede verla</option>
-      <option value="0">Privada — solo yo</option>
+      <option value="1"><?= h(t('Pública — cualquier profesor puede verla')) ?></option>
+      <option value="0"><?= h(t('Privada — solo yo')) ?></option>
     </select>
     <div class="modal-actions">
-      <button class="btn btn-outline" onclick="document.getElementById('newCollModal').classList.remove('open')">Cancelar</button>
-      <button class="btn btn-primary" id="newCollSave">Crear Colección</button>
+      <button class="btn btn-outline" onclick="document.getElementById('newCollModal').classList.remove('open')"><?= h(t('Cancelar')) ?></button>
+      <button class="btn btn-primary" id="newCollSave"><?= h(t('Crear Colección')) ?></button>
     </div>
   </div>
 </div>
@@ -351,20 +353,20 @@ a{color:var(--accent2);text-decoration:none}
 <!-- Edit Collection Modal -->
 <div class="modal-overlay" id="editCollModal">
   <div class="modal">
-    <h3>Editar Colección</h3>
+    <h3><?= h(t('Editar Colección')) ?></h3>
     <input type="hidden" id="editCollId">
-    <label>Nombre *</label>
+    <label><?= h(t('Nombre *')) ?></label>
     <input type="text" id="editCollTitle" maxlength="150">
-    <label>Descripción</label>
+    <label><?= h(t('Descripción')) ?></label>
     <textarea id="editCollDesc" maxlength="500"></textarea>
-    <label>Visibilidad</label>
+    <label><?= h(t('Visibilidad')) ?></label>
     <select id="editCollPublic">
-      <option value="1">Pública</option>
-      <option value="0">Privada</option>
+      <option value="1"><?= h(t('Pública')) ?></option>
+      <option value="0"><?= h(t('Privada')) ?></option>
     </select>
     <div class="modal-actions">
-      <button class="btn btn-outline" onclick="document.getElementById('editCollModal').classList.remove('open')">Cancelar</button>
-      <button class="btn btn-primary" id="editCollSave">Guardar Cambios</button>
+      <button class="btn btn-outline" onclick="document.getElementById('editCollModal').classList.remove('open')"><?= h(t('Cancelar')) ?></button>
+      <button class="btn btn-primary" id="editCollSave"><?= h(t('Guardar Cambios')) ?></button>
     </div>
   </div>
 </div>
@@ -372,6 +374,15 @@ a{color:var(--accent2);text-decoration:none}
 <button class="theme-toggle" aria-label="Cambiar tema" id="themeBtn"><i data-lucide="moon" style="width:18px;height:18px"></i></button>
 
 <script>
+const T = {
+  nameRequired: <?= json_encode(t('El nombre es obligatorio')) ?>,
+  creating: <?= json_encode(t(T.creating)) ?>,
+  createColl: <?= json_encode(t('Crear Colección')) ?>,
+  saving: <?= json_encode(t(T.saving)) ?>,
+  saveChanges: <?= json_encode(t('Guardar Cambios')) ?>,
+  confirmDelColl: <?= json_encode(t('¿Eliminar la colección "%s"? Los recursos no se borrarán.')) ?>,
+  confirmDelRes: <?= json_encode(t('¿Eliminar el recurso "%s"? Esta acción no se puede deshacer.')) ?>,
+};
 // Theme
 if(localStorage.getItem('iarepo-theme')==='dark') document.documentElement.setAttribute('data-theme','dark');
 document.getElementById('themeBtn').addEventListener('click',()=>{
@@ -400,9 +411,9 @@ document.getElementById('newCollBtn')?.addEventListener('click', () => {
 
 document.getElementById('newCollSave').addEventListener('click', async () => {
   const title = document.getElementById('newCollTitle').value.trim();
-  if (!title) { alert('El nombre es obligatorio'); return; }
+  if (!title) { alert(T.nameRequired); return; }
   const btn = document.getElementById('newCollSave');
-  btn.disabled = true; btn.textContent = '⏳ Creando...';
+  btn.disabled = true; btn.textContent = T.creating;
   try {
     const res = await fetch('/api/collections.php', {
       method: 'POST',
@@ -416,7 +427,7 @@ document.getElementById('newCollSave').addEventListener('click', async () => {
     const data = await res.json();
     if (!data.ok) throw new Error(data.error);
     location.reload();
-  } catch(e) { alert(e.message); btn.disabled = false; btn.textContent = 'Crear Colección'; }
+  } catch(e) { alert(e.message); btn.disabled = false; btn.textContent = T.createColl; }
 });
 
 // Collections — edit
@@ -431,9 +442,9 @@ function openEditColl(id, title, desc, isPublic) {
 document.getElementById('editCollSave').addEventListener('click', async () => {
   const id = document.getElementById('editCollId').value;
   const title = document.getElementById('editCollTitle').value.trim();
-  if (!title) { alert('El nombre es obligatorio'); return; }
+  if (!title) { alert(T.nameRequired); return; }
   const btn = document.getElementById('editCollSave');
-  btn.disabled = true; btn.textContent = '⏳ Guardando...';
+  btn.disabled = true; btn.textContent = T.saving;
   try {
     const res = await fetch(`/api/collections.php?id=${id}`, {
       method: 'PUT',
@@ -447,12 +458,12 @@ document.getElementById('editCollSave').addEventListener('click', async () => {
     const data = await res.json();
     if (!data.ok) throw new Error(data.error);
     location.reload();
-  } catch(e) { alert(e.message); btn.disabled = false; btn.textContent = 'Guardar Cambios'; }
+  } catch(e) { alert(e.message); btn.disabled = false; btn.textContent = T.saveChanges; }
 });
 
 // Collections — delete
 async function deleteColl(id, title) {
-  if (!confirm(`¿Eliminar la colección "${title}"? Los recursos no se borrarán.`)) return;
+  if (!confirm(T.confirmDelColl.replace("%s", title))) return;
   try {
     const res = await fetch(`/api/collections.php?id=${id}`, {method: 'DELETE'});
     const data = await res.json();
@@ -463,7 +474,7 @@ async function deleteColl(id, title) {
 
 // Resources — delete
 async function deleteResource(id, title) {
-  if (!confirm(`¿Eliminar el recurso "${title}"? Esta acción no se puede deshacer.`)) return;
+  if (!confirm(T.confirmDelRes.replace("%s", title))) return;
   try {
     const res = await fetch(`/api/resources.php?id=${id}`, {method: 'DELETE'});
     const data = await res.json();
