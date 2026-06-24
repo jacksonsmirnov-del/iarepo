@@ -18,6 +18,10 @@ function h(string $s): string {
 }
 
 $sessionUser = getSessionUser();
+$isStudent   = ($sessionUser['role'] ?? '') === 'student';
+// Estudiantes: "Mis favoritos" en el nav; profesores: "Mis Recursos".
+$navHome      = $isStudent ? '/favorites/' : '/dashboard/';
+$navHomeLabel = $isStudent ? t('Mis favoritos') : t('Mis Recursos');
 $env = require __DIR__ . '/.env.php';
 $googleClientId = $env['GOOGLE_CLIENT_ID'] ?? '';
 
@@ -201,6 +205,14 @@ a:hover{opacity:.8}
 .card-meta{display:flex;align-items:center;gap:12px}
 .card-meta span{display:flex;align-items:center;gap:4px}
 .source-badge{position:absolute;top:12px;right:12px;padding:2px 8px;border-radius:4px;background:var(--source-bg);border:1px solid var(--source-border);color:var(--accent2);font-size:.65rem;font-weight:500}
+/* ⭐ Guardar (favorito rápido) */
+.fav-btn{display:inline-flex;align-items:center;justify-content:center;background:none;border:none;cursor:pointer;color:var(--text3);padding:3px;margin:-3px;border-radius:6px;transition:.15s}
+.fav-btn:hover{color:#f59e0b;background:var(--bg3)}
+.fav-btn i{width:15px;height:15px}
+.fav-btn.is-fav{color:#f59e0b}
+.fav-btn.is-fav i{fill:#f59e0b}
+.fav-toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--text);color:var(--bg);padding:10px 18px;border-radius:10px;font-size:.85rem;font-weight:600;opacity:0;pointer-events:none;transition:.25s;z-index:2000;box-shadow:0 8px 24px rgba(0,0,0,.2)}
+.fav-toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 .badge-level{padding:2px 8px;border-radius:4px;font-size:.7rem;font-weight:500}
 .badge-level.primary{background:rgba(34,197,94,.1);color:#16a34a}
 .badge-level.secondary{background:rgba(59,130,246,.1);color:#2563eb}
@@ -272,12 +284,14 @@ a:hover{opacity:.8}
 </head>
 <body>
 
+<div class="fav-toast" id="favToast"></div>
+
 <div class="topnav">
 
 <!-- User auth bar -->
 <div class="auth-bar">
 <?php if ($sessionUser): ?>
-  <a href="/dashboard/" class="auth-user" title="<?= h(t('Mis Recursos')) ?>">
+  <a href="<?= $navHome ?>" class="auth-user" title="<?= h($navHomeLabel) ?>">
     <?php if ($sessionUser['avatar_url']): ?>
       <img src="<?= htmlspecialchars($sessionUser['avatar_url']) ?>" alt="" class="auth-avatar">
     <?php endif; ?>
@@ -454,7 +468,42 @@ const T = {
   resource: <?= json_encode(lang()==='en'?'resource':'recurso') ?>,
   resources: <?= json_encode(lang()==='en'?'resources':'recursos') ?>,
   levels: <?= json_encode(['primary'=>t('Primaria'),'secondary'=>t('Secundaria'),'ib'=>t('IB'),'university'=>t('Universidad'),'general'=>t('General')], JSON_UNESCAPED_UNICODE) ?>,
+  save: <?= json_encode(t('Guardar')) ?>,
+  favSaved: <?= json_encode(t('Guardado en tus favoritos ⭐')) ?>,
+  favRemoved: <?= json_encode(t('Quitado de favoritos')) ?>,
+  loginToSave: <?= json_encode(t('Regístrate para guardar tus favoritos ⭐')) ?>,
 };
+
+// ── Favoritos (⭐ guardado rápido) ──
+const FAV_AUTH = <?= $sessionUser ? 'true' : 'false' ?>;
+let favSet = new Set();
+function showFavToast(msg){const el=document.getElementById('favToast');el.textContent=msg;el.classList.add('show');clearTimeout(el._t);el._t=setTimeout(()=>el.classList.remove('show'),2300);}
+function setFavBtn(btn,on){btn.classList.toggle('is-fav',!!on);btn.setAttribute('aria-pressed',on?'true':'false');}
+async function loadFavorites(){
+  if(!FAV_AUTH) return;
+  try{const res=await fetch('/api/favorites.php');const data=await res.json();if(data.ok)favSet=new Set((data.favorite_ids||[]).map(Number));}catch(e){}
+}
+async function toggleFavorite(id,btn){
+  id=Number(id);
+  if(!FAV_AUTH){startSaveFlow(id);return;}
+  btn.disabled=true;
+  try{
+    const res=await fetch(`/api/favorites.php?id=${id}`,{method:'POST'});
+    const data=await res.json();
+    if(!data.ok) throw new Error(data.error);
+    data.favorited?favSet.add(id):favSet.delete(id);
+    setFavBtn(btn,data.favorited);
+    showFavToast(data.favorited?T.favSaved:T.favRemoved);
+  }catch(e){showFavToast(e.message||T.connError);}
+  finally{btn.disabled=false;}
+}
+// Invitado: lleva la intención (?save + return_url) a la pantalla de registro;
+// tras autenticarse se aplica el favorito y se vuelve aquí.
+function startSaveFlow(id){
+  showFavToast(T.loginToSave);
+  const ret=encodeURIComponent(location.pathname+location.search);
+  location.href=`/auth/signin.php?save=${id}&return_url=${ret}`;
+}
 
 // ── Theme ──
 function initTheme() {
@@ -595,6 +644,7 @@ function renderCard(r) {
         <span><i data-lucide="eye" style="width:12px;height:12px"></i> ${r.view_count||0}</span>
         <span><i data-lucide="heart" style="width:12px;height:12px"></i> ${r.like_count||0}</span>
         <span><i data-lucide="git-fork" style="width:12px;height:12px"></i> ${r.fork_count||0}</span>
+        <button class="fav-btn${favSet.has(Number(r.id))?' is-fav':''}" type="button" title="${T.save}" aria-label="${T.save}" aria-pressed="${favSet.has(Number(r.id))?'true':'false'}" onclick="event.stopPropagation();toggleFavorite(${r.id},this)"><i data-lucide="star"></i></button>
       </div>
     </div>
   </div>`;
@@ -616,7 +666,7 @@ document.addEventListener('click', e => {
   if (card) window.location = '/resource/' + card.dataset.resourceId;
 });
 
-loadResources();
+loadFavorites().finally(loadResources);
 </script>
 </body>
 </html>

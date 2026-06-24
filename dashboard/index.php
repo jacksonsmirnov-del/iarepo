@@ -12,6 +12,8 @@ lang();
 
 $user = getSessionUser();
 if (!$user) { header('Location: /'); exit; }
+// Estudiantes no tienen dashboard de autor: su espacio es "Mis favoritos".
+if (($user['role'] ?? '') === 'student') { header('Location: /favorites/'); exit; }
 
 $db = getResourcesDB();
 

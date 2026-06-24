@@ -15,6 +15,8 @@ lang();
 
 $user = getSessionUser();
 if (!$user) { header('Location: /'); exit; }
+// Crear/editar recursos es para profesores; el estudiante va a sus favoritos.
+if (($user['role'] ?? '') === 'student') { header('Location: /favorites/'); exit; }
 
 $db = getResourcesDB();
 $editId = (int)($_GET['id'] ?? 0);

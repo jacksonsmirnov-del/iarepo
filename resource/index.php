@@ -51,11 +51,19 @@ $resourceTags = $tagStmt->fetchAll(PDO::FETCH_COLUMN);
 
 // Check if user liked
 $userLiked = false;
+$userFavorited = false;
 if ($user) {
     $likeCheck = $db->prepare("SELECT id FROM resource_likes WHERE resource_id = ? AND user_id = ?");
     $likeCheck->execute([$id, $user['user_id']]);
     $userLiked = (bool)$likeCheck->fetch();
+
+    $favCheck = $db->prepare("SELECT id FROM resource_favorites WHERE resource_id = ? AND user_id = ?");
+    $favCheck->execute([$id, $user['user_id']]);
+    $userFavorited = (bool)$favCheck->fetch();
 }
+
+// Estudiante: oculta los CTA de creación/fork (la API igual los bloquea por rol).
+$isStudent = ($sessionUser['role'] ?? '') === 'student';
 
 // Similar resources (same category)
 $similar = [];
@@ -192,6 +200,10 @@ a{color:var(--accent2);text-decoration:none}
 .btn-like{background:transparent;border:1px solid var(--border);color:var(--text2);font-size:.9rem}
 .btn-like.liked{border-color:#ef4444;color:#ef4444;background:rgba(239,68,68,.08)}
 .btn-like:hover{border-color:#ef4444;color:#ef4444}
+.btn-fav{background:transparent;border:1px solid var(--border);color:var(--text2)}
+.btn-fav:hover{border-color:#f59e0b;color:#f59e0b}
+.btn-fav.is-fav{border-color:#f59e0b;color:#f59e0b;background:rgba(245,158,11,.1)}
+.btn-fav.is-fav i{fill:#f59e0b}
 
 /* Sidebar */
 .sidebar{display:flex;flex-direction:column;gap:16px}
@@ -368,7 +380,10 @@ a{color:var(--accent2);text-decoration:none}
           <i data-lucide="heart" style="width:14px;height:14px"></i>
           <span id="likeCount"><?= (int)($r['like_count'] ?? 0) ?></span>
         </button>
+        <button class="btn btn-fav <?= $userFavorited ? 'is-fav' : '' ?>" id="favBtn" aria-pressed="<?= $userFavorited ? 'true' : 'false' ?>" data-id="<?= $id ?>"><i data-lucide="star" style="width:14px;height:14px"></i> <span><?= h(t('Guardar')) ?></span></button>
+        <?php if (!$isStudent): ?>
         <button class="btn btn-outline" id="forkBtn" data-id="<?= $id ?>"><i data-lucide="git-fork" style="width:14px;height:14px"></i> <?= h(t('Fork')) ?></button>
+        <?php endif; ?>
         <?php if ($sessionUser || $user): ?>
         <div class="save-coll-wrap">
           <button class="btn btn-outline" id="saveCollBtn"><i data-lucide="bookmark" style="width:14px;height:14px"></i> <?= h(t('Guardar')) ?></button>
@@ -561,6 +576,9 @@ const T = {
   noComments: <?= json_encode(t('Aún no hay comentarios. ¡Sé el primero!')) ?>,
   copied: <?= json_encode(t('¡Copiado!')) ?>,
   copyCode: <?= json_encode(t('Copiar código')) ?>,
+  favSaved: <?= json_encode(t('Guardado en tus favoritos ⭐')) ?>,
+  favRemoved: <?= json_encode(t('Quitado de favoritos')) ?>,
+  loginToSave: <?= json_encode(t('Regístrate para guardar tus favoritos ⭐')) ?>,
 };
 
 // Theme
@@ -588,8 +606,32 @@ document.getElementById('likeBtn').addEventListener('click', async()=>{
   }catch(e){alert(e.message)}
 });
 
+// Favorite (⭐ guardado rápido)
+function favToast(msg){const t=document.getElementById('shareToast');t.textContent=msg;t.classList.add('show');clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('show'),2300);}
+document.getElementById('favBtn').addEventListener('click', async()=>{
+  const btn=document.getElementById('favBtn');
+  if(!IS_AUTH){
+    // Invitado: lleva la intención a la pantalla de registro y vuelve a ESTE recurso.
+    favToast(T.loginToSave);
+    const ret=encodeURIComponent(location.pathname+location.search);
+    location.href=`/auth/signin.php?save=${RID}&return_url=${ret}`;
+    return;
+  }
+  btn.disabled=true;
+  try{
+    const res=await fetch(`/api/favorites.php?id=${RID}`,{method:'POST'});
+    const data=await res.json();
+    if(!data.ok) throw new Error(data.error);
+    btn.classList.toggle('is-fav',data.favorited);
+    btn.setAttribute('aria-pressed',data.favorited?'true':'false');
+    favToast(data.favorited?T.favSaved:T.favRemoved);
+  }catch(e){favToast(e.message)}
+  finally{btn.disabled=false}
+});
+
 // Fork
-document.getElementById('forkBtn').addEventListener('click', async()=>{
+const forkBtnEl=document.getElementById('forkBtn');
+if(forkBtnEl) forkBtnEl.addEventListener('click', async()=>{
   if(!IS_AUTH){alert(T.loginFork);return}
   if(!confirm(T.confirmFork)) return;
   try{

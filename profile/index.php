@@ -16,6 +16,10 @@ if (!$userId) { header('Location: /'); exit; }
 
 $db = getResourcesDB();
 
+$sessionUser = getSessionUser();
+$isOwn  = $sessionUser && (int)$sessionUser['id'] === $userId;
+$myRole = $sessionUser['role'] ?? 'teacher';
+
 // Get user info from their resources (denormalized)
 $authorStmt = $db->prepare("
     SELECT author_display_name, author_tenant_name, COUNT(*) AS resource_count,
@@ -123,6 +127,13 @@ a{color:var(--accent2);text-decoration:none}
 .empty{text-align:center;padding:40px;color:var(--text3);font-size:.9rem}
 
 .theme-toggle{position:fixed;bottom:16px;right:16px;z-index:100;width:40px;height:40px;border-radius:50%;border:1px solid var(--border);background:var(--bg2);color:var(--text2);cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:var(--shadow)}
+/* Selector de rol (solo en tu propio perfil) */
+.role-switch{margin-top:18px;display:inline-flex;flex-direction:column;align-items:center;gap:8px}
+.role-switch .label{font-size:.78rem;color:var(--text3)}
+.role-pills{display:inline-flex;gap:6px;background:var(--bg3);border:1px solid var(--border);border-radius:999px;padding:4px}
+.role-pill{appearance:none;border:none;background:none;cursor:pointer;font-family:inherit;font-size:.82rem;font-weight:600;color:var(--text2);padding:6px 16px;border-radius:999px;transition:.15s}
+.role-pill:hover{color:var(--text)}
+.role-pill.active{background:var(--card);color:var(--accent);box-shadow:var(--shadow)}
 </style>
 <?php require_once __DIR__ . '/../shared/error_tracker.php'; ?>
 </head>
@@ -146,6 +157,19 @@ a{color:var(--accent2);text-decoration:none}
     <div class="profile-stat"><strong><?= (int)($profile['total_likes'] ?? 0) ?></strong><span><?= h(t('Likes')) ?></span></div>
     <div class="profile-stat"><strong><?= (int)($profile['total_forks'] ?? 0) ?></strong><span><?= h(t('Forks')) ?></span></div>
   </div>
+
+  <?php if ($isOwn && in_array($myRole, ['teacher', 'student'], true)): ?>
+  <div class="role-switch">
+    <span class="label"><?= h(t('Uso iarepo como:')) ?></span>
+    <form method="post" action="/auth/onboarding.php">
+      <input type="hidden" name="return_url" value="/profile/<?= $userId ?>">
+      <div class="role-pills">
+        <button type="submit" name="role" value="teacher" class="role-pill <?= $myRole !== 'student' ? 'active' : '' ?>"><?= h(t('Profesor')) ?></button>
+        <button type="submit" name="role" value="student" class="role-pill <?= $myRole === 'student' ? 'active' : '' ?>"><?= h(t('Estudiante')) ?></button>
+      </div>
+    </form>
+  </div>
+  <?php endif; ?>
 </div>
 
 <div class="container">

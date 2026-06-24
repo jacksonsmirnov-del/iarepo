@@ -216,4 +216,37 @@ return [
     'Abrir en pestaña nueva' => 'Open in new tab',
     'Abrir externo' => 'Open external',
     'Volver a iarepo' => 'Back to iarepo',
+
+    // ── Fase 1a: favoritos, registro y onboarding ──
+    'Mis favoritos' => 'My favorites',
+    'Guardado en tus favoritos ⭐' => 'Saved to your favorites ⭐',
+    'Quitado de favoritos' => 'Removed from favorites',
+    'Quitar de favoritos' => 'Remove from favorites',
+    'Regístrate para guardar tus favoritos ⭐' => 'Sign up to save your favorites ⭐',
+    'Tu guardado rápido y privado. Solo tú ves esta lista.' => 'Your quick, private saves. Only you see this list.',
+    'Aún no tienes favoritos' => "You don't have any favorites yet",
+    'Pulsa la ⭐ en cualquier recurso para guardarlo aquí y volver a él cuando quieras.' => 'Tap the ⭐ on any resource to save it here and come back to it whenever you want.',
+    'Explorar' => 'Explore',
+
+    // Sign-in / conversion
+    'Guarda este recurso en tus favoritos' => 'Save this resource to your favorites',
+    'Crea tu cuenta gratis para guardar recursos y volver a ellos cuando quieras. Es un clic con Google.' => 'Create your free account to save resources and come back to them anytime. One click with Google.',
+    'Volver' => 'Back',
+    'Al continuar aceptas nuestros' => 'By continuing you accept our',
+
+    // Onboarding
+    'Te damos la bienvenida' => 'Welcome',
+    '¡Hola' => 'Hi',
+    'bienvenido' => 'welcome',
+    'Para personalizar tu experiencia, cuéntanos cómo usarás iarepo. Puedes cambiarlo después.' => 'To personalize your experience, tell us how you’ll use iarepo. You can change this later.',
+    'Soy profesor' => "I'm a teacher",
+    'Creo y publico recursos para mis clases' => 'I create and publish resources for my classes',
+    'Soy estudiante' => "I'm a student",
+    'Descubro y guardo recursos para aprender' => 'I discover and save resources to learn',
+    'Saltar por ahora' => 'Skip for now',
+
+    // Role switch (profile)
+    'Uso iarepo como:' => 'I use iarepo as:',
+    'Profesor' => 'Teacher',
+    'Estudiante' => 'Student',
 ];

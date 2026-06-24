@@ -41,6 +41,7 @@ $stmt = $db->prepare('SELECT * FROM users WHERE google_id = ? LIMIT 1');
 $stmt->execute([$googleId]);
 $user = $stmt->fetch(PDO::FETCH_ASSOC);
 
+$isNew = false;
 if ($user) {
     // Existing user — update last_login and name/avatar
     $stmt = $db->prepare('UPDATE users SET last_login = NOW(), name = ?, avatar_url = ? WHERE id = ?');
@@ -49,6 +50,7 @@ if ($user) {
     $user['avatar_url'] = $avatar;
 } else {
     // New user
+    $isNew = true;
     $stmt = $db->prepare('INSERT INTO users (google_id, email, name, avatar_url, last_login) VALUES (?, ?, ?, ?, NOW())');
     $stmt->execute([$googleId, $email, $name, $avatar]);
     $user = [
@@ -71,9 +73,55 @@ $_SESSION['user'] = [
     'source'     => 'google',
 ];
 
-// ── Redirect to dashboard ──
-header('Location: /dashboard/');
+// ── Apply a pending favorite intent (conversion flow) ──
+// Un invitado hizo clic en ⭐ Guardar; la intención viaja en ?save=ID y
+// volvemos a ?return_url. Aplicamos el favorito ANTES de redirigir.
+// Llega por ?save/?return_url en el login_uri y, como respaldo, por cookie
+// (signin.php la fija con SameSite=None para sobrevivir al POST de Google).
+$saveId    = (int) ($_GET['save'] ?? $_COOKIE['fav_intent'] ?? 0);
+$returnUrl = safeLocalPath($_GET['return_url'] ?? $_COOKIE['fav_return'] ?? '');
+
+// Limpia las cookies de intención (ya consumidas).
+foreach (['fav_intent', 'fav_return'] as $ck) {
+    if (isset($_COOKIE[$ck])) {
+        setcookie($ck, '', ['expires' => time() - 3600, 'path' => '/', 'samesite' => 'None', 'secure' => true]);
+    }
+}
+
+if ($saveId) {
+    try {
+        $chk = $db->prepare('SELECT id FROM resources WHERE id = ? AND is_active = 1');
+        $chk->execute([$saveId]);
+        if ($chk->fetch()) {
+            $db->prepare('INSERT IGNORE INTO resource_favorites (user_id, resource_id) VALUES (?, ?)')
+               ->execute([(int) $user['id'], $saveId]);
+        }
+    } catch (\Throwable $e) {
+        // best-effort: nunca bloquea el login
+    }
+}
+
+// ── Redirect ──
+if ($isNew) {
+    // Usuario nuevo → onboarding ligero (rol). Preserva el retorno (p.ej. el
+    // recurso que estaba guardando) para volver tras elegir/saltar.
+    $to = '/auth/onboarding.php';
+    if ($returnUrl) $to .= '?return_url=' . urlencode($returnUrl);
+    header('Location: ' . $to);
+    exit;
+}
+
+// Usuario existente → vuelve a donde estaba si guardaba algo, si no al dashboard.
+header('Location: ' . ($returnUrl ?: '/dashboard/'));
 exit;
+
+/**
+ * Solo permite rutas locales ("/algo"), nunca URLs absolutas ni protocol-relative.
+ */
+function safeLocalPath(string $url): string {
+    $url = urldecode($url);
+    return ($url === '/' || preg_match('#^/[^/\\\\]#', $url)) ? $url : '';
+}
 
 
 // ────────────────────────────────────────────────
