@@ -611,7 +611,9 @@ function favToast(msg){const t=document.getElementById('shareToast');t.textConte
 document.getElementById('favBtn').addEventListener('click', async()=>{
   const btn=document.getElementById('favBtn');
   if(!IS_AUTH){
-    // Invitado: lleva la intención a la pantalla de registro y vuelve a ESTE recurso.
+    // Invitado: guarda la intención en localStorage (sobrevive el redirect de
+    // Google, a diferencia del query/cookie) y vuelve a ESTE recurso tras login.
+    try{localStorage.setItem('iarepo_pending_fav',JSON.stringify({id:RID,ret:location.pathname+location.search}))}catch(e){}
     favToast(T.loginToSave);
     const ret=encodeURIComponent(location.pathname+location.search);
     location.href=`/auth/signin.php?save=${RID}&return_url=${ret}`;

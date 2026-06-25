@@ -505,6 +505,9 @@ async function toggleFavorite(id,btn){
 // Invitado: lleva la intención (?save + return_url) a la pantalla de registro;
 // tras autenticarse se aplica el favorito y se vuelve aquí.
 function startSaveFlow(id){
+  // localStorage sobrevive el redirect de Google (el query/cookie no): aquí
+  // va la intención + a dónde volver, y pwa.js la aplica tras el login.
+  try{localStorage.setItem('iarepo_pending_fav',JSON.stringify({id:id,ret:location.pathname+location.search}))}catch(e){}
   showFavToast(T.loginToSave);
   const ret=encodeURIComponent(location.pathname+location.search);
   location.href=`/auth/signin.php?save=${id}&return_url=${ret}`;

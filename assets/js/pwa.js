@@ -72,3 +72,49 @@
     deferred = null;
   });
 })();
+
+// ================================================================
+// Pending favorite: un invitado pulsó ⭐ antes de registrarse. La intención
+// quedó en localStorage (sobrevive el redirect de Google, a diferencia del
+// query/cookie). Al cargar cualquier página ya con sesión, se aplica el
+// favorito (idempotente) y, si hay a dónde, se vuelve al recurso.
+// ================================================================
+(function () {
+  var KEY = 'iarepo_pending_fav';
+  var raw;
+  try { raw = localStorage.getItem(KEY); } catch (e) { return; }
+  if (!raw) return;
+
+  var p;
+  try { p = JSON.parse(raw); } catch (e) { p = { id: raw }; }
+  var id = parseInt(p && p.id, 10);
+  if (!id) { try { localStorage.removeItem(KEY); } catch (e) {} return; }
+
+  fetch('/api/favorites.php?id=' + id + '&action=add', { method: 'POST' })
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (data) {
+      if (!data || !data.ok) return; // aún sin sesión (401) → se conserva para después del login
+      try { localStorage.removeItem(KEY); } catch (e) {}
+
+      // ¿Volver al recurso donde estaba? Solo rutas locales y si no estamos ya ahí.
+      var ret = p && p.ret;
+      if (ret && /^\/[^\/]/.test(ret) && ret.split('?')[0] !== location.pathname) {
+        location.href = ret;
+        return;
+      }
+
+      // Ya estamos en el sitio: refleja el ⭐ y avisa.
+      var sel = '#favBtn[data-id="' + id + '"], .fav-btn[data-id="' + id + '"], .fav-corner[data-fid="' + id + '"]';
+      document.querySelectorAll(sel).forEach(function (b) {
+        b.classList.add('is-fav');
+        b.setAttribute('aria-pressed', 'true');
+      });
+      var msg = document.documentElement.lang === 'en' ? 'Saved to your favorites ⭐' : 'Guardado en tus favoritos ⭐';
+      var t = document.createElement('div');
+      t.textContent = msg;
+      t.style.cssText = 'position:fixed;left:50%;bottom:22px;transform:translateX(-50%);background:#1e293b;color:#fff;padding:11px 20px;border-radius:10px;font:600 .88rem/1 -apple-system,"Segoe UI",Roboto,sans-serif;z-index:3000;box-shadow:0 8px 24px rgba(0,0,0,.3)';
+      document.body && document.body.appendChild(t);
+      setTimeout(function () { t.remove(); }, 2600);
+    })
+    .catch(function () {});
+})();

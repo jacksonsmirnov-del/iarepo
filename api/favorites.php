@@ -65,6 +65,14 @@ if ($method === 'POST') {
     if (!$exists->fetch())
         json_error('Resource not found', 404, 'RESOURCE_NOT_FOUND');
 
+    // Add idempotente (para aplicar una intención guardada antes del login,
+    // sin riesgo de que un toggle lo QUITE si ya estaba guardado).
+    if (($_GET['action'] ?? '') === 'add') {
+        $db->prepare("INSERT IGNORE INTO resource_favorites (user_id, resource_id) VALUES (?, ?)")
+           ->execute([$user['user_id'], $resourceId]);
+        json_ok(['action' => 'added', 'favorited' => true]);
+    }
+
     // ¿Ya es favorito de ESTE usuario?
     $check = $db->prepare("SELECT id FROM resource_favorites WHERE user_id = ? AND resource_id = ?");
     $check->execute([$user['user_id'], $resourceId]);
