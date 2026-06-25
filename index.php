@@ -257,6 +257,17 @@ a:hover{opacity:.8}
 .fcard{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:14px;box-shadow:var(--shadow);transition:.2s;text-decoration:none;display:flex;flex-direction:column;gap:6px;height:100%}
 .fcard-wrap{position:relative}
 .fav-corner{position:absolute;top:9px;right:9px;z-index:2;background:var(--bg2);box-shadow:0 1px 4px rgba(0,0,0,.08)}
+
+/* ── Modo búsqueda: al filtrar/buscar, colapsa la portada y muestra
+   resultados de inmediato (la barra de búsqueda queda fija arriba) ── */
+body.searching .hero{padding:70px 24px 8px}
+body.searching .hero::before,
+body.searching .hero-badge,
+body.searching .hero h1,
+body.searching .hero>p,
+body.searching .hero-stats,
+body.searching .featured{display:none}
+body.searching .search-wrap{position:sticky;top:58px;z-index:90;background:var(--bg);padding:8px 0}
 .fcard:hover{box-shadow:var(--shadow-hover);border-color:var(--accent);transform:translateY(-2px)}
 .fcard-type{display:inline-flex;align-items:center;gap:4px;font-size:.68rem;font-weight:700;padding:2px 7px;border-radius:5px;background:var(--bg3);color:var(--text3);width:fit-content}
 .fcard-title{font-size:.85rem;font-weight:600;color:var(--text);line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
@@ -569,7 +580,18 @@ const API = '/api/resources.php';
 let currentCat = null;
 let debounceTimer = null;
 
+// ¿El usuario está buscando/filtrando? (entonces colapsamos la portada)
+function isBrowsing(){
+  return !!(document.getElementById('search').value.trim()
+    || currentCat
+    || document.getElementById('filter-lang').value
+    || document.getElementById('filter-level').value
+    || document.getElementById('sort').value !== 'recent');
+}
+function updateBrowseMode(){ document.body.classList.toggle('searching', isBrowsing()); }
+
 async function loadResources() {
+  updateBrowseMode();
   const grid = document.getElementById('grid');
   const search = document.getElementById('search').value.trim();
   const sort = document.getElementById('sort').value;
@@ -677,6 +699,13 @@ document.addEventListener('click', e => {
 function applyFeaturedFavs(){
   document.querySelectorAll('.fav-corner').forEach(btn=>setFavBtn(btn,favSet.has(Number(btn.dataset.fid))));
 }
+// Deep-link: prefijar búsqueda/orden desde la URL (?search=, ?sort=) — también
+// hace que funcionen enlaces como "Ver todos → /?sort=popular".
+(function(){
+  const p = new URLSearchParams(location.search);
+  if (p.get('search')) document.getElementById('search').value = p.get('search');
+  if (p.get('sort'))   document.getElementById('sort').value   = p.get('sort');
+})();
 loadFavorites().finally(()=>{ applyFeaturedFavs(); loadResources(); });
 </script>
 </body>
