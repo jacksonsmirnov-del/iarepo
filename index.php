@@ -168,10 +168,14 @@ a:hover{opacity:.8}
 
 /* Hero */
 .hero{text-align:center;padding:80px 24px 40px;position:relative;overflow:hidden}
-.hero::before{content:'';position:absolute;top:-200px;left:50%;transform:translateX(-50%);width:800px;height:800px;background:radial-gradient(circle,var(--hero-glow) 0%,transparent 70%);pointer-events:none}
+.hero::before{content:'';position:absolute;top:-260px;left:50%;transform:translateX(-50%);width:1000px;height:900px;background:radial-gradient(circle at 40% 35%,var(--hero-glow) 0%,transparent 58%),radial-gradient(circle at 66% 18%,rgba(6,182,212,.07) 0%,transparent 52%);pointer-events:none;z-index:0}
+.hero>*{position:relative;z-index:1}
 .hero-badge{display:inline-flex;align-items:center;gap:6px;padding:6px 16px;border-radius:20px;background:var(--badge-bg);border:1px solid var(--badge-border);color:var(--badge-text);font-size:13px;font-weight:500;margin-bottom:20px}
-.hero h1{font-size:clamp(2.2rem,5vw,3.8rem);font-weight:800;background:var(--grad);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;margin-bottom:16px;line-height:1.15}
-.hero p{font-size:clamp(1rem,2vw,1.2rem);color:var(--text2);max-width:600px;margin:0 auto 32px;line-height:1.6}
+.hero-logo{display:inline-block;margin-bottom:18px}
+.hero-logo img{height:32px;width:auto;display:block}
+.hero-title{font-size:clamp(2.1rem,5.2vw,3.7rem);font-weight:800;color:var(--text);margin:0 auto 16px;line-height:1.12;letter-spacing:-.02em;max-width:820px}
+.grad-text{background:var(--grad);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.hero-sub{font-size:clamp(1rem,2vw,1.18rem);color:var(--text2);max-width:600px;margin:0 auto 30px;line-height:1.6}
 .hero-stats{display:flex;gap:32px;justify-content:center;flex-wrap:wrap;margin-bottom:24px}
 .hero-stat{text-align:center}
 .hero-stat strong{font-size:1.5rem;background:var(--grad);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
@@ -275,13 +279,10 @@ a:hover{opacity:.8}
    resultados de inmediato (la barra de búsqueda queda fija arriba) ── */
 body.searching .hero{padding:70px 24px 8px}
 body.searching .hero::before,
-body.searching .hero-badge,
-body.searching .hero h1,
-body.searching .hero>p,
-body.searching .hero-stats,
+body.searching .hero > :not(.search-wrap),
 body.searching .featured,
 body.searching .how-it-works{display:none}
-body.searching .search-wrap{position:sticky;top:58px;z-index:90;background:var(--bg);padding:8px 0}
+body.searching .search-wrap{position:sticky;top:58px;z-index:90;background:var(--bg);padding:8px 0;margin-bottom:0}
 .fcard:hover{box-shadow:var(--shadow-hover);border-color:var(--accent);transform:translateY(-2px)}
 .fcard-type{display:inline-flex;align-items:center;gap:4px;font-size:.68rem;font-weight:700;padding:2px 7px;border-radius:5px;background:var(--bg3);color:var(--text3);width:fit-content}
 .fcard-title{font-size:.85rem;font-weight:600;color:var(--text);line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
@@ -364,16 +365,17 @@ body.searching .search-wrap{position:sticky;top:58px;z-index:90;background:var(-
 
 <section class="hero">
   <div class="hero-badge"><i data-lucide="sparkles" style="width:14px;height:14px"></i> Open Educational Resources</div>
-  <h1><img src="/assets/img/logo.svg" alt="iarepo" style="height:48px;width:auto;display:inline-block;vertical-align:middle"></h1>
-  <p><?= h(t('Repositorio abierto de recursos educativos interactivos. Descubre simulaciones, herramientas y modelos de IA — listos para usar en tu clase.')) ?></p>
+  <a href="/" class="hero-logo"><img src="/assets/img/logo.svg" alt="iarepo"></a>
+  <h1 class="hero-title"><?= h(t('Aprende y enseña con')) ?> <span class="grad-text"><?= h(t('simulaciones interactivas')) ?></span></h1>
+  <p class="hero-sub"><?= h(t('Cientos de recursos abiertos —simulaciones, herramientas y modelos con IA— listos para usar. Gratis y sin instalar.')) ?></p>
+  <div class="search-wrap">
+    <i data-lucide="search" class="search-icon" style="width:20px;height:20px"></i>
+    <input type="search" id="search" placeholder="<?= h(t('Buscar recursos... (ej: waves, pendulum, pH)')) ?>" autocomplete="off">
+  </div>
   <div class="hero-stats">
     <div class="hero-stat"><strong id="stat-total">—</strong><span><?= h(t('Recursos')) ?></span></div>
     <div class="hero-stat"><strong id="stat-cats">—</strong><span><?= h(t('Categorías')) ?></span></div>
     <div class="hero-stat"><strong id="stat-types">—</strong><span><?= h(t('Tipos')) ?></span></div>
-  </div>
-  <div class="search-wrap">
-    <i data-lucide="search" class="search-icon" style="width:20px;height:20px"></i>
-    <input type="search" id="search" placeholder="<?= h(t('Buscar recursos... (ej: waves, pendulum, pH)')) ?>" autocomplete="off">
   </div>
 </section>
 
