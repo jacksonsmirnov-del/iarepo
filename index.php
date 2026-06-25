@@ -266,7 +266,8 @@ body.searching .hero-badge,
 body.searching .hero h1,
 body.searching .hero>p,
 body.searching .hero-stats,
-body.searching .featured{display:none}
+body.searching .featured,
+body.searching .how-it-works{display:none}
 body.searching .search-wrap{position:sticky;top:58px;z-index:90;background:var(--bg);padding:8px 0}
 .fcard:hover{box-shadow:var(--shadow-hover);border-color:var(--accent);transform:translateY(-2px)}
 .fcard-type{display:inline-flex;align-items:center;gap:4px;font-size:.68rem;font-weight:700;padding:2px 7px;border-radius:5px;background:var(--bg3);color:var(--text3);width:fit-content}
