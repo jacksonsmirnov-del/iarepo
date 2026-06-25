@@ -150,6 +150,8 @@ a:hover{opacity:.8}
 /* Top nav bar */
 .topnav{position:fixed;top:0;right:0;left:0;z-index:1001;display:flex;align-items:center;justify-content:flex-end;gap:8px;padding:12px 20px;pointer-events:none}
 .topnav>*{pointer-events:auto}
+.topnav-logo{margin-right:auto;display:flex;align-items:center;text-decoration:none}
+.topnav-logo img{height:24px;width:auto;display:block}
 
 /* Theme toggle */
 .theme-toggle{width:36px;height:36px;border-radius:50%;border:1px solid var(--border);background:var(--bg2);color:var(--text2);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:.2s;box-shadow:var(--shadow);flex-shrink:0}
@@ -316,6 +318,8 @@ body.searching .search-wrap{position:sticky;top:58px;z-index:90;background:var(-
 
 <div class="topnav">
 
+<a href="/" class="topnav-logo" aria-label="iarepo"><img src="/assets/img/logo.svg" alt="iarepo"></a>
+
 <!-- User auth bar -->
 <div class="auth-bar">
 <?php if ($sessionUser): ?>
@@ -365,7 +369,6 @@ body.searching .search-wrap{position:sticky;top:58px;z-index:90;background:var(-
 
 <section class="hero">
   <div class="hero-badge"><i data-lucide="sparkles" style="width:14px;height:14px"></i> Open Educational Resources</div>
-  <a href="/" class="hero-logo"><img src="/assets/img/logo.svg" alt="iarepo"></a>
   <h1 class="hero-title"><?= h(t('Aprende y enseña con')) ?> <span class="grad-text"><?= h(t('simulaciones interactivas')) ?></span></h1>
   <p class="hero-sub"><?= h(t('Cientos de recursos abiertos —simulaciones, herramientas y modelos con IA— listos para usar. Gratis y sin instalar.')) ?></p>
   <div class="search-wrap">
