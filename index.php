@@ -191,20 +191,27 @@ a:hover{opacity:.8}
 
 /* Grid */
 .container{max-width:1200px;margin:0 auto;padding:0 24px 80px}
-.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:20px}
-.card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;transition:.3s;cursor:pointer;position:relative;box-shadow:var(--shadow)}
-.card:hover{border-color:var(--accent);transform:translateY(-2px);box-shadow:var(--shadow-hover)}
-.card-header{padding:20px 20px 12px;display:flex;align-items:flex-start;gap:12px}
-.card-icon{width:40px;height:40px;border-radius:10px;background:var(--badge-bg);display:flex;align-items:center;justify-content:center;flex-shrink:0;color:var(--accent2)}
-.card-title{font-size:1rem;font-weight:600;line-height:1.3;flex:1}
-.card-body{padding:0 20px 16px}
-.card-desc{font-size:.85rem;color:var(--text2);line-height:1.5;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
-.card-footer{padding:12px 20px;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;font-size:.8rem;color:var(--text3)}
-.card-tags{display:flex;gap:6px;flex-wrap:wrap}
-.tag{padding:2px 8px;border-radius:4px;background:var(--source-bg);color:var(--accent2);font-size:.7rem}
-.card-meta{display:flex;align-items:center;gap:12px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:18px}
+.card{background:var(--card);border:1px solid var(--border);border-radius:14px;overflow:hidden;transition:transform .2s,box-shadow .2s,border-color .2s;cursor:pointer;position:relative;box-shadow:var(--shadow);display:flex;flex-direction:column}
+.card:hover{border-color:var(--accent);transform:translateY(-3px);box-shadow:var(--shadow-hover)}
+.card-thumb{position:relative;aspect-ratio:1200/630;background:linear-gradient(135deg,rgba(124,58,237,.10),rgba(6,182,212,.10));overflow:hidden;display:flex;align-items:center;justify-content:center}
+.card-thumb img{width:100%;height:100%;object-fit:cover;display:block;transition:transform .35s}
+.card:hover .card-thumb img{transform:scale(1.045)}
+.thumb-fallback{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--accent)}
+.thumb-fallback i,.thumb-fallback svg{width:36px;height:36px;opacity:.45}
+.thumb-ia{position:absolute;top:9px;left:9px;z-index:2;display:inline-flex;align-items:center;gap:3px;padding:3px 8px;border-radius:7px;font-size:.65rem;font-weight:800;background:rgba(255,255,255,.94);color:var(--accent);box-shadow:0 1px 5px rgba(0,0,0,.14)}
+[data-theme="dark"] .thumb-ia{background:rgba(21,28,46,.92);color:#a78bfa}
+.card-fav{position:absolute;top:7px;right:7px;z-index:2;background:rgba(255,255,255,.94);box-shadow:0 1px 5px rgba(0,0,0,.14)}
+[data-theme="dark"] .card-fav{background:rgba(21,28,46,.92)}
+.card-content{padding:13px 15px 13px;display:flex;flex-direction:column;gap:7px;flex:1}
+.card-title{font-size:.95rem;font-weight:700;line-height:1.32;color:var(--text);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.card-desc{font-size:.82rem;color:var(--text2);line-height:1.5;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.card-footer{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:auto;padding-top:4px;font-size:.76rem;color:var(--text3)}
+.card-tags{display:flex;gap:5px;flex-wrap:wrap;align-items:center}
+.tag{padding:2px 7px;border-radius:5px;background:var(--source-bg);color:var(--accent2);font-size:.7rem;font-weight:500}
+.card-meta{display:flex;align-items:center;gap:10px;flex-shrink:0}
 .card-meta span{display:flex;align-items:center;gap:4px}
-.source-badge{position:absolute;top:12px;right:12px;padding:2px 8px;border-radius:4px;background:var(--source-bg);border:1px solid var(--source-border);color:var(--accent2);font-size:.65rem;font-weight:500}
+.source-badge{display:none}
 /* ⭐ Guardar (favorito rápido) */
 .fav-btn{display:inline-flex;align-items:center;justify-content:center;background:none;border:none;cursor:pointer;color:var(--text3);padding:3px;margin:-3px;border-radius:6px;transition:.15s}
 .fav-btn:hover{color:#f59e0b;background:var(--bg3)}
@@ -254,9 +261,15 @@ a:hover{opacity:.8}
 .featured-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
 @media(max-width:900px){.featured-grid{grid-template-columns:repeat(2,1fr)}}
 @media(max-width:540px){.featured-grid{grid-template-columns:1fr 1fr;gap:10px}}
-.fcard{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:14px;box-shadow:var(--shadow);transition:.2s;text-decoration:none;display:flex;flex-direction:column;gap:6px;height:100%}
+.fcard{background:var(--card);border:1px solid var(--border);border-radius:13px;overflow:hidden;box-shadow:var(--shadow);transition:transform .2s,box-shadow .2s,border-color .2s;text-decoration:none;display:flex;flex-direction:column;height:100%}
+.fcard:hover{transform:translateY(-3px);box-shadow:var(--shadow-hover);border-color:var(--accent)}
+.fcard-thumb{position:relative;aspect-ratio:1200/630;background:linear-gradient(135deg,rgba(124,58,237,.10),rgba(6,182,212,.10));overflow:hidden;display:flex;align-items:center;justify-content:center}
+.fcard-thumb img{width:100%;height:100%;object-fit:cover;display:block;transition:transform .35s}
+.fcard:hover .fcard-thumb img{transform:scale(1.045)}
+.fcard-body{padding:10px 12px 11px;display:flex;flex-direction:column;gap:5px;flex:1}
 .fcard-wrap{position:relative}
-.fav-corner{position:absolute;top:9px;right:9px;z-index:2;background:var(--bg2);box-shadow:0 1px 4px rgba(0,0,0,.08)}
+.fav-corner{position:absolute;top:7px;right:7px;z-index:2;background:rgba(255,255,255,.94);box-shadow:0 1px 5px rgba(0,0,0,.14)}
+[data-theme="dark"] .fav-corner{background:rgba(21,28,46,.92)}
 
 /* ── Modo búsqueda: al filtrar/buscar, colapsa la portada y muestra
    resultados de inmediato (la barra de búsqueda queda fija arriba) ── */
@@ -371,20 +384,21 @@ body.searching .search-wrap{position:sticky;top:58px;z-index:90;background:var(-
     <a href="/?sort=popular"><?= h(t('Ver todos →')) ?></a>
   </div>
   <div class="featured-grid">
-    <?php foreach ($featured as $f):
-      $typeLabel = $f['code_type'] === 'html' ? '⭐ IA' : strtoupper($f['code_type']);
-      $typeStyle = $f['code_type'] === 'html'
-        ? 'background:linear-gradient(135deg,rgba(124,58,237,.1),rgba(6,182,212,.1));color:var(--accent);border:1px solid rgba(124,58,237,.15)'
-        : '';
-    ?>
+    <?php foreach ($featured as $f): ?>
     <div class="fcard-wrap">
     <a href="/resource/<?= (int)$f['id'] ?>" class="fcard">
-      <span class="fcard-type" style="<?= $typeStyle ?>"><?= h($typeLabel) ?></span>
-      <div class="fcard-title"><?= h($f['title']) ?></div>
-      <div class="fcard-meta">
-        <span>👁 <?= (int)$f['view_count'] ?></span>
-        <span>❤ <?= (int)$f['like_count'] ?></span>
-        <?php if ($f['category_name']): ?><span><?= h($f['category_icon'] ?? '') ?> <?= h($f['category_name']) ?></span><?php endif; ?>
+      <div class="fcard-thumb">
+        <span class="thumb-fallback"><i data-lucide="<?= h($f['category_icon'] ?: 'file-code') ?>"></i></span>
+        <img src="/thumbnails/og-<?= (int)$f['id'] ?>.png" loading="lazy" alt="" onerror="this.remove()">
+        <?php if ($f['code_type'] === 'html'): ?><span class="thumb-ia">✦ IA</span><?php endif; ?>
+      </div>
+      <div class="fcard-body">
+        <div class="fcard-title"><?= h($f['title']) ?></div>
+        <div class="fcard-meta">
+          <span>👁 <?= (int)$f['view_count'] ?></span>
+          <span>❤ <?= (int)$f['like_count'] ?></span>
+          <?php if ($f['category_name']): ?><span><?= h($f['category_name']) ?></span><?php endif; ?>
+        </div>
       </div>
     </a>
     <button class="fav-btn fav-corner" type="button" data-fid="<?= (int)$f['id'] ?>" title="<?= h(t('Guardar')) ?>" aria-label="<?= h(t('Guardar')) ?>" onclick="toggleFavorite(<?= (int)$f['id'] ?>,this)"><i data-lucide="star"></i></button>
@@ -652,30 +666,27 @@ function renderCard(r) {
   const icon = r.category_icon || 'file-code';
   const levelClass = r.level || 'general';
   const levelLabel = T.levels[levelClass] || levelClass;
-  const source = r.source_name ? `<span class="source-badge">${esc(r.source_name)}</span>` : '';
   const langFlag = {'es':'🇪🇸','en':'🇬🇧','pt':'🇧🇷'}[r.lang] || '🌐';
-  // Favicon from source URL
-  let favicon = '';
-  if (r.source_url) {
-    try {
-      const domain = new URL(r.source_url).hostname;
-      favicon = `<img src="https://www.google.com/s2/favicons?domain=${domain}&sz=32" alt="" style="width:20px;height:20px;border-radius:4px;object-fit:contain" onerror="this.style.display='none'">`;
-    } catch(e) {}
-  }
+  const fav = favSet.has(Number(r.id));
+  const iaBadge = r.code_type==='html'
+    ? '<span class="thumb-ia"><svg xmlns="http://www.w3.org/2000/svg" width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/></svg> IA</span>'
+    : '';
   return `<div class="card" data-resource-id="${r.id}">
-    ${source}
-    <div class="card-header">
-      <div class="card-icon">${favicon || `<i data-lucide="${icon}" style="width:20px;height:20px"></i>`}</div>
-      <div class="card-title">${esc(r.title)}</div>
+    <div class="card-thumb">
+      <span class="thumb-fallback"><i data-lucide="${icon}"></i></span>
+      <img src="/thumbnails/og-${r.id}.png" loading="lazy" alt="" onerror="this.remove()">
+      ${iaBadge}
+      <button class="fav-btn card-fav${fav?' is-fav':''}" type="button" title="${T.save}" aria-label="${T.save}" aria-pressed="${fav?'true':'false'}" onclick="event.stopPropagation();toggleFavorite(${r.id},this)"><i data-lucide="star"></i></button>
     </div>
-    <div class="card-body"><div class="card-desc">${esc(r.description || '')}</div></div>
-    <div class="card-footer">
-      <div class="card-tags">${r.code_type==='html'?'<span class="badge-ia"><svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/></svg> IA</span>':''}<span class="badge-level ${levelClass}">${levelLabel}</span><span class="tag">${r.code_type==='html'?'HTML':r.code_type}</span><span class="tag">${langFlag}</span>${(r.tags&&r.tags.length)?r.tags.slice(0,3).map(t=>`<a href="/?tag=${encodeURIComponent(t)}" class="tag" style="color:var(--accent2);text-decoration:none" onclick="event.stopPropagation()">${esc(t)}</a>`).join(''):''}</div>
-      <div class="card-meta">
-        <span><i data-lucide="eye" style="width:12px;height:12px"></i> ${r.view_count||0}</span>
-        <span><i data-lucide="heart" style="width:12px;height:12px"></i> ${r.like_count||0}</span>
-        <span><i data-lucide="git-fork" style="width:12px;height:12px"></i> ${r.fork_count||0}</span>
-        <button class="fav-btn${favSet.has(Number(r.id))?' is-fav':''}" type="button" title="${T.save}" aria-label="${T.save}" aria-pressed="${favSet.has(Number(r.id))?'true':'false'}" onclick="event.stopPropagation();toggleFavorite(${r.id},this)"><i data-lucide="star"></i></button>
+    <div class="card-content">
+      <div class="card-title">${esc(r.title)}</div>
+      <div class="card-desc">${esc(r.description || '')}</div>
+      <div class="card-footer">
+        <div class="card-tags"><span class="badge-level ${levelClass}">${levelLabel}</span><span class="tag">${r.code_type==='html'?'HTML':r.code_type}</span><span class="tag">${langFlag}</span></div>
+        <div class="card-meta">
+          <span><i data-lucide="eye" style="width:12px;height:12px"></i> ${r.view_count||0}</span>
+          <span><i data-lucide="heart" style="width:12px;height:12px"></i> ${r.like_count||0}</span>
+        </div>
       </div>
     </div>
   </div>`;
