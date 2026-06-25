@@ -254,7 +254,9 @@ a:hover{opacity:.8}
 .featured-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
 @media(max-width:900px){.featured-grid{grid-template-columns:repeat(2,1fr)}}
 @media(max-width:540px){.featured-grid{grid-template-columns:1fr 1fr;gap:10px}}
-.fcard{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:14px;box-shadow:var(--shadow);transition:.2s;text-decoration:none;display:flex;flex-direction:column;gap:6px}
+.fcard{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:14px;box-shadow:var(--shadow);transition:.2s;text-decoration:none;display:flex;flex-direction:column;gap:6px;height:100%}
+.fcard-wrap{position:relative}
+.fav-corner{position:absolute;top:9px;right:9px;z-index:2;background:var(--bg2);box-shadow:0 1px 4px rgba(0,0,0,.08)}
 .fcard:hover{box-shadow:var(--shadow-hover);border-color:var(--accent);transform:translateY(-2px)}
 .fcard-type{display:inline-flex;align-items:center;gap:4px;font-size:.68rem;font-weight:700;padding:2px 7px;border-radius:5px;background:var(--bg3);color:var(--text3);width:fit-content}
 .fcard-title{font-size:.85rem;font-weight:600;color:var(--text);line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
@@ -363,6 +365,7 @@ a:hover{opacity:.8}
         ? 'background:linear-gradient(135deg,rgba(124,58,237,.1),rgba(6,182,212,.1));color:var(--accent);border:1px solid rgba(124,58,237,.15)'
         : '';
     ?>
+    <div class="fcard-wrap">
     <a href="/resource/<?= (int)$f['id'] ?>" class="fcard">
       <span class="fcard-type" style="<?= $typeStyle ?>"><?= h($typeLabel) ?></span>
       <div class="fcard-title"><?= h($f['title']) ?></div>
@@ -372,6 +375,8 @@ a:hover{opacity:.8}
         <?php if ($f['category_name']): ?><span><?= h($f['category_icon'] ?? '') ?> <?= h($f['category_name']) ?></span><?php endif; ?>
       </div>
     </a>
+    <button class="fav-btn fav-corner" type="button" data-fid="<?= (int)$f['id'] ?>" title="<?= h(t('Guardar')) ?>" aria-label="<?= h(t('Guardar')) ?>" onclick="toggleFavorite(<?= (int)$f['id'] ?>,this)"><i data-lucide="star"></i></button>
+    </div>
     <?php endforeach; ?>
   </div>
 </section>
@@ -666,7 +671,10 @@ document.addEventListener('click', e => {
   if (card) window.location = '/resource/' + card.dataset.resourceId;
 });
 
-loadFavorites().finally(loadResources);
+function applyFeaturedFavs(){
+  document.querySelectorAll('.fav-corner').forEach(btn=>setFavBtn(btn,favSet.has(Number(btn.dataset.fid))));
+}
+loadFavorites().finally(()=>{ applyFeaturedFavs(); loadResources(); });
 </script>
 </body>
 </html>
