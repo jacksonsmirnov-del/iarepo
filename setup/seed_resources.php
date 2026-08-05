@@ -1,13 +1,26 @@
 <?php
-// Temporary seed script — run on server then delete
-$db = new PDO(
-    "mysql:host=localhost;dbname=u403412230_resources;charset=utf8mb4",
-    "u403412230_ib_ebr",
-    "LXsrtFivPHmc7K"
-);
-$db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+// ================================================================
+// setup/seed_resources.php — siembra los recursos propios (_clases)
+//
+// Run: IAREPO_CLASES_PATH=/ruta/a/_clases php setup/seed_resources.php
+//
+// Credenciales: se leen de .env.php vía shared/db.php, como todo lo demás.
+// NUNCA se escriben aquí: este repo es público (se espeja en GitHub).
+// Lo mismo vale para la ruta de los ficheros fuente, que depende del
+// servidor y llega por IAREPO_CLASES_PATH.
+// ================================================================
 
-$basePath = "/home/u403412230/domains/claseprivada.com/public_html/_clases";
+$basePath = getenv('IAREPO_CLASES_PATH') ?: '';
+if ($basePath === '') {
+    fwrite(STDERR, "❌ Falta IAREPO_CLASES_PATH: la ruta de la carpeta _clases en este servidor.\n");
+    fwrite(STDERR, "   Ej.: IAREPO_CLASES_PATH=\"\$HOME/dominios/…/public_html/_clases\" php setup/seed_resources.php\n");
+    exit(1);
+}
+$basePath = rtrim($basePath, '/');
+
+require_once __DIR__ . '/../shared/db.php';
+$db = getResourcesDB();
+$db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 
 $resources = [
     // IB Physics

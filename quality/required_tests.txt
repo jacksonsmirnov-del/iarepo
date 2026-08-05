@@ -1,0 +1,50 @@
+# quality/required_tests.txt
+#
+# Suites de test que DEBEN existir. El guard G9 de quality/guards.sh bloquea el
+# push si alguna desaparece o se queda vacía.
+#
+# POR QUÉ EXISTE ESTE FICHERO
+#   Un gate anti-regresión tiene un agujero obvio: la forma más barata de poner
+#   los tests en verde no es arreglar el fallo, es borrar el test. Comprobado
+#   sobre este repo: borrando tests/unit/search_test.php (35 tests, 82.000
+#   aserciones, toda la protección del buscador) `php tests/run.php` responde
+#   "42 tests en verde" con exit 0, guards.sh sigue verde y el hook pre-push
+#   deja pasar el push. Nada lo denuncia.
+#
+#   G9 no comprueba el CONTENIDO de estas suites — un test puede vaciarse por
+#   dentro y seguir existiendo. Sólo cierra el agujero del borrado completo,
+#   que es el accidente realista (un `git rm` para "desbloquear el push").
+#
+# CÓMO SE MANTIENE
+#   * Si borras un test porque el código que probaba ya no existe, borra su
+#     línea de aquí EN EL MISMO COMMIT. G9 volverá a verde.
+#   * Al añadir una suite nueva que cubra algo crítico, añádela aquí.
+#
+# Formato: una ruta relativa a la raíz del repo por línea. '#' = comentario.
+
+# ── Runner ──────────────────────────────────────────────────────
+tests/run.php
+
+# ── Unitarios (capa 2) ──────────────────────────────────────────
+# search_test.php es la suite que protege la regresión que originó todo esto
+# (operadores fulltext sin sanear → HTTP 500). Es la primera candidata a
+# "borrar para desbloquear".
+tests/unit/search_test.php
+tests/unit/jwt_test.php
+tests/unit/i18n_test.php
+tests/unit/similarity_test.php
+tests/unit/helpers_isolation_test.php
+
+# ── Integración con BD real (capa 3) ────────────────────────────
+tests/integration/bootstrap.php
+tests/integration/search_db_test.php
+tests/integration/search_fuzz_test.php
+tests/integration/schema_drift_test.php
+tests/fixtures/seed.sql
+
+# ── Capas 1 y 5 (el gate se protege a sí mismo) ─────────────────
+quality/smoke_test.sh
+quality/lib/analyze.php
+quality/baseline_html_helpers.txt
+quality/allowed_hosts.txt
+.githooks/pre-push

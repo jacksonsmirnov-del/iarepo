@@ -1,0 +1,300 @@
+# ================================================================
+# .github/workflows/ci.yml — Integración continua de iarepo
+#
+# QUÉ ES ESTO Y POR QUÉ EXISTE
+# El gate anti-regresión de este repo vivía SOLO en .githooks/pre-push, es
+# decir: en la máquina de quien empuja, y solo si esa persona ha corrido
+# `make hooks`. Un clon nuevo, otro ordenador o un `git push --no-verify`
+# desactivan la única barrera que hay entre un error de sintaxis y
+# producción (aquí el push ES el despliegue: no hay staging).
+# Esta CI es la SEGUNDA red: corre en GitHub, no depende de la disciplina
+# ni del entorno de nadie, y --no-verify no la salta.
+#
+# QUÉ NO HACE (a propósito)
+#   · No usa NINGÚN secreto (`permissions: contents: read`, sin `secrets:`).
+#   · No toca producción: no hay SSH, ni curl a iarepo.com, ni deploy.
+#   · No publica artefactos ni escribe en el repo.
+# Solo dice sí o no. El despliegue sigue siendo `git push origin main`.
+#
+# SOBRE LA REGLA DE CERO DEPENDENCIAS
+# La regla #4 del proyecto ("cero dependencias, cero CDNs") es sobre el
+# PRODUCTO: lo que se sirve a un navegador o se ejecuta en el servidor de
+# Hostinger. La CI es andamio, no producto. Aun así se ha llevado al
+# extremo el mismo criterio:
+#   · CERO acciones de terceros. No se usa shivammathur/setup-php: el
+#     runner ubuntu-24.04 ya trae PHP 8.3.6, que es la MISMA rama que
+#     producción (8.3.30). Instalarlo otra vez añadiría un tercero con
+#     acceso al checkout a cambio de nada.
+#   · La única acción usada es actions/checkout, que es de GitHub y no
+#     tiene alternativa razonable (clonar a mano rompe los PR de forks).
+#   · Cero `apt-get install`, cero composer, cero npm.
+# Si algún día hace falta una versión de PHP que Ubuntu no traiga, la
+# decisión se toma entonces y se documenta aquí; hoy no hace falta.
+#
+# CÓMO REPRODUCIR ESTO EN LOCAL (mismos comandos, sin YAML de por medio)
+#   make check            ← trabajo 1, idéntico
+#   make integration-ci   ← trabajo 2 (necesita Docker)
+# ================================================================
+
+name: CI
+
+# Push a CUALQUIER rama + pull_request. En un PR desde este mismo repo los
+# dos eventos disparan sendas ejecuciones; es ruido barato en un repositorio
+# público y prefiero eso a que una rama empujada sin PR se quede sin gate.
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+# Mínimo absoluto: leer el código. Sin esto el token del job hereda permisos
+# de escritura en repos configurados de forma permisiva.
+permissions:
+  contents: read
+
+# Empujar dos veces seguidas cancela la ejecución vieja.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Explícito a propósito. Actions ya usa `bash --noprofile --norc -e -o pipefail`
+# en Linux, y ese `-o pipefail` no es un detalle: cambia cómo hay que escribir
+# los pasos (ver el comentario sobre SIGPIPE en el primer paso del trabajo 1).
+defaults:
+  run:
+    shell: bash
+
+env:
+  # Rama de PHP que corre producción (medido por SSH: 8.3.30). Si GitHub
+  # sube el runner a otra rama, el trabajo falla A PROPÓSITO en vez de
+  # validar en silencio sobre un PHP que no es el de producción.
+  # Para aceptar el cambio: sube este valor (y comprueba antes qué corre
+  # Hostinger de verdad).
+  PHP_ESPERADO: '8.3'
+
+jobs:
+
+  # ==============================================================
+  # TRABAJO 1 · Gate rápido — lo mismo que .githooks/pre-push
+  # Objetivo: < 2 min. En local estos tres pasos tardan ~2 s en total;
+  # el grueso del tiempo aquí es el arranque del runner y el checkout.
+  # ==============================================================
+  gate:
+    name: Gate rápido (lint · guards · unitarios)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Comprobar el entorno del runner
+        run: |
+          set -euo pipefail
+
+          echo "── versiones ─────────────────────────────────"
+          # OJO CON LAS TUBERÍAS A `head`. Actions corre cada `run:` con
+          # `-o pipefail`, así que el estado de `cmd | head -1` es el del
+          # miembro que falle, y `head` cierra la tubería en cuanto tiene su
+          # línea: el de la izquierda recibe SIGPIPE y devuelve 141. Medido en
+          # este mismo repo:
+          #     $ set -o pipefail; make --version | head -1; echo $?
+          #     GNU Make 4.3
+          #     141
+          # Con `set -e` eso tumba el paso entero, de forma intermitente
+          # (depende de si al de la izquierda le cabe la salida en el búfer de
+          # la tubería antes de que head se vaya). `sed -n 1p` consume toda la
+          # entrada, así que no hay SIGPIPE que valga.
+          php  -v        | sed -n 1p
+          node -v
+          python3 -V
+          make --version | sed -n 1p
+          echo ""
+
+          # ── PHP de la misma rama que producción ──────────────
+          actual="$(php -r 'echo PHP_MAJOR_VERSION . "." . PHP_MINOR_VERSION;')"
+          if [ "$actual" != "$PHP_ESPERADO" ]; then
+            echo "::error::La CI iba a validar con PHP $actual y producción corre PHP ${PHP_ESPERADO}.x."
+            echo "El runner de GitHub ha cambiado de versión. Comprueba qué corre Hostinger y decide:"
+            echo "  a) si producción YA está en $actual  → pon  PHP_ESPERADO: '$actual'  en este fichero"
+            echo "  b) si producción sigue en ${PHP_ESPERADO}.x → fija 'runs-on' a una imagen que traiga esa rama"
+            exit 1
+          fi
+          echo "✓ PHP $actual (misma rama que producción)"
+
+          # ── Extensiones que el repo da por hechas ────────────
+          # Sin pdo_mysql la suite de integración NO falla: se SALTA y el
+          # runner canta verde. Por eso se comprueba aquí, donde sí duele.
+          #
+          # `php -m` se vuelca UNA vez a una variable y se busca sobre ella con
+          # una here-string. `php -m | grep -q ...` sería la forma obvia y es
+          # una trampa: grep -q sale al primer acierto, php recibe SIGPIPE y
+          # con pipefail la tubería devuelve 141 —o sea, "no está"— justo
+          # cuando la extensión SÍ está. Aquí no hay tubería.
+          mods="$(php -m)"
+          faltan=''
+          for ext in mbstring json pcre PDO pdo_mysql; do
+            grep -qix "$ext" <<< "$mods" || faltan="$faltan $ext"
+          done
+          if [ -n "$faltan" ]; then
+            echo "::error::Faltan extensiones de PHP en el runner:$faltan"
+            exit 1
+          fi
+          echo "✓ extensiones presentes: mbstring json pcre PDO pdo_mysql"
+
+          # ── El checkout tiene ficheros ───────────────────────
+          # `make lint` recorre `git ls-files`. Sobre un checkout vacío o sin
+          # .git recorrería 0 ficheros y saldría en verde sin mirar nada.
+          n_php="$(git ls-files '*.php' | wc -l)"
+          n_js="$(git ls-files '*.js'  | wc -l)"
+          echo "✓ checkout: $n_php ficheros .php · $n_js ficheros .js"
+          if [ "$n_php" -lt 20 ]; then
+            echo "::error::git ls-files solo ve $n_php ficheros .php. El checkout está incompleto:"
+            echo "lint y guards habrían dado verde sin analizar nada."
+            exit 1
+          fi
+
+      # php -l de TODOS los .php (trackeados y no trackeados) y node --check
+      # de los .js. Se invoca el target del Makefile en vez de repetir los
+      # bucles aquí: así CI y hook local no pueden divergir.
+      - name: Lint (php -l · node --check)
+        run: make lint
+
+      # Los 9 chequeos estáticos. En CI se corre el repo ENTERO (no
+      # --changed): no hay "base" contra la que comparar que sea de fiar en
+      # un runner efímero, y el barrido completo tarda medio segundo.
+      - name: Guards estáticos (quality/guards.sh)
+        run: make guards
+
+      - name: Tests unitarios (php tests/run.php)
+        run: make test
+
+  # ==============================================================
+  # TRABAJO 2 · Integración con MariaDB real
+  #
+  # POR QUÉ NO HAY UN `services:` AQUÍ.
+  # tests/integration/bootstrap.php no acepta un DSN. Su contrato (leído,
+  # no supuesto) es: host 127.0.0.1 fijo, usuario root fijo, contraseña en
+  # la constante IAREPO_IT_PASS, y él MISMO levanta el contenedor con
+  # `docker run`. Lo único parametrizable son IAREPO_TEST_DB_{IMAGE,PORT,
+  # NAME,CONT,WAIT}. Un `services:` de Actions no encaja en ese contrato:
+  # habría que reescribir bootstrap.php, que no es de este encargo, o
+  # colar un `--name` en las options del servicio para suplantar al
+  # contenedor que el bootstrap espera — un truco frágil que depende de
+  # cómo el runner ordena los flags de `docker create`.
+  # El camino honesto es el que el bootstrap ya sabe andar: darle un
+  # Docker que funcione y dejar que se monte su contenedor. El runner
+  # ubuntu-24.04 trae Docker 28 de serie, así que no hay que instalar nada.
+  # ==============================================================
+  integracion:
+    name: Integración (MariaDB real, esquema del repo)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    env:
+      # Producción es MariaDB 11.8.8 (medido). Se fija la rama 11.8 —la misma
+      # serie LTS— en vez del 'mariadb:11' que trae por defecto el bootstrap:
+      # 'mariadb:11' seguirá a la 11.9/12.x cuando salgan y la CI dejaría de
+      # probar contra lo que hay desplegado sin que nadie lo note.
+      IAREPO_TEST_DB_IMAGE: mariadb:11.8
+      IAREPO_TEST_DB_PORT: '3398'
+      IAREPO_TEST_DB_NAME: iarepo_test
+      IAREPO_TEST_DB_CONT: iarepo_test_db
+      # El bootstrap espera 60 s por defecto. Un datadir recién inicializado
+      # en un runner compartido es bastante más lento que en un portátil, y
+      # agotar la espera NO da error: da un SKIP (o sea, un verde falso).
+      IAREPO_TEST_DB_WAIT: '120'
+      # IAREPO_TEST_SKIP no se define NUNCA aquí: es el interruptor que
+      # apaga toda la suite.
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Comprobar el entorno del runner
+        run: |
+          set -euo pipefail
+
+          php -v | sed -n 1p
+          docker version --format 'Docker server {{.Server.Version}}'
+
+          actual="$(php -r 'echo PHP_MAJOR_VERSION . "." . PHP_MINOR_VERSION;')"
+          if [ "$actual" != "$PHP_ESPERADO" ]; then
+            echo "::error::PHP $actual en el runner, producción en ${PHP_ESPERADO}.x (ver el trabajo 'gate')."
+            exit 1
+          fi
+
+          # Sin pdo_mysql, iarepo_it_wait() recibe "could not find driver" en
+          # cada intento de conexión, agota los 120 s y el bootstrap devuelve
+          # un SKIP: 122 tests "en verde" sin haber tocado una sola tabla.
+          # (Sobre por qué no se usa `php -m | grep -q`: ver el trabajo 'gate'.)
+          mods="$(php -m)"
+          for ext in PDO pdo_mysql mbstring; do
+            if ! grep -qix "$ext" <<< "$mods"; then
+              echo "::error::Falta la extensión de PHP '$ext': la suite con BD se saltaría en silencio."
+              exit 1
+            fi
+          done
+
+          # `docker version` con --format del servidor falla rápido si el
+          # demonio no responde. Es EXACTAMENTE la sonda que usa
+          # iarepo_it_docker_ok(); si falla ahí, la suite se salta. Aquí
+          # falla el trabajo, que es lo que queremos.
+          if ! docker version --format '{{.Server.Version}}' > /dev/null 2>&1; then
+            echo "::error::El demonio de Docker no responde en el runner: la suite de integración se saltaría."
+            exit 1
+          fi
+          echo "✓ entorno listo (PHP $actual · pdo_mysql · Docker)"
+
+      # Se baja la imagen ANTES de llamar a la suite. iarepo_it_container_up()
+      # envuelve su `docker run -d` en un `timeout 180`, y esos 180 s
+      # incluirían la descarga (~110 MB). Descargando aquí, ese `docker run`
+      # pasa a ser instantáneo y el timeout deja de ser un riesgo. Además,
+      # un fallo de red se ve como lo que es en vez de disfrazarse de SKIP.
+      - name: Descargar la imagen de MariaDB
+        run: |
+          set -euo pipefail
+          docker pull "$IAREPO_TEST_DB_IMAGE"
+          docker image inspect "$IAREPO_TEST_DB_IMAGE" \
+            --format 'imagen lista: {{index .RepoTags 0}} ({{.Os}}/{{.Architecture}})'
+
+      # `make integration-ci` = `php tests/run.php --integration` + la
+      # comprobación de que la suite NO se saltó. Ver el porqué en el
+      # Makefile: medido en este repo, con la suite saltada el runner
+      # imprime "✅ 122 test(s) en verde" y sale con 0.
+      - name: Suite con BD real (make integration-ci)
+        run: make integration-ci
+
+      # Segunda comprobación, INDEPENDIENTE de cualquier cadena de texto.
+      # `CREATE DATABASE` crea un directorio con el nombre de la base dentro
+      # del datadir del servidor. Si ese directorio existe dentro del
+      # contenedor, el bootstrap habló con un MariaDB de verdad. Si la suite
+      # se hubiese saltado, el contenedor ni siquiera existiría.
+      - name: Verificar que la BD se creó dentro del contenedor
+        run: |
+          set -euo pipefail
+
+          estado="$(docker inspect -f '{{.State.Running}}' "$IAREPO_TEST_DB_CONT" 2>/dev/null | tr -d '[:space:]' || true)"
+          [ -n "$estado" ] || estado='ausente (el contenedor no existe)'
+          if [ "$estado" != "true" ]; then
+            echo "::error::El contenedor '$IAREPO_TEST_DB_CONT' no está corriendo (estado: $estado)."
+            echo "La suite dijo que pasó sin que hubiera ninguna base de datos detrás."
+            exit 1
+          fi
+
+          if ! docker exec "$IAREPO_TEST_DB_CONT" test -d "/var/lib/mysql/$IAREPO_TEST_DB_NAME"; then
+            echo "::error::No existe /var/lib/mysql/$IAREPO_TEST_DB_NAME dentro del contenedor:"
+            echo "el bootstrap nunca llegó a ejecutar CREATE DATABASE."
+            exit 1
+          fi
+
+          n="$(docker exec "$IAREPO_TEST_DB_CONT" ls -1 "/var/lib/mysql/$IAREPO_TEST_DB_NAME" | wc -l)"
+          echo "✓ la base '$IAREPO_TEST_DB_NAME' existe en el MariaDB del contenedor ($n ficheros en el datadir)"
+
+      # Diagnóstico para la primera ejecución real: si MariaDB no arrancó,
+      # el motivo está en su log y no en la salida de PHP.
+      - name: Log del contenedor (si algo ha fallado)
+        if: failure()
+        run: |
+          docker ps -a || true
+          docker logs --tail 60 "$IAREPO_TEST_DB_CONT" 2>&1 || echo "(sin contenedor del que sacar log)"

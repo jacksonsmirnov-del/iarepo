@@ -1,0 +1,19 @@
+# quality/i18n_ignore.txt
+#
+# Literales t('...') que NO necesitan entrada en shared/i18n_en.php porque el
+# inglés es idéntico al español (nombres propios, tecnicismos, marcas).
+#
+# Regla #3 del proyecto: toda cadena visible va en t('español') y su traducción
+# en shared/i18n_en.php (las claves SON el español). Este fichero es la lista de
+# excepciones legítimas, para que el aviso de guards.sh no se convierta en ruido
+# permanente sobre cadenas que nunca van a traducirse.
+#
+# NO uses este fichero para silenciar cadenas que sí deberían traducirse:
+# el aviso de i18n existe para detectarlas.
+#
+# Formato: el literal exacto, tal cual aparece dentro de t('...'), uno por línea.
+# '#' = comentario.
+
+# dashboard/editor.php — tipos de contenido embebido. Idénticos en inglés.
+Embed
+Python

@@ -1,7 +1,8 @@
 -- ================================================================
 -- Migration 003: Schema fixes + Social layer tables
 --
--- Run: mysql -u u403412230_ib_ebr -p u403412230_resources < setup/migration_003_social.sql
+-- Aplicar (credenciales desde .env.php del servidor; el repo es público):
+--   php setup/run_migration.php setup/migration_003_social.sql
 -- ================================================================
 
 -- ── Fix: Add 'prompt' to code_type ENUM (already used in admin/create.php) ──

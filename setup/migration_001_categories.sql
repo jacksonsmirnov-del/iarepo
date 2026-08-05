@@ -2,7 +2,8 @@
 -- Migration: Add categories, tags, and new resource columns
 -- for iarepo.com platform expansion.
 --
--- Run: mysql -u u403412230_ib_ebr -p u403412230_resources < setup/migration_001_categories.sql
+-- Aplicar (credenciales desde .env.php del servidor; el repo es público):
+--   php setup/run_migration.php setup/migration_001_categories.sql
 -- ================================================================
 
 -- ═══════════════════════════════════════════════════════════════

@@ -64,6 +64,25 @@ if (str_contains($accept, 'application/json') && !str_contains($accept, 'text/ht
     echo json_encode($status, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
     exit;
 }
+
+// ── Orden inicial del <select id="sort"> ──────────────────────
+// El defecto del servidor NO es fijo: api/resources.php ordena por RELEVANCIA
+// cuando hay texto de búsqueda y el cliente no manda ?sort= (ver su bloque
+// "── Sort ──"). Replicamos esa misma decisión aquí para que el desplegable ya
+// llegue pintado con el orden real: sin esto mostraría "Más recientes" mientras
+// la API devuelve relevancia, y el usuario leería una mentira.
+// La relevancia sin términos que puntuar no significa nada → se descarta.
+// La lista blanca y su regla ("un sort desconocido cuenta como ausente, no
+// como elección explícita") son las de api/resources.php, bloque "── Sort ──":
+// esa es la pieza que manda. Aquí sólo se replica para pintar el <select>.
+$sortOptions = ['relevance', 'recent', 'popular', 'views', 'title'];
+$querySearch = trim((string) ($_GET['search'] ?? ''));
+$sortParam   = (string) ($_GET['sort'] ?? '');
+if (!in_array($sortParam, $sortOptions, true)) $sortParam = '';       // desconocido ≡ ausente (igual que la API)
+if ($sortParam === 'relevance' && $querySearch === '') $sortParam = '';
+$sortSelected = $sortParam !== '' ? $sortParam : ($querySearch !== '' ? 'relevance' : 'recent');
+/** Marca la <option> del orden vigente (el JS vuelve a normalizarlo al arrancar). */
+$sortSel = static fn(string $v): string => $v === $sortSelected ? ' selected' : '';
 ?>
 <!DOCTYPE html>
 <html lang="<?= lang() ?>">
@@ -183,23 +202,37 @@ a:hover{opacity:.8}
 .hero-stat strong{font-size:1.5rem;background:var(--grad);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
 .hero-stat span{display:block;font-size:.8rem;color:var(--text3)}
 
+/* Sólo para lectores de pantalla (label del buscador, h1 en modo búsqueda) */
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
+
 /* Search */
 .search-wrap{max-width:600px;margin:0 auto 40px;position:relative}
-.search-wrap input{width:100%;padding:14px 20px 14px 48px;border-radius:50px;border:1px solid var(--border);background:var(--bg2);color:var(--text);font-size:1rem;font-family:inherit;outline:none;transition:.3s;box-shadow:var(--shadow)}
+.search-wrap input{width:100%;padding:14px 46px 14px 48px;border-radius:50px;border:1px solid var(--border);background:var(--bg2);color:var(--text);font-size:1rem;font-family:inherit;outline:none;transition:.3s;box-shadow:var(--shadow)}
 .search-wrap input:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(124,58,237,.15)}
+/* La ✕ nativa de WebKit duplicaría nuestro botón de limpiar */
+.search-wrap input::-webkit-search-cancel-button{-webkit-appearance:none;appearance:none}
 .search-wrap .search-icon{position:absolute;left:16px;top:50%;transform:translateY(-50%);color:var(--text3)}
+.search-clear{position:absolute;right:7px;top:50%;transform:translateY(-50%);width:36px;height:36px;display:flex;align-items:center;justify-content:center;border:none;background:none;color:var(--text3);cursor:pointer;border-radius:50%;transition:.15s}
+.search-clear:hover{color:var(--accent);background:var(--bg3)}
+.search-clear i,.search-clear svg{width:17px;height:17px}
+/* display:flex ganaría al atributo [hidden]: hay que anularlo explícitamente */
+.search-clear[hidden]{display:none}
 
 /* Categories */
 .cats{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;padding:0 24px;margin-bottom:40px}
-.cat-pill{display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border-radius:20px;border:1px solid var(--border);background:var(--bg2);color:var(--text2);font-size:.85rem;cursor:pointer;transition:.2s;font-family:inherit;box-shadow:var(--shadow)}
+.cat-pill{display:inline-flex;align-items:center;gap:6px;padding:8px 16px;min-height:38px;border-radius:20px;border:1px solid var(--border);background:var(--bg2);color:var(--text2);font-size:.85rem;cursor:pointer;transition:.2s;font-family:inherit;box-shadow:var(--shadow)}
 .cat-pill:hover,.cat-pill.active{border-color:var(--accent);color:var(--accent);background:var(--badge-bg)}
 .cat-pill .count{font-size:.75rem;color:var(--text3);margin-left:2px}
 
 /* Grid */
 .container{max-width:1200px;margin:0 auto;padding:0 24px 80px}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:18px}
-.card{background:var(--card);border:1px solid var(--border);border-radius:14px;overflow:hidden;transition:transform .2s,box-shadow .2s,border-color .2s;cursor:pointer;position:relative;box-shadow:var(--shadow);display:flex;flex-direction:column}
-.card:hover{border-color:var(--accent);transform:translateY(-3px);box-shadow:var(--shadow-hover)}
+/* La tarjeta es un <a> real (foco de teclado, abrir en pestaña nueva, SEO);
+   el botón ⭐ vive FUERA del enlace porque <button> dentro de <a> es inválido. */
+.card-wrap{position:relative;display:flex}
+.card{background:var(--card);border:1px solid var(--border);border-radius:14px;overflow:hidden;transition:transform .2s,box-shadow .2s,border-color .2s;cursor:pointer;position:relative;box-shadow:var(--shadow);display:flex;flex-direction:column;width:100%;color:inherit;text-decoration:none}
+.card:hover{border-color:var(--accent);transform:translateY(-3px);box-shadow:var(--shadow-hover);opacity:1}
+.card:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .card-thumb{position:relative;aspect-ratio:1200/630;background:linear-gradient(135deg,rgba(124,58,237,.10),rgba(6,182,212,.10));overflow:hidden;display:flex;align-items:center;justify-content:center}
 .card-thumb img{width:100%;height:100%;object-fit:cover;display:block;transition:transform .35s}
 .card:hover .card-thumb img{transform:scale(1.045)}
@@ -238,8 +271,27 @@ a:hover{opacity:.8}
 
 /* Loading/Empty */
 .loading,.empty{text-align:center;padding:80px 24px;color:var(--text3)}
+/* Sin esto, el mensaje es una celda más del grid y se comprime a ~270px */
+.grid>.loading,.grid>.empty{grid-column:1/-1}
 .loading .spinner{width:32px;height:32px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite;margin:0 auto 12px}
 @keyframes spin{to{transform:rotate(360deg)}}
+/* El vacío y el error dejan de ser callejones sin salida: dicen qué pasó y ofrecen salida */
+.state-icon{font-size:2rem;line-height:1;margin-bottom:12px}
+.state-title{font-size:1.05rem;font-weight:700;color:var(--text);margin-bottom:8px}
+.state-hint{max-width:460px;margin:0 auto 18px;line-height:1.55;font-size:.9rem}
+.state-label{font-size:.82rem;margin-bottom:8px}
+.state-chips{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-bottom:18px}
+.btn-more{display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:10px 20px;min-height:40px;border-radius:22px;border:1px solid var(--border);background:var(--bg2);color:var(--text2);font-family:inherit;font-size:.88rem;cursor:pointer;transition:.2s;box-shadow:var(--shadow)}
+.btn-more:hover{border-color:var(--accent);color:var(--accent)}
+.btn-more[disabled]{opacity:.6;cursor:default}
+.btn-more .count{font-size:.78rem;color:var(--text3)}
+.more-wrap{text-align:center;padding:24px 0 0}
+/* Filtros activos: qué está recortando los resultados, y cómo quitarlo */
+.active-filters{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 14px}
+.active-filters:empty{display:none}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:6px 12px;min-height:34px;border-radius:17px;border:1px solid var(--badge-border);background:var(--badge-bg);color:var(--badge-text);font-family:inherit;font-size:.8rem;cursor:pointer;transition:.15s}
+.chip:hover{border-color:var(--accent);background:var(--card)}
+.chip-clear{background:none;border-color:var(--border);color:var(--text2)}
 
 /* Auth bar */
 .auth-bar{display:flex;align-items:center;gap:10px}
@@ -256,7 +308,7 @@ a:hover{opacity:.8}
 /* Toolbar */
 .toolbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;flex-wrap:wrap;gap:12px}
 .result-count{font-size:.9rem;color:var(--text2)}
-.sort-select{padding:8px 12px;border-radius:8px;border:1px solid var(--border);background:var(--bg2);color:var(--text);font-family:inherit;font-size:.85rem;cursor:pointer}
+.sort-select{padding:8px 12px;min-height:38px;border-radius:8px;border:1px solid var(--border);background:var(--bg2);color:var(--text);font-family:inherit;font-size:.85rem;cursor:pointer}
 
 /* Featured section */
 .featured{max-width:1100px;margin:0 auto 8px;padding:0 24px}
@@ -279,12 +331,19 @@ a:hover{opacity:.8}
 
 /* ── Modo búsqueda: al filtrar/buscar, colapsa la portada y muestra
    resultados de inmediato (la barra de búsqueda queda fija arriba) ── */
-body.searching .hero{padding:70px 24px 8px}
+/* overflow:visible es LA clave: un ancestro con overflow:hidden se convierte en
+   el scrollport del position:sticky y la barra se despega a los ~130px de scroll.
+   El glow de .hero::before (único motivo del hidden) ya está oculto aquí. */
+body.searching .hero{padding:70px 24px 8px;overflow:visible}
 body.searching .hero::before,
-body.searching .hero > :not(.search-wrap),
+body.searching .hero > :not(.search-wrap):not(.hero-title),
 body.searching .featured,
 body.searching .how-it-works{display:none}
-body.searching .search-wrap{position:sticky;top:58px;z-index:90;background:var(--bg);padding:8px 0;margin-bottom:0}
+/* El h1 no se oculta con display:none: la página no puede quedarse sin
+   encabezado accesible al entrar por deep-link (/?search=…, /?sort=popular). */
+body.searching .hero-title{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
+body.searching .topnav{background:var(--bg);border-bottom:1px solid var(--border)}
+body.searching .search-wrap{position:sticky;top:58px;z-index:90;background:var(--bg);padding:10px 0;margin-bottom:0}
 .fcard:hover{box-shadow:var(--shadow-hover);border-color:var(--accent);transform:translateY(-2px)}
 .fcard-type{display:inline-flex;align-items:center;gap:4px;font-size:.68rem;font-weight:700;padding:2px 7px;border-radius:5px;background:var(--bg3);color:var(--text3);width:fit-content}
 .fcard-title{font-size:.85rem;font-weight:600;color:var(--text);line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
@@ -372,13 +431,17 @@ body.searching .search-wrap{position:sticky;top:58px;z-index:90;background:var(-
   <h1 class="hero-title"><?= h(t('Aprende y enseña con')) ?> <span class="grad-text"><?= h(t('simulaciones interactivas')) ?></span></h1>
   <p class="hero-sub"><?= h(t('Cientos de recursos abiertos —simulaciones, herramientas y modelos con IA— listos para usar. Gratis y sin instalar.')) ?></p>
   <div class="search-wrap">
-    <i data-lucide="search" class="search-icon" style="width:20px;height:20px"></i>
-    <input type="search" id="search" placeholder="<?= h(t('Buscar recursos... (ej: waves, pendulum, pH)')) ?>" autocomplete="off">
+    <label for="search" class="sr-only"><?= h(t('Buscar recursos')) ?></label>
+    <i data-lucide="search" class="search-icon" aria-hidden="true" style="width:20px;height:20px"></i>
+    <input type="search" id="search" enterkeyhint="search" autocomplete="off" autocapitalize="off"
+           spellcheck="false" aria-describedby="result-count"
+           placeholder="<?= h(t('Buscar por tema: ondas, fracciones, circuitos…')) ?>">
+    <button type="button" id="search-clear" class="search-clear" hidden
+            title="<?= h(t('Limpiar búsqueda')) ?>" aria-label="<?= h(t('Limpiar búsqueda')) ?>"><i data-lucide="x" aria-hidden="true"></i></button>
   </div>
   <div class="hero-stats">
     <div class="hero-stat"><strong id="stat-total">—</strong><span><?= h(t('Recursos')) ?></span></div>
     <div class="hero-stat"><strong id="stat-cats">—</strong><span><?= h(t('Categorías')) ?></span></div>
-    <div class="hero-stat"><strong id="stat-types">—</strong><span><?= h(t('Tipos')) ?></span></div>
   </div>
 </section>
 
@@ -456,13 +519,13 @@ body.searching .search-wrap{position:sticky;top:58px;z-index:90;background:var(-
 
 <div class="container">
   <div class="toolbar">
-    <span class="result-count" id="result-count"></span>
+    <span class="result-count" id="result-count" role="status" aria-live="polite" aria-atomic="true"></span>
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
       <select class="sort-select" id="filter-lang" title="<?= h(t('Idioma')) ?>">
         <option value=""><?= h(t('🌐 Idioma')) ?></option>
         <option value="es"><?= h(t('🇪🇸 Español')) ?></option>
         <option value="en"><?= h(t('🇬🇧 English')) ?></option>
-        <option value="pt"><?= h(t('🇧🇷 Português')) ?></option>
+        <!-- 'pt' retirado: 0 recursos en catálogo, era un estado vacío garantizado -->
       </select>
       <select class="sort-select" id="filter-level" title="<?= h(t('Nivel')) ?>">
         <option value=""><?= h(t('📚 Nivel')) ?></option>
@@ -472,17 +535,24 @@ body.searching .search-wrap{position:sticky;top:58px;z-index:90;background:var(-
         <option value="university"><?= h(t('Universidad')) ?></option>
         <option value="general"><?= h(t('General')) ?></option>
       </select>
-      <select class="sort-select" id="sort">
-        <option value="recent"><?= h(t('Más recientes')) ?></option>
-        <option value="popular"><?= h(t('Más usados')) ?></option>
-        <option value="views"><?= h(t('Más vistos')) ?></option>
-        <option value="title"><?= h(t('Alfabético')) ?></option>
+      <select class="sort-select" id="sort" title="<?= h(t('Orden')) ?>">
+        <!-- Relevancia: sólo existe mientras haya texto que puntuar. Fuera de
+             ese caso va hidden+disabled (así el navegador tampoco la elige como
+             primera opción al resetear el formulario); syncSortOptions() la
+             muestra al buscar y la retira al vaciar la búsqueda. -->
+        <option value="relevance" id="sort-relevance"<?= $querySearch !== '' ? '' : ' hidden disabled' ?><?= $sortSel('relevance') ?>><?= h(t('Más relevantes')) ?></option>
+        <option value="recent"<?= $sortSel('recent') ?>><?= h(t('Más recientes')) ?></option>
+        <option value="popular"<?= $sortSel('popular') ?>><?= h(t('Más usados')) ?></option>
+        <option value="views"<?= $sortSel('views') ?>><?= h(t('Más vistos')) ?></option>
+        <option value="title"<?= $sortSel('title') ?>><?= h(t('Alfabético')) ?></option>
       </select>
     </div>
   </div>
+  <div id="active-filters" class="active-filters" aria-label="<?= h(t('Filtros activos')) ?>"></div>
   <div id="grid" class="grid">
     <div class="loading"><div class="spinner"></div><?= h(t('Cargando recursos...')) ?></div>
   </div>
+  <div id="more-wrap" class="more-wrap"></div>
 </div>
 
 <footer class="footer">
@@ -508,6 +578,26 @@ const T = {
   favSaved: <?= json_encode(t('Guardado en tus favoritos ⭐')) ?>,
   favRemoved: <?= json_encode(t('Quitado de favoritos')) ?>,
   loginToSave: <?= json_encode(t('Regístrate para guardar tus favoritos ⭐')) ?>,
+  // ── Buscador ──
+  searching: <?= json_encode(t('Buscando…')) ?>,
+  loadMore: <?= json_encode(t('Cargar más')) ?>,
+  showingOf: <?= json_encode(t('Mostrando %1 de %2 recursos')) ?>,
+  noResultsFor: <?= json_encode(t('Sin resultados para «%s»'), JSON_UNESCAPED_UNICODE) ?>,
+  noResultsHint: <?= json_encode(t('Prueba con una palabra más corta, en singular, o en inglés: muchos títulos del catálogo están en inglés.')) ?>,
+  noResultsFilters: <?= json_encode(t('Ningún recurso coincide con los filtros activos: %s')) ?>,
+  clearFilters: <?= json_encode(t('Limpiar filtros')) ?>,
+  retry: <?= json_encode(t('Reintentar')) ?>,
+  rateLimited: <?= json_encode(t('Demasiadas búsquedas seguidas. Espera unos segundos y reinténtalo.')) ?>,
+  fSearch: <?= json_encode(t('Búsqueda')) ?>,
+  fLang: <?= json_encode(t('Idioma')) ?>,
+  fLevel: <?= json_encode(t('Nivel')) ?>,
+  fCategory: <?= json_encode(t('Categoría')) ?>,
+  removeFilter: <?= json_encode(t('Quitar filtro: %s')) ?>,
+  allCats: <?= json_encode(t('Todos')) ?>,
+  suggestions: <?= json_encode(t('Prueba con:')) ?>,
+  // Lista de sugerencias del estado vacío: términos VERIFICADOS contra el
+  // catálogo real (ES 9/6/5/10/7 · EN 19/9/2/14/3 resultados). Se separan por coma.
+  suggestList: <?= json_encode(t('ondas,fracciones,circuitos,algebra,sistema solar')) ?>,
 };
 
 // ── Favoritos (⭐ guardado rápido) ──
@@ -587,6 +677,10 @@ function exitPresent() {
     overlay.classList.remove('active');
     document.body.style.overflow = '';
   }
+  // Vaciar el clon SIEMPRE: si se queda en el DOM duplica los id (#grid,
+  // #result-count, #more-wrap…) y, como el overlay va antes en el documento,
+  // getElementById devolvería el clon muerto y el buscador dejaría de pintar.
+  document.getElementById('present-content').innerHTML = '';
 }
 document.addEventListener('fullscreenchange', () => {
   if (!document.fullscreenElement) exitPresent();
@@ -597,133 +691,411 @@ document.addEventListener('keydown', e => {
 
 // ── API ──
 const API = '/api/resources.php';
+const $ = id => document.getElementById(id);
 let currentCat = null;
 let debounceTimer = null;
+let reqSeq = 0;           // token de secuencia: descarta respuestas tardías
+let inflight = null;      // AbortController de la petición en vuelo
+let page = 1;             // página actual ("Cargar más")
+let shown = 0;            // tarjetas pintadas ahora mismo
+let lastTotal = 0;        // total devuelto para la consulta actual
+let catalogTotal = null;  // total SIN filtros (contador del hero); se fija una vez
+let sortExplicit = false; // ¿el orden lo eligió el usuario (o un deep-link ?sort=)?
+
+// Lista blanca: r.level es VARCHAR(50) libre, llega de BD sin validar y no
+// puede acabar dentro de una clase CSS ni de HTML sin escapar (XSS almacenado).
+const LEVEL_CLASSES = {primary:1, secondary:1, ib:1, university:1, general:1};
+
+function esc(s){ const d = document.createElement('div'); d.textContent = (s === null || s === undefined) ? '' : String(s); return d.innerHTML; }
+// esc() NO escapa comillas → nunca vale para un valor de atributo.
+function escAttr(s){ return esc(s).replace(/"/g, '&quot;').replace(/'/g, '&#39;'); }
+// String.replace con reemplazo de texto interpreta $&, $` y $': siempre función.
+function fill(tpl, token, value){ return String(tpl).replace(token, () => value); }
 
 // ¿El usuario está buscando/filtrando? (entonces colapsamos la portada)
-function isBrowsing(){
-  return !!(document.getElementById('search').value.trim()
-    || currentCat
-    || document.getElementById('filter-lang').value
-    || document.getElementById('filter-level').value
-    || document.getElementById('sort').value !== 'recent');
-}
+function hasQuery(){ return $('search').value.trim() !== ''; }
+function hasFilters(){ return !!(currentCat || $('filter-lang').value || $('filter-level').value); }
+function isBrowsing(){ return hasQuery() || hasFilters() || $('sort').value !== 'recent'; }
 function updateBrowseMode(){ document.body.classList.toggle('searching', isBrowsing()); }
 
-async function loadResources() {
-  updateBrowseMode();
-  const grid = document.getElementById('grid');
-  const search = document.getElementById('search').value.trim();
-  const sort = document.getElementById('sort').value;
+// El orden por relevancia sólo tiene sentido con términos que puntuar: la opción
+// aparece al buscar y pasa a ser el defecto (que es justo lo que hace la API si
+// no le mandamos 'sort'), y se retira al vaciar la búsqueda devolviendo el select
+// a 'recent'. Una elección deliberada —del usuario o de un ?sort= en la URL— se
+// respeta y NO se pisa al seguir tecleando.
+function syncSortOptions(){
+  const s = $('sort'), opt = $('sort-relevance'), on = hasQuery();
+  opt.hidden = !on; opt.disabled = !on;
+  if (on) { if (!sortExplicit) s.value = 'relevance'; }
+  else if (s.value === 'relevance') { s.value = 'recent'; sortExplicit = false; }
+}
 
-  let url = `${API}?limit=50&sort=${sort}`;
-  if (currentCat) url += `&category=${currentCat}`;
-  if (search) url += `&search=${encodeURIComponent(search)}`;
-  const lang = document.getElementById('filter-lang').value;
-  const level = document.getElementById('filter-level').value;
-  if (lang) url += `&lang=${lang}`;
-  if (level) url += `&level=${level}`;
+function buildParams(){
+  const p = new URLSearchParams();
+  const q = $('search').value.trim();
+  if (q) p.set('search', q);
+  if (currentCat) p.set('category', currentCat);
+  const lg = $('filter-lang').value;  if (lg) p.set('lang', lg);
+  const lv = $('filter-level').value; if (lv) p.set('level', lv);
+  // 'recent' YA NO es el defecto universal: con búsqueda, el defecto de la API
+  // es 'relevance'. Mandamos 'sort' sólo cuando difiere de ese defecto, así la
+  // URL sigue siendo corta y '?search=ondas' significa lo mismo aquí y allí.
+  const so = $('sort').value, dflt = q ? 'relevance' : 'recent';
+  if (so && so !== dflt) p.set('sort', so);
+  return p;
+}
+
+// ── Estado ↔ URL: la búsqueda se puede compartir, marcar y deshacer con "atrás" ──
+function syncURL(push){
+  const qs = buildParams().toString();
+  const url = qs ? location.pathname + '?' + qs : location.pathname;
+  if (url === location.pathname + location.search) return;
+  if (push) history.pushState(null, '', url); else history.replaceState(null, '', url);
+}
+function applyStateFromURL(){
+  const p = new URLSearchParams(location.search);
+  $('search').value = p.get('search') || '';
+  // Un valor que no existe entre las <option> deja el select en '': lo devolvemos
+  // a su defecto. Un ?sort= válido cuenta como elección explícita y bloquea el
+  // salto automático a relevancia (deep-link y botón atrás mandan sobre él).
+  $('sort').value = p.get('sort') || '';
+  sortExplicit = $('sort').value !== '';
+  if (!sortExplicit) $('sort').value = 'recent';
+  $('filter-lang').value  = p.get('lang')  || '';
+  $('filter-level').value = p.get('level') || '';
+  currentCat = p.get('category') || null;
+  syncSortOptions();
+  syncClearBtn();
+  markActivePill();
+}
+window.addEventListener('popstate', () => { applyStateFromURL(); loadResources({push:false}); });
+
+function showState(html){ $('grid').innerHTML = html; lucide.createIcons(); }
+function clearCount(){ $('result-count').textContent = ''; }
+function setCount(){
+  const el = $('result-count');
+  if (lastTotal === 0) { el.textContent = T.noResults; return; }
+  el.textContent = shown < lastTotal
+    ? fill(fill(T.showingOf, '%1', shown), '%2', lastTotal)
+    : lastTotal + ' ' + (lastTotal !== 1 ? T.resources : T.resource);
+}
+
+async function loadResources(opt) {
+  opt = opt || {};
+  // Antes de construir la URL: el orden mostrado y el pedido tienen que coincidir.
+  syncSortOptions();
+  updateBrowseMode();
+  const grid = $('grid');
+  if (!opt.append) { page = 1; shown = 0; }
+  // Al teclear, replaceState (no ensuciar el historial con una entrada por letra);
+  // en acciones deliberadas (Enter, select, píldora, chip), pushState.
+  if (!opt.append && opt.push !== false) syncURL(opt.push === true);
+
+  const p = buildParams();
+  p.set('limit', '50');
+  p.set('page', String(page));
+
+  // Doble red contra la carrera del debounce: abortamos la petición vieja Y
+  // descartamos por token (su respuesta pudo quedar ya en la cola de microtareas).
+  if (inflight) inflight.abort();
+  inflight = new AbortController();
+  const my = ++reqSeq;
+  const signal = inflight.signal;
+
+  grid.setAttribute('aria-busy', 'true');
+  renderActiveFilters();
+  if (opt.append) setMoreBusy(true);
+  else showState('<div class="loading"><div class="spinner"></div>' + esc(T.searching) + '</div>');
 
   try {
-    const res = await fetch(url);
-    const data = await res.json();
-    if (!data.ok) { grid.innerHTML = `<div class="empty">${T.loadError}</div>`; return; }
-
-    document.getElementById('stat-total').textContent = data.total;
-    document.getElementById('result-count').textContent = `${data.total} ${data.total !== 1 ? T.resources : T.resource}`;
-
-    if (data.categories && !document.querySelector('.cat-pill')) renderCategories(data.categories);
-
-    if (data.resources.length === 0) { grid.innerHTML = `<div class="empty">${T.noResults}</div>`; return; }
-
-    grid.innerHTML = data.resources.map(r => renderCard(r)).join('');
-    lucide.createIcons();
+    const res = await fetch(API + '?' + p.toString(), {signal: signal});
+    if (my !== reqSeq) return;
+    if (res.status === 429) { fail(T.rateLimited, opt.append); return; }
+    let data = null;
+    try { data = await res.json(); } catch (parseErr) { data = null; }
+    if (my !== reqSeq) return;
+    if (!res.ok || !data || !data.ok) {
+      fail((data && data.error) ? String(data.error) : T.loadError, opt.append);
+      return;
+    }
+    renderResults(data, !!opt.append);
   } catch (e) {
-    grid.innerHTML = `<div class="empty">${T.connError}</div>`;
+    if (e && e.name === 'AbortError') return;  // cancelación nuestra: no es un error
+    if (my !== reqSeq) return;
+    fail(T.connError, opt.append);
+  } finally {
+    if (my === reqSeq) { grid.removeAttribute('aria-busy'); inflight = null; setMoreBusy(false); }
   }
 }
 
-function renderCategories(cats) {
-  const activeCats = cats.filter(c => parseInt(c.resource_count) > 0);
-  document.getElementById('stat-cats').textContent = activeCats.length;
-  document.getElementById('stat-types').textContent = '6';
-  const el = document.getElementById('categories');
-  let html = `<button class="cat-pill active" data-cat-id="">Todos</button>`;
-  cats.forEach(c => {
-    if (parseInt(c.resource_count) > 0)
-      html += `<button class="cat-pill" data-cat-id="${c.id}"><i data-lucide="${c.icon}" style="width:14px;height:14px"></i> ${c.name} <span class="count">${c.resource_count}</span></button>`;
-  });
-  el.innerHTML = html;
+// Fallo de red/servidor: pantalla DISTINTA del estado vacío (⚠, sin sugerencias,
+// con "Reintentar") y sin contador obsoleto encima. Si lo que falla es un
+// "Cargar más" no borramos lo ya pintado: avisamos y dejamos reintentar.
+function fail(msg, append){
+  if (append) { page = Math.max(1, page - 1); renderMore(); showFavToast(msg); return; }
+  lastTotal = 0; shown = 0;
+  clearCount();
+  $('more-wrap').innerHTML = '';
+  showState('<div class="empty">' +
+    '<div class="state-icon" aria-hidden="true">⚠️</div>' +
+    '<h2 class="state-title">' + esc(msg) + '</h2>' +
+    '<div><button class="btn-more" type="button" data-retry="1">' + esc(T.retry) + '</button></div>' +
+  '</div>');
+}
+
+function renderResults(data, append) {
+  const grid = $('grid');
+  lastTotal = Number(data.total) || 0;
+  if (data.categories && !document.querySelector('#categories .cat-pill')) renderCategories(data.categories);
+  // El contador del hero mide el CATÁLOGO, no la búsqueda: se fija una sola vez
+  // (primera carga sin filtros) y no se vuelve a tocar.
+  if (catalogTotal === null && !hasQuery() && !hasFilters()) {
+    catalogTotal = lastTotal;
+    $('stat-total').textContent = lastTotal;
+  }
+  const list = Array.isArray(data.resources) ? data.resources : [];
+  if (!append && list.length === 0) {
+    shown = 0; setCount(); showState(emptyHTML()); renderMore(); renderActiveFilters();
+    return;
+  }
+  const html = list.map(renderCard).join('');
+  if (append) grid.insertAdjacentHTML('beforeend', html); else grid.innerHTML = html;
+  shown += list.length;
+  setCount(); renderMore(); renderActiveFilters();
   lucide.createIcons();
-  // Delegated click for category pills
-  el.addEventListener('click', e => {
-    const pill = e.target.closest('.cat-pill');
-    if (!pill) return;
-    currentCat = pill.dataset.catId || null;
-    document.querySelectorAll('.cat-pill').forEach(p => p.classList.remove('active'));
-    pill.classList.add('active');
-    loadResources();
+}
+
+// "546 recursos" y 50 tarjetas era mentira: o se pintan todos, o hay cómo pedir más.
+function renderMore(){
+  $('more-wrap').innerHTML = (shown > 0 && shown < lastTotal)
+    ? '<button class="btn-more" type="button" id="more-btn">' + esc(T.loadMore) + ' <span class="count">(' + (lastTotal - shown) + ')</span></button>'
+    : '';
+}
+function setMoreBusy(on){
+  const b = $('more-btn');
+  if (!b) return;
+  if (on) { b.disabled = true; b.textContent = T.searching; }
+  else if (b.disabled) renderMore();
+}
+
+// Estado vacío accionable: qué se buscó, qué está filtrando y por dónde salir.
+function emptyHTML(){
+  const q = $('search').value.trim();
+  const chips = String(T.suggestList).split(',').map(s => s.trim()).filter(Boolean)
+    .map(s => '<button class="cat-pill" type="button" data-suggest="' + escAttr(s) + '">' + esc(s) + '</button>')
+    .join('');
+  const title = q ? fill(T.noResultsFor, '%s', esc(q)) : esc(T.noResults);
+  const hint  = hasFilters() ? fill(T.noResultsFilters, '%s', esc(filterSummary())) : esc(T.noResultsHint);
+  return '<div class="empty">' +
+    '<div class="state-icon" aria-hidden="true">🔍</div>' +
+    '<h2 class="state-title">' + title + '</h2>' +
+    '<p class="state-hint">' + hint + '</p>' +
+    '<p class="state-label">' + esc(T.suggestions) + '</p>' +
+    '<div class="state-chips">' + chips + '</div>' +
+    ((q || hasFilters()) ? '<button class="btn-more" type="button" data-clear="all">' + esc(T.clearFilters) + '</button>' : '') +
+  '</div>';
+}
+
+// currentCat viene de la URL: nunca lo metemos en un selector CSS (querySelector
+// lanzaría con un valor arbitrario). Comparamos leyendo el dataset.
+function pillFor(id){
+  let found = null;
+  document.querySelectorAll('#categories .cat-pill').forEach(p => {
+    if ((p.dataset.catId || '') === String(id)) found = p;
   });
+  return found;
+}
+function markActivePill(){
+  document.querySelectorAll('#categories .cat-pill').forEach(p =>
+    p.classList.toggle('active', (p.dataset.catId || '') === (currentCat || '')));
+}
+function activeFilterList(){
+  const out = [];
+  if (currentCat) {
+    const pill = pillFor(currentCat);
+    out.push({k:'category', label: pill ? pill.textContent.replace(/\s+/g, ' ').trim() : T.fCategory});
+  }
+  const lg = $('filter-lang');
+  if (lg.value) out.push({k:'lang', label: T.fLang + ': ' + lg.options[lg.selectedIndex].text});
+  const lv = $('filter-level');
+  if (lv.value) out.push({k:'level', label: T.fLevel + ': ' + lv.options[lv.selectedIndex].text});
+  return out;
+}
+function filterSummary(){ return activeFilterList().map(f => f.label).join(' · '); }
+function renderActiveFilters(){
+  const items = activeFilterList();
+  const q = $('search').value.trim();
+  if (q) items.unshift({k:'search', label: T.fSearch + ': ' + q});
+  let html = items.map(f =>
+    '<button class="chip" type="button" data-clear="' + escAttr(f.k) + '" aria-label="' + escAttr(fill(T.removeFilter, '%s', f.label)) + '">' +
+    esc(f.label) + ' <span aria-hidden="true">✕</span></button>').join('');
+  if (items.length > 1) html += '<button class="chip chip-clear" type="button" data-clear="all">' + esc(T.clearFilters) + '</button>';
+  $('active-filters').innerHTML = html;
+}
+
+function syncClearBtn(){ $('search-clear').hidden = !$('search').value; }
+function searchFor(q){
+  const i = $('search');
+  i.value = q; syncClearBtn();
+  clearTimeout(debounceTimer);
+  loadResources({push:true});
+  i.focus();
+}
+function clearSearch(){
+  $('search').value = ''; syncClearBtn();
+  clearTimeout(debounceTimer);
+  loadResources({push:true});
+}
+function clearFilters(){
+  $('search').value = '';
+  $('filter-lang').value = '';
+  $('filter-level').value = '';
+  $('sort').value = 'recent';
+  sortExplicit = false;
+  currentCat = null;
+  markActivePill(); syncClearBtn();
+  clearTimeout(debounceTimer);
+  loadResources({push:true});
+  $('search').focus();
+}
+
+function renderCategories(cats) {
+  const activeCats = cats.filter(c => parseInt(c.resource_count, 10) > 0);
+  $('stat-cats').textContent = activeCats.length;
+  let html = '<button class="cat-pill" type="button" data-cat-id="">' + esc(T.allCats) + '</button>';
+  activeCats.forEach(c => {
+    html += '<button class="cat-pill" type="button" data-cat-id="' + escAttr(c.id) + '">' +
+      '<i data-lucide="' + escAttr(c.icon || 'folder') + '" style="width:14px;height:14px" aria-hidden="true"></i> ' +
+      esc(c.name) + ' <span class="count">' + esc(c.resource_count) + '</span></button>';
+  });
+  $('categories').innerHTML = html;
+  markActivePill();
+  lucide.createIcons();
 }
 
 
+// TODO valor de BD es hostil: title/description ya se escapaban, pero level y
+// code_type no, y level es texto libre de 50 chars → XSS almacenado en portada.
 function renderCard(r) {
-  const icon = r.category_icon || 'file-code';
-  const levelClass = r.level || 'general';
-  const levelLabel = T.levels[levelClass] || levelClass;
+  const rid = Number(r.id) || 0;
+  const icon = escAttr(r.category_icon || 'file-code');
+  const lvRaw = r.level || 'general';
+  const levelKey = LEVEL_CLASSES[lvRaw] ? lvRaw : 'general';   // clase CSS: sólo lista blanca
+  // La etiqueta sale de la clave YA filtrada, no del texto de BD: un level
+  // inventado se muestra como "General" en vez de escupir 50 chars arbitrarios.
+  const levelLabel = esc(T.levels[levelKey] || levelKey);
+  const typeLabel = r.code_type === 'html' ? 'HTML' : esc(r.code_type || '');
   const langFlag = {'es':'🇪🇸','en':'🇬🇧','pt':'🇧🇷'}[r.lang] || '🌐';
-  const fav = favSet.has(Number(r.id));
+  const fav = favSet.has(rid);
   const iaBadge = r.code_type==='html'
     ? '<span class="thumb-ia"><svg xmlns="http://www.w3.org/2000/svg" width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/></svg> IA</span>'
     : '';
-  return `<div class="card" data-resource-id="${r.id}">
-    <div class="card-thumb">
-      <span class="thumb-fallback"><i data-lucide="${icon}"></i></span>
-      <img src="/thumbnails/og-${r.id}.png" loading="lazy" alt="" onerror="this.remove()">
-      ${iaBadge}
-      <button class="fav-btn card-fav${fav?' is-fav':''}" type="button" title="${T.save}" aria-label="${T.save}" aria-pressed="${fav?'true':'false'}" onclick="event.stopPropagation();toggleFavorite(${r.id},this)"><i data-lucide="star"></i></button>
-    </div>
-    <div class="card-content">
-      <div class="card-title">${esc(r.title)}</div>
-      <div class="card-desc">${esc(r.description || '')}</div>
-      <div class="card-footer">
-        <div class="card-tags"><span class="badge-level ${levelClass}">${levelLabel}</span><span class="tag">${r.code_type==='html'?'HTML':r.code_type}</span><span class="tag">${langFlag}</span></div>
-        <div class="card-meta">
-          <span><i data-lucide="eye" style="width:12px;height:12px"></i> ${r.view_count||0}</span>
-          <span><i data-lucide="heart" style="width:12px;height:12px"></i> ${r.like_count||0}</span>
+  // <a> real: alcanzable con teclado, abrible en pestaña nueva y rastreable.
+  // El botón ⭐ va FUERA del enlace (un <button> dentro de un <a> es inválido).
+  return `<div class="card-wrap">
+    <a class="card" href="/resource/${rid}">
+      <div class="card-thumb">
+        <span class="thumb-fallback"><i data-lucide="${icon}" aria-hidden="true"></i></span>
+        <img src="/thumbnails/og-${rid}.png" loading="lazy" alt="" onerror="this.remove()">
+        ${iaBadge}
+      </div>
+      <div class="card-content">
+        <div class="card-title">${esc(r.title)}</div>
+        <div class="card-desc">${esc(r.description || '')}</div>
+        <div class="card-footer">
+          <div class="card-tags"><span class="badge-level ${levelKey}">${levelLabel}</span><span class="tag">${typeLabel}</span><span class="tag">${langFlag}</span></div>
+          <div class="card-meta">
+            <span><i data-lucide="eye" style="width:12px;height:12px" aria-hidden="true"></i> ${Number(r.view_count) || 0}</span>
+            <span><i data-lucide="heart" style="width:12px;height:12px" aria-hidden="true"></i> ${Number(r.like_count) || 0}</span>
+          </div>
         </div>
       </div>
-    </div>
+    </a>
+    <button class="fav-btn card-fav${fav?' is-fav':''}" type="button" title="${escAttr(T.save)}" aria-label="${escAttr(T.save)}" aria-pressed="${fav?'true':'false'}" onclick="toggleFavorite(${rid},this)"><i data-lucide="star" aria-hidden="true"></i></button>
   </div>`;
 }
 
-function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
-
-document.getElementById('search').addEventListener('input', () => {
+// ── Listeners ──
+const $search = $('search');
+$search.addEventListener('input', () => {
+  syncClearBtn();
   clearTimeout(debounceTimer);
-  debounceTimer = setTimeout(loadResources, 300);
+  debounceTimer = setTimeout(() => loadResources(), 300);
 });
-document.getElementById('filter-lang').addEventListener('change', loadResources);
-document.getElementById('filter-level').addEventListener('change', loadResources);
-document.getElementById('sort').addEventListener('change', loadResources);
+$search.addEventListener('keydown', e => {
+  if (e.key === 'Enter') {
+    // Enter busca YA, sin esperar el debounce; blur cierra el teclado en móvil.
+    e.preventDefault();
+    clearTimeout(debounceTimer);
+    loadResources({push:true});
+    $search.blur();
+  } else if (e.key === 'Escape') {
+    e.stopPropagation();   // que no llegue al handler global (salir de presentación)
+    if ($search.value) { e.preventDefault(); clearSearch(); }
+  }
+});
+$('search-clear').addEventListener('click', () => { clearSearch(); $search.focus(); });
+['filter-lang','filter-level','sort'].forEach(id => $(id).addEventListener('change', () => {
+  // Elegir el orden a mano lo congela: al seguir tecleando no saltará a relevancia.
+  if (id === 'sort') sortExplicit = true;
+  clearTimeout(debounceTimer);
+  loadResources({push:true});
+}));
 
-// Delegated click for resource cards
-document.addEventListener('click', e => {
-  const card = e.target.closest('[data-resource-id]');
-  if (card) window.location = '/resource/' + card.dataset.resourceId;
+// Píldoras de categoría (el contenedor existe siempre: se delega una sola vez)
+$('categories').addEventListener('click', e => {
+  const pill = e.target.closest('.cat-pill');
+  if (!pill) return;
+  currentCat = pill.dataset.catId || null;
+  markActivePill();
+  clearTimeout(debounceTimer);
+  loadResources({push:true});
+});
+
+// Controles de los estados vacío/error y de los chips de filtros activos
+function onControlClick(e){
+  const sg = e.target.closest('[data-suggest]');
+  if (sg) { searchFor(sg.dataset.suggest); return; }
+  if (e.target.closest('[data-retry]')) { loadResources({push:false}); return; }
+  const cl = e.target.closest('[data-clear]');
+  if (!cl) return;
+  const k = cl.dataset.clear;
+  if (k === 'all') { clearFilters(); return; }
+  if (k === 'search') { $('search').value = ''; syncClearBtn(); }
+  else if (k === 'category') { currentCat = null; markActivePill(); }
+  else if (k === 'lang')  $('filter-lang').value = '';
+  else if (k === 'level') $('filter-level').value = '';
+  clearTimeout(debounceTimer);
+  loadResources({push:true});
+}
+$('grid').addEventListener('click', onControlClick);
+$('active-filters').addEventListener('click', onControlClick);
+$('more-wrap').addEventListener('click', e => {
+  if (!e.target.closest('#more-btn')) return;
+  page++;
+  loadResources({append:true, push:false});
 });
 
 function applyFeaturedFavs(){
   document.querySelectorAll('.fav-corner').forEach(btn=>setFavBtn(btn,favSet.has(Number(btn.dataset.fid))));
 }
-// Deep-link: prefijar búsqueda/orden desde la URL (?search=, ?sort=) — también
-// hace que funcionen enlaces como "Ver todos → /?sort=popular".
+
+// Deep-link: search, sort, category, lang y level se leen de la URL — así
+// funcionan "Ver todos → /?sort=popular" y cualquier enlace compartido.
+applyStateFromURL();
+// El 404 enlaza a /?focus=search: con el foco puesto (y el teclado abierto en
+// móvil) el usuario sigue buscando en vez de aterrizar en una portada estática.
 (function(){
   const p = new URLSearchParams(location.search);
-  if (p.get('search')) document.getElementById('search').value = p.get('search');
-  if (p.get('sort'))   document.getElementById('sort').value   = p.get('sort');
+  if (!p.has('focus') && !p.has('search')) return;
+  try {
+    $search.focus({preventScroll:true});
+    const n = $search.value.length;
+    $search.setSelectionRange(n, n);
+  } catch (err) {}
 })();
-loadFavorites().finally(()=>{ applyFeaturedFavs(); loadResources(); });
+// push:false en el arranque: no reescribimos la URL antes de que el usuario toque nada.
+loadFavorites().finally(()=>{ applyFeaturedFavs(); loadResources({push:false}); });
 </script>
 </body>
 </html>

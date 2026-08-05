@@ -59,12 +59,36 @@ return [
     'IB' => 'IB',
     'Universidad' => 'University',
     'General' => 'General',
+    'Orden' => 'Sort',
+    'Más relevantes' => 'Most relevant',
     'Más recientes' => 'Most recent',
     'Más vistos' => 'Most viewed',
     'Alfabético' => 'Alphabetical',
     'Cargando recursos...' => 'Loading resources...',
     'No se encontraron recursos' => 'No resources found',
     'Error de conexión' => 'Connection error',
+
+    // ── Home: buscador (estados, paginación, accesibilidad) ──
+    'Buscar recursos' => 'Search resources',
+    'Buscar por tema: ondas, fracciones, circuitos…' => 'Search by topic: waves, fractions, circuits…',
+    'Limpiar búsqueda' => 'Clear search',
+    'Buscando…' => 'Searching…',
+    'Cargar más' => 'Load more',
+    'Mostrando %1 de %2 recursos' => 'Showing %1 of %2 resources',
+    'Sin resultados para «%s»' => 'No results for “%s”',
+    'Prueba con una palabra más corta, en singular, o en inglés: muchos títulos del catálogo están en inglés.' => 'Try a shorter word, in singular, or in English: many titles in the catalog are in English.',
+    'Ningún recurso coincide con los filtros activos: %s' => 'No resource matches the active filters: %s',
+    'Limpiar filtros' => 'Clear filters',
+    'Reintentar' => 'Retry',
+    'Demasiadas búsquedas seguidas. Espera unos segundos y reinténtalo.' => 'Too many searches in a row. Wait a few seconds and try again.',
+    'Búsqueda' => 'Search',
+    'Quitar filtro: %s' => 'Remove filter: %s',
+    'Filtros activos' => 'Active filters',
+    'Todos' => 'All',
+    'Prueba con:' => 'Try:',
+    // Sugerencias del estado vacío: términos verificados contra el catálogo real
+    // (ES 9/6/5/10/7 · EN 19/9/2/14/3 resultados). Se separan por coma en el JS.
+    'ondas,fracciones,circuitos,algebra,sistema solar' => 'waves,fractions,circuits,solar system,pendulum',
 
     // ── Home: footer ──
     'Repositorio abierto de recursos educativos interactivos' => 'Open repository of interactive educational resources',

@@ -1,0 +1,179 @@
+#!/bin/bash
+# ================================================================
+# setup/hooks/post-receive — despliegue + sello de versión
+#
+# Copia versionada del hook que vive en el repo BARE del servidor
+# (<repo>.git/hooks/post-receive). Aquí está para que exista revisión,
+# historia y `php -l`… perdón, `bash -n`: hasta hoy el hook sólo existía
+# en el servidor, en un fichero que nadie miraba, y estuvo MUERTO un mes
+# entero porque tenía permisos 644 y git ignora los hooks no ejecutables.
+# Nadie se enteró: los push seguían saliendo bien y el sitio servía código
+# viejo.
+#
+# QUÉ HACE
+#   1. `checkout -f main` sobre el doc root (exactamente lo que ya hacía).
+#   2. Escribe `deploy_version.txt` en el doc root con el SHA desplegado
+#      y la fecha UTC. api/health.php lo publica como `commit` /
+#      `deployed_at`, y así se puede responder por fin a la pregunta
+#      "¿qué commit está vivo en producción?" sin entrar por SSH.
+#   3. Imprime lo que ha hecho: git antepone "remote:" a estas líneas, o
+#      sea que el resultado se ve en la terminal de quien empuja.
+#
+# ── POR QUÉ AQUÍ NO HAY NI UNA RUTA DEL SERVIDOR ────────────────
+# Este repositorio es PÚBLICO (se espeja en GitHub y https://iarepo.com
+# sirve varios de sus ficheros). Escribir aquí el doc root, el usuario o
+# la IP sería publicarlos. Así que el destino NO se escribe: se lee de la
+# configuración del propio repo bare del servidor, que no viaja en git:
+#
+#     git config deploy.worktree /ruta/al/doc/root      ← se hace UNA vez
+#
+# Alternativas admitidas, en este orden de precedencia:
+#     $DEPLOY_TARGET (variable de entorno)  →  deploy.worktree  →  core.worktree
+# Si ninguna está definida el hook NO adivina: aborta e imprime la orden
+# exacta que falta. Un checkout a un destino inventado es peor que no
+# desplegar.
+#
+# ── INSTALACIÓN (en el servidor, una sola vez) ──────────────────
+#   cd <repo bare>.git
+#   git config deploy.worktree <doc root>
+#   cp <doc root>/setup/hooks/post-receive hooks/post-receive
+#   chmod +x hooks/post-receive          ← SIN ESTO EL HOOK NO CORRE
+#   ls -l hooks/post-receive             ← debe verse -rwxr-xr-x
+#
+# El primer push tras instalarlo ya imprime el SHA desplegado. Verificable
+# desde fuera con:  curl -s https://iarepo.com/api/health.php
+#
+# ── IDEMPOTENCIA ────────────────────────────────────────────────
+# Empujar dos veces el mismo commit deja exactamente el mismo árbol y el
+# mismo deploy_version.txt (salvo la marca de tiempo). `checkout -f` no
+# borra ficheros no trackeados, así que deploy_version.txt sobrevive al
+# checkout siguiente.
+# ================================================================
+
+set -uo pipefail
+
+BRANCH="main"
+VERSION_FILE_NAME="deploy_version.txt"
+
+# ── GIT_DIR ─────────────────────────────────────────────────────
+# git lo exporta al invocar el hook. Si no está (ejecución manual para
+# probar), se deriva de la ubicación de este propio fichero:
+# <repo bare>/hooks/post-receive → <repo bare>.
+if [ -z "${GIT_DIR:-}" ]; then
+    GIT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." 2>/dev/null && pwd)"
+fi
+if [ -z "${GIT_DIR:-}" ] || [ ! -d "$GIT_DIR" ]; then
+    echo "post-receive: no se puede resolver GIT_DIR; deploy ABORTADO" >&2
+    exit 1
+fi
+GIT_DIR="$(cd "$GIT_DIR" && pwd)"
+export GIT_DIR
+
+git_() { git --git-dir="$GIT_DIR" "$@"; }
+
+# ── Qué refs se han recibido ────────────────────────────────────
+# git escribe una línea por ref actualizada: "<oldrev> <newrev> <refname>".
+# Sólo despliega `main`: un push de otra rama (o de una etiqueta) no puede
+# machacar producción.
+SAW_BRANCH=0
+DELETED=0
+while read -r _oldrev newrev refname; do
+    [ "$refname" = "refs/heads/$BRANCH" ] || continue
+    SAW_BRANCH=1
+    # newrev todo ceros = la rama se ha BORRADO: no hay nada que desplegar.
+    case "$newrev" in *[!0]*) ;; *) DELETED=1 ;; esac
+done
+
+if [ "$SAW_BRANCH" = "0" ]; then
+    echo "post-receive: el push no toca refs/heads/$BRANCH; no se despliega nada."
+    exit 0
+fi
+if [ "$DELETED" = "1" ]; then
+    echo "post-receive: se ha BORRADO refs/heads/$BRANCH; no se toca el doc root."
+    exit 0
+fi
+
+# ── Dónde está el doc root ──────────────────────────────────────
+TARGET="${DEPLOY_TARGET:-}"
+TARGET_SRC="\$DEPLOY_TARGET"
+if [ -z "$TARGET" ]; then
+    TARGET="$(git_ config --get deploy.worktree 2>/dev/null)"
+    TARGET_SRC="git config deploy.worktree"
+fi
+if [ -z "$TARGET" ]; then
+    TARGET="$(git_ config --get core.worktree 2>/dev/null)"
+    TARGET_SRC="git config core.worktree"
+fi
+
+if [ -z "$TARGET" ]; then
+    echo "post-receive: ❌ DEPLOY ABORTADO — no sé dónde está el doc root." >&2
+    echo "post-receive:    Configúralo UNA vez en el repo bare del servidor:" >&2
+    echo "post-receive:      git --git-dir=\"\$GIT_DIR\" config deploy.worktree /ruta/al/doc/root" >&2
+    echo "post-receive:    El commit SÍ está recibido; vuelve a empujar (o corre el" >&2
+    echo "post-receive:    checkout a mano) después de configurarlo." >&2
+    exit 1
+fi
+if [ ! -d "$TARGET" ]; then
+    echo "post-receive: ❌ DEPLOY ABORTADO — el destino no es un directorio: $TARGET" >&2
+    echo "post-receive:    (origen del valor: $TARGET_SRC)" >&2
+    exit 1
+fi
+
+# ── 1. Despliegue ───────────────────────────────────────────────
+echo "post-receive: desplegando $BRANCH → doc root (destino tomado de: $TARGET_SRC)"
+if ! git_ --work-tree="$TARGET" checkout -f "$BRANCH"; then
+    echo "post-receive: ❌ el checkout ha FALLADO; el doc root puede haber quedado a medias." >&2
+    echo "post-receive:    Revisa permisos y espacio en disco antes de volver a empujar." >&2
+    exit 1
+fi
+
+DEPLOYED_SHA="$(git_ rev-parse "$BRANCH" 2>/dev/null)"
+SHORT_SHA="$(git_ rev-parse --short "$BRANCH" 2>/dev/null)"
+[ -z "$SHORT_SHA" ] && SHORT_SHA="${DEPLOYED_SHA:0:7}"
+SUBJECT="$(git_ log -1 --pretty=%s "$BRANCH" 2>/dev/null | tr -d '\r\n' | cut -c1-120)"
+NOW_UTC="$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)"
+
+echo "post-receive: ✅ checkout hecho — $SHORT_SHA  $SUBJECT"
+
+# ── 2. Sello de versión ─────────────────────────────────────────
+# TODO lo de aquí abajo es INFORMATIVO. Si falla, el deploy sigue siendo
+# válido: el código ya está en el doc root. Por eso ningún fallo de esta
+# sección devuelve un código de salida distinto de 0 — sólo avisa.
+#
+# Formato clave=valor, una por línea: legible por un humano con `cat` y
+# trivial de parsear en api/health.php sin dependencias.
+VERSION_FILE="$TARGET/$VERSION_FILE_NAME"
+TMP_FILE="$VERSION_FILE.$$.tmp"
+
+# El grupo va dentro de un SUBSHELL con su propio 2>/dev/null: cuando el doc
+# root no es escribible, el error de "no se puede crear el fichero" lo imprime
+# el propio shell ANTES de ejecutar nada, así que un 2>/dev/null dentro de las
+# llaves no lo silencia. Sin el subshell, quien empuja ve un mensaje crudo de
+# bash con la ruta absoluta del servidor pegado al aviso limpio de abajo.
+write_version() {
+    (
+        {
+            printf 'commit=%s\n'      "$SHORT_SHA"
+            printf 'commit_full=%s\n' "$DEPLOYED_SHA"
+            printf 'deployed_at=%s\n' "$NOW_UTC"
+            printf 'branch=%s\n'      "$BRANCH"
+            printf 'subject=%s\n'     "$SUBJECT"
+        } > "$TMP_FILE"
+    ) 2>/dev/null || return 1
+    chmod 644 "$TMP_FILE" 2>/dev/null
+    mv -f "$TMP_FILE" "$VERSION_FILE" 2>/dev/null || return 1
+    return 0
+}
+
+if write_version; then
+    echo "post-receive: ✅ $VERSION_FILE_NAME actualizado — commit=$SHORT_SHA deployed_at=$NOW_UTC"
+    echo "post-receive:    compruébalo:  curl -s https://iarepo.com/api/health.php"
+else
+    rm -f "$TMP_FILE" 2>/dev/null
+    echo "post-receive: ⚠️  no se pudo escribir $VERSION_FILE_NAME (¿permisos del doc root?)."
+    echo "post-receive:    EL DEPLOY SÍ HA IDO BIEN. Lo único que se pierde es el sello de"
+    echo "post-receive:    versión: api/health.php seguirá devolviendo commit=null y el"
+    echo "post-receive:    smoke test avisará de que no puede comparar versiones."
+fi
+
+exit 0

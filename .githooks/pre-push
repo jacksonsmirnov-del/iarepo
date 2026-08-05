@@ -1,0 +1,282 @@
+#!/usr/bin/env bash
+# ================================================================
+# .githooks/pre-push — Gate anti-regresión antes de empujar
+#
+# Instalación:  make hooks     (→ git config core.hooksPath .githooks)
+#
+# Corre, en este orden y solo sobre lo que cambia:
+#   1. php -l        sobre los .php modificados
+#   2. node --check  sobre los .js modificados
+#   3. quality/guards.sh --changed
+#   4. php tests/run.php   (unitarios, sin BD)
+# Si algo falla, ABORTA el push. Objetivo de tiempo: < 15s. No usa la red.
+#
+# ── POR QUÉ ESTE HOOK ES LA ÚNICA BARRERA ───────────────────────
+# En este proyecto NO hay staging. Sí hay CI desde 2026-08 (.github/workflows/ci.yml),
+# pero llega TARDE: valida DESPUÉS de que el push haya desplegado, así que no puede
+# impedir nada. Este hook es la única barrera PREVIA. `git push origin main` dispara un
+# hook post-receive que hace `checkout -f` sobre el directorio público: el push
+# ES el despliegue, en vivo, sin revisión intermedia. Además el remoto `origin`
+# tiene DOS pushURL (el servidor de deploy y GitHub), así que un mismo push
+# publica en producción y en un repositorio remoto a la vez.
+#
+# ── SOBRE --no-verify ───────────────────────────────────────────
+# `git push --no-verify` salta este hook. NO lo uses por costumbre:
+# aquí no se salta "un chequeo lento", se despliega a producción SIN NINGUNA
+# barrera. Los fallos que atrapa este gate (helpers.php en una página HTML, un
+# cierre de PHP en un comentario) no dan error visible: la página se sirve rota
+# o imprimiendo su propio código fuente, y nadie se entera hasta que un usuario
+# lo reporta.
+# Uso legítimo único: cuando el propio gate está roto y necesitas empujar el
+# arreglo, o al revertir un deploy malo con el árbol ya en mal estado.
+# ================================================================
+
+set -uo pipefail
+
+REMOTE_NAME="${1:-}"
+REMOTE_URL="${2:-}"
+
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
+cd "$REPO_ROOT" || exit 0
+
+if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
+    RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; DIM='\033[2m'; NC='\033[0m'
+else
+    RED=''; GREEN=''; YELLOW=''; DIM=''; NC=''
+fi
+
+STEP_FAILED=()
+note() { echo -e "${DIM}   $1${NC}"; }
+
+# ── Qué refs va a empujar git (llegan por STDIN) ─────────────────
+# git escribe una línea por ref: "<ref_local> <sha_local> <ref_remoto> <sha_remoto>".
+# Se lee AQUÍ, lo primero, por dos motivos:
+#   1. Cualquier subproceso posterior (php, bash) puede consumir ese stdin y
+#      dejar al hook sin saber qué se está empujando.
+#   2. Sin leerlo, el hook validaba SIEMPRE el árbol de trabajo y HEAD, dieras
+#      el push que dieras. Comprobado: `git push origin HEAD~3:main` pasaba el
+#      gate en verde mientras desplegaba un commit distinto del revisado.
+# Si no hay stdin (invocación manual desde una terminal) no se bloquea: se
+# comprueba `! -t 0` para no quedarse colgado esperando una entrada que no llega.
+PUSHED_SHAS=()
+if [ ! -t 0 ]; then
+    while read -r _lref lsha _rref _rsha; do
+        [ -z "${lsha:-}" ] && continue
+        # Un sha de sólo ceros = borrado de la rama remota: no despliega código.
+        case "$lsha" in *[!0]*) PUSHED_SHAS+=("$lsha") ;; esac
+    done
+fi
+
+# ¿El push va al servidor de producción? Se detecta por la URL que git pasa
+# como $2, no por el nombre del remoto (origin apunta a los dos sitios).
+#
+# REGLA 5 DEL PROYECTO: este repo es PÚBLICO y se espeja en GitHub, donde el
+# objeto sobrevive a cualquier reversión. Por eso aquí NO se escriben la IP ni
+# el usuario SSH del servidor. El repo bare de deploy se llama
+# `repos/resources.git`, que ya distingue el remoto de producción del espejo
+# de GitHub sin filtrar nada. Si algún día hiciera falta afinar más, se añade
+# el patrón en la config LOCAL (fuera de git):
+#     git config deploy.prod-url-pattern '<patrón>'
+PROD=0
+PROD_PATTERN="$(git config --get deploy.prod-url-pattern 2>/dev/null || true)"
+case "$REMOTE_URL" in
+    *repos/resources.git*) PROD=1 ;;
+esac
+if [ "$PROD" = "0" ] && [ -n "$PROD_PATTERN" ]; then
+    case "$REMOTE_URL" in
+        $PROD_PATTERN) PROD=1 ;;
+    esac
+fi
+
+echo ""
+echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+if [ "$PROD" = "1" ]; then
+    echo -e "${YELLOW} pre-push · ${REMOTE_NAME} → ${RED}PRODUCCIÓN EN VIVO${NC}"
+else
+    echo -e "${YELLOW} pre-push · ${REMOTE_NAME}${NC}"
+fi
+echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+
+# ── Ficheros a revisar ──────────────────────────────────────────
+# Se comparan contra la rama base remota. Se incluye lo NO commiteado a
+# propósito: si el árbol está sucio, lo que se despliega puede no ser lo que se
+# ha probado.
+BASE=""
+for cand in origin/main main; do
+    if git rev-parse --verify -q "$cand" >/dev/null 2>&1; then BASE="$cand"; break; fi
+done
+
+CHANGED="$(mktemp)"
+trap 'rm -f "$CHANGED"' EXIT
+{
+    [ -n "$BASE" ] && git diff --name-only "$BASE"...HEAD 2>/dev/null
+    git diff --name-only HEAD 2>/dev/null
+    git diff --name-only --cached 2>/dev/null
+    git ls-files --others --exclude-standard 2>/dev/null
+} | sort -u > "$CHANGED"
+
+php_list=(); js_list=()
+while IFS= read -r f; do
+    [ -n "$f" ] && [ -f "$f" ] || continue
+    case "$f" in
+        *.php) php_list+=("$f") ;;
+        *.js)  js_list+=("$f") ;;
+    esac
+done < "$CHANGED"
+
+# ── 0. Lo que se empuja es lo que se revisa ─────────────────────
+# Todos los chequeos de abajo miran HEAD y el árbol de trabajo. Si el push envía
+# otro commit (`git push origin <sha>:main`, empujar una rama que no es la que
+# tienes desplegada), lo revisado y lo desplegado son cosas distintas y el gate
+# estaría dando el visto bueno a código que no ha mirado.
+echo ""
+echo -e "${YELLOW}▶ 0/4 · el push coincide con HEAD${NC}"
+HEAD_SHA="$(git rev-parse HEAD 2>/dev/null || true)"
+if [ ${#PUSHED_SHAS[@]} -eq 0 ]; then
+    note "sin refs por stdin (invocación manual): se revisa HEAD"
+elif [ -z "$HEAD_SHA" ]; then
+    note "no se puede resolver HEAD; se omite"
+else
+    mismatch=()
+    for s in "${PUSHED_SHAS[@]}"; do
+        [ "$s" != "$HEAD_SHA" ] && mismatch+=("$s")
+    done
+    if [ ${#mismatch[@]} -gt 0 ]; then
+        echo -e "${RED}   Se está empujando un commit que NO es HEAD:${NC}"
+        for s in "${mismatch[@]}"; do echo "     ${s:0:12}  (HEAD = ${HEAD_SHA:0:12})"; done
+        note "lint, guards y tests han revisado HEAD, no eso."
+        STEP_FAILED+=("se empuja un commit distinto de HEAD: se desplegaría código sin revisar")
+    else
+        echo -e "${GREEN}   ✓ el ref empujado es HEAD (${HEAD_SHA:0:12})${NC}"
+    fi
+fi
+
+# ── 1. Lint PHP ─────────────────────────────────────────────────
+# OJO: php -l NO detecta el cierre de PHP dentro de un comentario. Ese caso lo
+# cubre el guard G2 de quality/guards.sh, no este paso.
+echo ""
+echo -e "${YELLOW}▶ 1/4 · php -l${NC}"
+if [ ${#php_list[@]} -eq 0 ]; then
+    note "sin .php modificados"
+elif ! command -v php >/dev/null 2>&1; then
+    echo -e "${RED}   php no está instalado${NC}"
+    STEP_FAILED+=("php -l (falta el binario php)")
+else
+    lint_bad=0
+    for f in "${php_list[@]}"; do
+        if ! out=$(php -l "$f" 2>&1); then
+            echo -e "${RED}   ✗ $f${NC}"
+            echo "$out" | sed 's/^/     /'
+            lint_bad=1
+        fi
+    done
+    if [ "$lint_bad" = "1" ]; then
+        STEP_FAILED+=("php -l: error de sintaxis PHP")
+    else
+        echo -e "${GREEN}   ✓ ${#php_list[@]} fichero(s) PHP sin errores de sintaxis${NC}"
+    fi
+fi
+
+# ── 2. Lint JS ──────────────────────────────────────────────────
+echo ""
+echo -e "${YELLOW}▶ 2/4 · node --check${NC}"
+if [ ${#js_list[@]} -eq 0 ]; then
+    note "sin .js modificados"
+elif ! command -v node >/dev/null 2>&1; then
+    # No se bloquea el push por no tener node: sería un falso positivo de
+    # entorno, no una regresión del código.
+    echo -e "${YELLOW}   ⚠ node no está instalado; se omite (no bloquea)${NC}"
+else
+    js_bad=0
+    for f in "${js_list[@]}"; do
+        if ! out=$(node --check "$f" 2>&1); then
+            echo -e "${RED}   ✗ $f${NC}"
+            echo "$out" | head -5 | sed 's/^/     /'
+            js_bad=1
+        fi
+    done
+    if [ "$js_bad" = "1" ]; then
+        STEP_FAILED+=("node --check: error de sintaxis JavaScript")
+    else
+        echo -e "${GREEN}   ✓ ${#js_list[@]} fichero(s) JS sin errores de sintaxis${NC}"
+    fi
+fi
+
+# ── 3. Guards estáticos ─────────────────────────────────────────
+echo ""
+echo -e "${YELLOW}▶ 3/4 · quality/guards.sh --changed${NC}"
+if [ ! -f quality/guards.sh ]; then
+    echo -e "${RED}   falta quality/guards.sh${NC}"
+    STEP_FAILED+=("quality/guards.sh no existe")
+else
+    if bash quality/guards.sh --changed; then
+        :
+    else
+        STEP_FAILED+=("quality/guards.sh: ver los chequeos BLOQUEANTES de arriba")
+    fi
+fi
+
+# ── 4. Tests unitarios ──────────────────────────────────────────
+# tests/run.php lo crea otro agente. Si aún no existe, se avisa y se continúa:
+# el hook no puede depender de un fichero que quizá no esté todavía.
+echo ""
+echo -e "${YELLOW}▶ 4/4 · php tests/run.php${NC}"
+if [ ! -f tests/run.php ]; then
+    echo -e "${YELLOW}   ⚠ tests/run.php aún no existe; se omite (no bloquea)${NC}"
+    note "cuando exista, este paso pasa a ser obligatorio automáticamente"
+elif ! command -v php >/dev/null 2>&1; then
+    echo -e "${YELLOW}   ⚠ falta php; se omite${NC}"
+else
+    if php tests/run.php; then
+        echo -e "${GREEN}   ✓ tests unitarios en verde${NC}"
+    else
+        STEP_FAILED+=("php tests/run.php: tests unitarios en rojo")
+    fi
+fi
+
+# ── 5. Árbol limpio si el destino es producción ─────────────────
+# Solo en el push de deploy: si hay cambios sin commitear en ficheros
+# trackeados, lo que se despliega NO es lo que acabas de comprobar.
+if [ "$PROD" = "1" ]; then
+    echo ""
+    echo -e "${YELLOW}▶ extra · árbol de trabajo limpio (destino: producción)${NC}"
+    dirty="$(git diff --name-only HEAD 2>/dev/null)"
+    if [ -n "$dirty" ]; then
+        echo -e "${RED}   Hay cambios sin commitear en ficheros trackeados:${NC}"
+        echo "$dirty" | sed 's/^/     /'
+        STEP_FAILED+=("árbol sucio: se desplegaría una versión distinta de la probada")
+    else
+        echo -e "${GREEN}   ✓ sin cambios sin commitear${NC}"
+    fi
+fi
+
+# ── Veredicto ───────────────────────────────────────────────────
+echo ""
+echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+if [ ${#STEP_FAILED[@]} -eq 0 ]; then
+    echo -e "${GREEN}✅ pre-push OK — push permitido${NC}"
+    echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+    exit 0
+fi
+
+echo -e "${RED}❌ PUSH ABORTADO — ${#STEP_FAILED[@]} paso(s) fallaron:${NC}"
+for s in "${STEP_FAILED[@]}"; do
+    echo -e "   ${RED}•${NC} $s"
+done
+echo ""
+echo -e "${DIM}Reproduce en local:${NC}"
+echo "   make check                      # lint + guards + tests"
+echo "   bash quality/guards.sh --changed"
+echo ""
+if [ "$PROD" = "1" ]; then
+    echo -e "${RED}Este push iba a PRODUCCIÓN EN VIVO (no hay staging).${NC}"
+fi
+echo -e "${YELLOW}Puedes saltarte el gate con:${NC}  git push --no-verify"
+echo -e "${DIM}Pero léelo antes: sin staging ni CI, --no-verify despliega a producción${NC}"
+echo -e "${DIM}sin ninguna barrera, y estos fallos NO dan error visible (la página se${NC}"
+echo -e "${DIM}sirve rota o imprimiendo su código fuente). Úsalo solo si el gate mismo${NC}"
+echo -e "${DIM}está roto y estás empujando el arreglo.${NC}"
+echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo ""
+exit 1

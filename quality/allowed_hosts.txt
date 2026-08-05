@@ -1,0 +1,40 @@
+# quality/allowed_hosts.txt
+#
+# Lista blanca de hosts externos desde los que la aplicación puede CARGAR
+# CÓDIGO O ESTILOS (atributos src=/href= de <script>, <link>, <img>, <iframe>).
+#
+# La marca del proyecto es AUTO-ALOJAR: cero dependencias, sin CDNs. El guard de
+# quality/guards.sh falla ante cualquier host que no esté en esta lista, para que
+# nadie pueda volver a meter un `<script src="https://unpkg.com/...">` sin que
+# salte. Ese es justo el error que se corrigió auto-alojando lucide en
+# assets/js/lucide.min.js.
+#
+# QUÉ NO CUBRE ESTE FICHERO (a propósito):
+#   * Las URLs de los recursos educativos del catálogo (phet.colorado.edu,
+#     geogebra.org, educaplus.org, ...). Son DATOS: viven en la BD y se embeben
+#     en runtime dentro de un <iframe>. Son el producto, no una dependencia.
+#     Solo se revisan los src=/href= escritos en el código fuente.
+#   * Los enlaces <a href> a sitios externos (redes sociales, github). No cargan
+#     código.
+#
+# Antes de añadir un host aquí, pregúntate si puedes auto-alojarlo. Si añades
+# uno, deja un comentario explicando por qué no se puede auto-alojar.
+#
+# Formato: un host por línea, sin esquema ni ruta. '#' = comentario.
+
+# Propio dominio (canonicals, og:image, enlaces absolutos).
+iarepo.com
+www.iarepo.com
+
+# Fuentes web (Inter, Fira Code). Dependencia externa DELIBERADA, presente en 13
+# páginas. Auto-alojarlas es una mejora pendiente de rendimiento y privacidad,
+# no una regresión: por eso está en la lista blanca y no bloquea.
+fonts.googleapis.com
+fonts.gstatic.com
+
+# Google Sign-In (GIS). No es auto-alojable: el SDK debe servirse desde el
+# dominio de Google para que el flujo OAuth funcione.
+accounts.google.com
+
+# Endpoint de intercambio de tokens OAuth (server-side, auth/google.php).
+oauth2.googleapis.com

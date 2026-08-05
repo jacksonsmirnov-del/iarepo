@@ -1,0 +1,34 @@
+# quality/baseline_html_helpers.txt
+#
+# Deuda técnica ACEPTADA de la regla crítica #1 del proyecto:
+#   "NUNCA cargar shared/helpers.php en páginas HTML".
+#
+# helpers.php hace `require_once error_handler.php`, y error_handler.php registra
+# set_exception_handler / set_error_handler / register_shutdown_function. Esos
+# manejadores hacen `echo json_encode(...)` y `exit(1)`. En un endpoint de api/
+# eso es lo correcto. En una página HTML produce un documento a medio renderizar
+# con un blob JSON incrustado: el fallo silencioso que ya rompió el proyecto.
+#
+# Estas 7 páginas YA lo hacían antes de existir el guard. No se bloquean para que
+# quality/guards.sh no nazca en rojo permanente (24 violaciones preexistentes en
+# total harían que se desactivara el gate en una semana). Pero:
+#
+#   * Añadir una ruta nueva a este fichero es EXACTAMENTE lo que el guard existe
+#     para impedir. Si has llegado aquí para añadir una línea, para: define h()
+#     local en tu página en lugar de cargar helpers.php.
+#     Ejemplos de cómo se hace bien: index.php:14 y 404.php:9.
+#   * Esta lista solo puede ENCOGER. guards.sh avisa cuando una entrada ya no
+#     hace falta para que la borres.
+#
+# Es deuda LATENTE, no un fallo visible: solo se manifiesta cuando ocurre un
+# error en la página. Por eso lleva años sin detectarse.
+#
+# Formato: una ruta relativa a la raíz del repo por línea. '#' = comentario.
+
+admin/create.php
+collection/index.php
+dashboard/editor.php
+dashboard/index.php
+profile/index.php
+resource/index.php
+viewer/index.php

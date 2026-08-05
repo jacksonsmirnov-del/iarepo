@@ -20,6 +20,7 @@ require_once __DIR__ . '/../shared/cors.php';
 require_once __DIR__ . '/../shared/helpers.php';
 require_once __DIR__ . '/../shared/moderation.php';
 require_once __DIR__ . '/../shared/notify.php';
+require_once __DIR__ . '/../shared/search.php';
 
 cors();
 
@@ -98,62 +99,112 @@ if ($method === 'GET') {
     }
 
     // ── Optional filters ─────────────────────────────────────
-    if (!empty($_GET['area'])) {
+    // OJO: se compara con '' y NO se usa !empty(): empty('0') es true,
+    // así que ?search=0 (o cualquier filtro con valor "0") se ignoraba
+    // en silencio y devolvía el catálogo entero.
+    if (iarepo_get_str('area') !== '') {
         $where[] = 'r.subject_area = ?';
-        $params[] = sanitize($_GET['area'], 100);
+        $params[] = sanitize(iarepo_get_str('area'), 100);
     }
-    if (!empty($_GET['category'])) {
+    if ((int) iarepo_get_str('category') > 0) {
         $where[] = 'r.category_id = ?';
-        $params[] = (int) $_GET['category'];
+        $params[] = (int) iarepo_get_str('category');
     }
-    if (!empty($_GET['lang'])) {
+    if (iarepo_get_str('lang') !== '') {
         $where[] = 'r.lang = ?';
-        $params[] = sanitize($_GET['lang'], 5);
+        $params[] = sanitize(iarepo_get_str('lang'), 5);
     }
-    if (!empty($_GET['level'])) {
+    if (iarepo_get_str('level') !== '') {
         $where[] = 'r.level = ?';
-        $params[] = sanitize($_GET['level'], 50);
+        $params[] = sanitize(iarepo_get_str('level'), 50);
     }
-    if (!empty($_GET['type'])) {
+    if (iarepo_get_str('type') !== '') {
         $where[] = 'r.code_type = ?';
-        $params[] = sanitize($_GET['type'], 20);
+        $params[] = sanitize(iarepo_get_str('type'), 20);
     }
-    if (!empty($_GET['tag'])) {
+    if (iarepo_get_str('tag') !== '') {
         $where[] = 'r.id IN (SELECT resource_id FROM resource_tags WHERE tag = ?)';
-        $params[] = sanitize($_GET['tag'], 50);
+        $params[] = sanitize(iarepo_get_str('tag'), 50);
     }
-    if (!empty($_GET['search'])) {
-        $where[] = 'MATCH(r.title, r.description, r.topic_tag) AGAINST(? IN BOOLEAN MODE)';
-        $params[] = sanitize($_GET['search'], 200);
-    }
-    if (!empty($_GET['author_tenant_id'])) {
+    if ((int) iarepo_get_str('author_tenant_id') > 0) {
         $where[] = 'r.author_tenant_id = ?';
-        $params[] = (int) $_GET['author_tenant_id'];
+        $params[] = (int) iarepo_get_str('author_tenant_id');
     }
-    if (!empty($_GET['visibility'])) {
+    if (iarepo_get_str('visibility') !== '') {
         $where[] = 'r.visibility = ?';
-        $params[] = sanitize($_GET['visibility'], 20);
+        $params[] = sanitize(iarepo_get_str('visibility'), 20);
+    }
+
+    // ── Búsqueda de texto ────────────────────────────────────
+    // Todo el saneado y la construcción del SQL viven en shared/search.php
+    // (lista blanca: el input crudo NUNCA llega a AGAINST → se acabaron
+    //  los 500 con "C++", "(ondas", "@"...). Ver la cabecera de ese archivo.
+    $search = iarepo_build_search(iarepo_get_str('search'));
+    $hasSearch = $search['mode'] !== 'none';
+    if ($hasSearch) {
+        $where[] = $search['where'];
+        foreach ($search['params'] as $p)
+            $params[] = $p;
     }
 
     // ── Sort ──────────────────────────────────────────────────
-    $sort = match ($_GET['sort'] ?? 'recent') {
-        'popular' => 'r.use_count DESC',
-        'views'   => 'r.view_count DESC',
-        'title'   => 'r.title ASC',
-        default   => 'r.created_at DESC',
+    // ESTA es la pieza que manda sobre el orden: es la única que ordena filas
+    // de verdad y publica el orden aplicado en la respuesta ('search.sort').
+    // index.php (render del <select>) y su JS se limitan a replicar esta regla.
+    //
+    // Regla, en una línea: un 'sort' NO reconocido se trata como AUSENTE, no
+    // como una elección explícita del cliente.
+    //   ?sort=title            → title            (elección válida: se respeta)
+    //   ?search=x              → relevance        (defecto con búsqueda)
+    //   ?sort=bogus&search=x   → relevance        (bogus ≡ no venía)
+    //   ?sort=bogus            → recent           (defecto sin búsqueda)
+    // Antes, 'bogus' contaba como explícito y caía a 'recent' mientras el
+    // desplegable de index.php (y el JS, que no puede meter un valor inexistente
+    // en el <select>) mostraban "Más relevantes": el usuario leía una mentira.
+    // Los deep-links ?sort= con valor válido no cambian en nada.
+    //
+    // El '?, r.id' final de cada ORDER BY es el desempate determinista: sin él,
+    // dos filas empatadas pueden intercambiarse entre la página 1 y la 2
+    // (duplicar una, perder otra).
+    $sortAllowed = ['relevance', 'recent', 'popular', 'views', 'title'];
+    $sortRaw     = iarepo_get_str('sort');
+    if (!in_array($sortRaw, $sortAllowed, true)) $sortRaw = '';
+    $sortKey = $sortRaw !== '' ? $sortRaw : ($hasSearch ? 'relevance' : 'recent');
+    $useRelevance = ($sortKey === 'relevance' && $hasSearch);
+    $sort = match (true) {
+        $useRelevance          => '_relevance DESC, r.view_count DESC, r.id DESC',
+        $sortKey === 'popular' => 'r.use_count DESC, r.id DESC',
+        $sortKey === 'views'   => 'r.view_count DESC, r.id DESC',
+        $sortKey === 'title'   => 'r.title ASC, r.id ASC',
+        default                => 'r.created_at DESC, r.id DESC',
     };
+    $sortEffective = $useRelevance
+        ? 'relevance'
+        : (in_array($sortKey, ['popular', 'views', 'title'], true) ? $sortKey : 'recent');
 
     // ── Pagination ────────────────────────────────────────────
-    $page = max(1, (int) ($_GET['page'] ?? 1));
+    // El tope de $page NO es cosmético: $offset se interpola en el SQL, y sin
+    // él ?page=99999999999999999999 desbordaba el int → float → "OFFSET
+    // 1.844674407371E+20" → error de sintaxis 1064 → HTTP 500 (preexistente).
+    $page = max(1, min(100000, (int) ($_GET['page'] ?? 1)));
     $limit = min(100, max(10, (int) ($_GET['limit'] ?? 20)));
     $offset = ($page - 1) * $limit;
 
     $whereSQL = implode(' AND ', $where);
 
-    // Count total
+    // Count total — SIN el score, y por tanto SIN score_params.
     $countStmt = $db->prepare("SELECT COUNT(*) FROM resources r WHERE $whereSQL");
     $countStmt->execute($params);
     $total = (int) $countStmt->fetchColumn();
+
+    // El score va en el SELECT y el SELECT precede al WHERE ⇒ sus
+    // parámetros van DELANTE (PDO sin emulación: '?' es posicional de verdad).
+    $relSelect  = '';
+    $pageParams = $params;
+    if ($useRelevance) {
+        $relSelect  = ",\n               " . $search['score'] . ' AS _relevance';
+        $pageParams = array_merge($search['score_params'], $params);
+    }
 
     // Fetch page
     $stmt = $db->prepare("
@@ -165,19 +216,20 @@ if ($method === 'GET') {
                r.created_at, r.updated_at,
                c.name AS category_name, c.slug AS category_slug, c.icon AS category_icon,
                (SELECT COUNT(*) FROM resource_likes rl WHERE rl.resource_id = r.id) AS like_count,
-               (SELECT GROUP_CONCAT(tag ORDER BY tag SEPARATOR ',') FROM resource_tags rt WHERE rt.resource_id = r.id) AS tags_csv
+               (SELECT GROUP_CONCAT(tag ORDER BY tag SEPARATOR ',') FROM resource_tags rt WHERE rt.resource_id = r.id) AS tags_csv{$relSelect}
         FROM resources r
         LEFT JOIN categories c ON r.category_id = c.id
         WHERE $whereSQL
         ORDER BY $sort
         LIMIT $limit OFFSET $offset
     ");
-    $stmt->execute($params);
+    $stmt->execute($pageParams);
     $resources = $stmt->fetchAll();
 
     foreach ($resources as &$res) {
         $res['tags'] = $res['tags_csv'] ? explode(',', $res['tags_csv']) : [];
         unset($res['tags_csv']);
+        unset($res['_relevance']); // detalle interno: no ensucia el JSON
     }
     unset($res);
 
@@ -197,6 +249,12 @@ if ($method === 'GET') {
         'page' => $page,
         'pages' => ceil($total / $limit),
         'categories' => $categories,
+        // Para resaltar coincidencias en el frontend y diagnosticar sin acceso a la BD.
+        'search' => [
+            'mode'  => $search['mode'],
+            'terms' => $search['terms'],
+            'sort'  => $sortEffective,
+        ],
     ]);
 }
 
@@ -509,6 +567,26 @@ if ($method === 'DELETE') {
 }
 
 json_error('Method not allowed', 405);
+
+// ══════════════════════════════════════════════════════════════
+// HELPER: Lectura segura de parámetros GET
+//
+// Devuelve '' si el parámetro falta o llega como array (?search[]=x),
+// que de otro modo reventaría sanitize(string) con un TypeError → 500.
+// Se compara con '' y no con empty(): empty('0') es true y hacía que
+// ?search=0 se ignorase en silencio.
+//
+// El prefijo iarepo_ NO es cosmético: el proyecto no usa namespaces, así
+// que cada función de un fichero incluido vive en el espacio global. Un
+// nombre genérico como getStr() choca con el primer helper homónimo que
+// aparezca en cualquier otro include ("Cannot redeclare"), y ese error es
+// fatal: tumba la API entera, no sólo esta rama.
+// ══════════════════════════════════════════════════════════════
+function iarepo_get_str(string $key): string
+{
+    $v = $_GET[$key] ?? '';
+    return is_scalar($v) ? (string) $v : '';
+}
 
 // ══════════════════════════════════════════════════════════════
 // HELPER: Visibility check

@@ -1,6 +1,17 @@
 # Environment & secrets
 .env.php
 
+# Coordenadas del servidor para los scripts de setup/tools/ (host SSH, puerto,
+# doc root). El repo es público: solo se versiona la plantilla .example.
+setup/tools/deploy.env
+
+# Sello de versión que escribe setup/hooks/post-receive en el doc root del
+# servidor en cada deploy (commit, fecha, rama, asunto). Lo genera el servidor:
+# no se versiona. Si se commiteara, el `checkout -f main` del deploy lo
+# machacaría con un valor equivocado y api/health.php mentiría sobre qué commit
+# está vivo.
+deploy_version.txt
+
 # Dependencies
 vendor/
 node_modules/
@@ -28,4 +39,8 @@ past-papers/
 .gemini/
 .agents/
 .claude/
-AGENTS.md
+# OJO: AGENTS.md, CLAUDE.md y docs/ SÍ están versionados y se sirven
+# públicamente (https://iarepo.com/AGENTS.md → 200). No los ignores: la
+# línea que había aquí era inerte (git no ignora lo ya trackeado) y sólo
+# inducía a creer que el fichero era privado. Nunca escribas en ellos
+# credenciales ni coordenadas del servidor.

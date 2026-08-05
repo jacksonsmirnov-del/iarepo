@@ -25,12 +25,14 @@ RewriteRule ^profile/(\d+)$ profile/index.php?id=$1 [L,QSA]
     Require all denied
 </FilesMatch>
 
-# Block all setup scripts (seeds, schema, migrations, cron)
-<Directory "setup">
-    Require all denied
-</Directory>
-# Fallback for hosts that ignore <Directory> in .htaccess
-RewriteRule ^setup/ - [F,L]
+# Block all setup scripts (seeds, schema, migrations, cron).
+# Ojo: aquí NO puede ir un bloque <Directory>. No es sintaxis válida dentro de
+# un .htaccess y Apache 2.4 aborta la petición con 500 ("<Directory not allowed
+# here") en TODAS las rutas del sitio, no sólo en la bloqueada. Verificado en
+# httpd 2.4 con mod_rewrite: con el bloque, 24/24 rutas devolvían 500.
+# El bloqueo efectivo lo hace este RewriteRule, igual que en tests/ y quality/.
+# El (/|$) cubre también /setup sin barra, antes de que mod_dir redirija.
+RewriteRule ^setup(/|$) - [F,L]
 
 # Admin tools self-protect with ADMIN_PASS — allow only those two entry
 # points; block any other file under admin/ (includes, partials, etc.)
@@ -39,6 +41,22 @@ RewriteRule ^admin/ - [F,L]
 
 # Block shared PHP files from direct web access
 RewriteRule ^shared/ - [F,L]
+
+# Superficies de desarrollo: viajan en el checkout pero no deben servirse por
+# HTTP. Los .php de tests/ y quality/ llevan guard CLI-only por dentro, pero eso
+# no cubre los .md, los fixtures ni los .sh, que expondrían la estructura interna.
+# Mismo mecanismo que setup/ (ver arriba por qué nunca <Directory>).
+# NO se bloquea cron/: cron/run.php lo invoca un scheduler externo por HTTPS y
+# se autentica solo con CRON_SECRET.
+RewriteRule ^tests(/|$) - [F,L]
+RewriteRule ^quality(/|$) - [F,L]
+RewriteRule ^docs(/|$) - [F,L]
+RewriteRule ^Makefile$ - [F,L]
+
+# Todo lo que empieza por ".git": .githooks/, .gitignore y un eventual .git/.
+# No se usa un comodín para todos los ficheros ocultos porque /.well-known/
+# (ACME, renovación del certificado) tiene que seguir sirviéndose.
+RewriteRule ^\.git - [F,L]
 
 # Block raw SQL files everywhere
 <FilesMatch "\.sql$">

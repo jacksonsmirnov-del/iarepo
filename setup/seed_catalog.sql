@@ -1,6 +1,8 @@
 -- ================================================================
 -- Seed: Populate catalog with PhET, GeoGebra, and Desmos resources
--- Run: mysql -u u403412230_ib_ebr -p u403412230_resources < setup/seed_catalog.sql
+-- Run: mysql -u "$DB_USER" -p "$DB_NAME" < setup/seed_catalog.sql
+--      (usuario y base salen de .env.php; el repo es público y no lleva
+--       credenciales ni nombres reales de la BD)
 -- ================================================================
 
 -- PhET Simulations (code_type = 'url')

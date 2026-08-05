@@ -1,5 +1,7 @@
 # 📚 iarepo
 
+[![CI](https://github.com/jacksonsmirnov-del/iarepo/actions/workflows/ci.yml/badge.svg)](https://github.com/jacksonsmirnov-del/iarepo/actions/workflows/ci.yml)
+
 **Repositorio abierto de recursos educativos interactivos.**
 
 Descubre, comparte y ejecuta simulaciones, herramientas y recursos educativos — listos para usar en clase.
@@ -22,6 +24,14 @@ iarepo es una plataforma que **agrega y cataloga** recursos educativos interacti
 - **Zero dependencias** — sin Composer, sin npm, sin frameworks
 - JWT HMAC-SHA256 implementado desde cero
 - Google Sign-In para registro de profesores
+
+## Integración continua
+
+Cada `push` y cada pull request pasan por [`.github/workflows/ci.yml`](.github/workflows/ci.yml), que ejecuta dos trabajos en paralelo sobre PHP 8.3 (la misma rama que producción):
+
+- **Gate rápido** — `php -l` de todos los `.php` y `node --check` de los `.js`, los 9 chequeos estáticos de `quality/guards.sh` (helpers.php en páginas HTML, cierres de PHP en comentarios, CDNs, credenciales…) y los tests unitarios. Reproducible en local con `make check`.
+- **Integración** — la suite con base de datos real contra **MariaDB 11.8**, reconstruyendo el esquema desde `setup/*.sql` y sembrando `tests/fixtures/seed.sql`. Reproducible con `make integration-ci`, que —a diferencia de `make integration`— se pone en rojo si la suite se salta por falta de Docker en vez de cantar un verde que no prueba nada.
+- **Y nada más** — la CI no usa secretos, no toca producción y no despliega: solo dice sí o no. El despliegue sigue siendo `git push origin main`.
 
 ## Estructura
 

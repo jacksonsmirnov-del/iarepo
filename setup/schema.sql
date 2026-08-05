@@ -1,8 +1,9 @@
 -- ================================================================
 -- Resources Platform — Database Schema
 --
--- DB: u403412230_resources
--- Run once: mysql -u u403412230_ib_ebr -p u403412230_resources < schema.sql
+-- Aplicar una vez (el usuario y el nombre de la BD salen de .env.php del
+-- servidor; NO se escriben aquí: el repo es público — regla 5):
+--   php setup/run_migration.php setup/schema.sql
 --
 -- All author/editor info is DENORMALIZED from JWT tokens.
 -- No foreign keys to Campus databases — fully independent.
