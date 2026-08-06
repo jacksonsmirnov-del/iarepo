@@ -99,6 +99,20 @@ case "$DB_NAME" in
 esac
 
 # ── 2. Fichero de opciones temporal (600) ────────────────────────
+#
+# ⚠️ SE USA --defaults-file, NO --defaults-extra-file. La diferencia no es
+# cosmética y costó un backup silenciosamente vacío:
+#
+#   El servidor es COMPARTIDO con Campus, y en el home de la cuenta hay un
+#   ~/.my.cnf con un grupo [mysqldump] que fija user=<usuario de Campus>.
+#   mysqldump lee siempre ese fichero, y su grupo [mysqldump] es MÁS
+#   ESPECÍFICO que el [client] de aquí, así que gana: el volcado intentaba
+#   leer la BD de iarepo autenticándose como el usuario de Campus y moría
+#   con "1044 Access denied ... to database". Verificado en producción
+#   2026-08-06: con --defaults-extra-file falla; con --defaults-file
+#   (que hace que se lea SOLO este fichero) vuelca las 19 tablas.
+#
+# No toques ~/.my.cnf: es de Campus.
 umask 077
 CNF="$(mktemp "${TMPDIR:-/tmp}/iarepo_cnf.XXXXXX")"
 trap 'rm -f "$CNF"' EXIT
@@ -120,7 +134,7 @@ PARTIAL="$DUMP.partial"
 trap 'rm -f "$CNF" "$PARTIAL"' EXIT
 log "▶ Volcando $DB_NAME → $DUMP"
 
-"$MYSQLDUMP" --defaults-extra-file="$CNF" \
+"$MYSQLDUMP" --defaults-file="$CNF" \
     --single-transaction --quick --skip-lock-tables \
     --default-character-set=utf8mb4 \
     --routines --events --triggers \
