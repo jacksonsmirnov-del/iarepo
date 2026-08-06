@@ -96,8 +96,13 @@ if ($method === 'POST') {
             'user_liked' => $action === 'liked',
         ]);
     } catch (\Throwable $e) {
-        $db->rollBack();
-        json_error('Like failed: ' . $e->getMessage(), 500);
+        if ($db->inTransaction()) $db->rollBack();
+
+        // Detalle al log, mensaje genérico al cliente. Ver la cabecera de
+        // api/usage.php: publicar $e->getMessage() entregaba el error crudo de
+        // MariaDB a cualquiera capaz de provocar un fallo.
+        api_log('error', 'like failed', ['resource_id' => $resourceId, 'error' => $e->getMessage()]);
+        json_error('Could not register like', 500, 'LIKE_FAILED');
     }
 }
 

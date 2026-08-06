@@ -70,15 +70,23 @@ if ($resource['visibility'] !== 'community') {
     }
 }
 
-// ── Increment view count ─────────────────────────────────────
-try {
-    $db->prepare("UPDATE resources SET view_count = view_count + 1 WHERE id = ?")->execute([$id]);
-} catch (\Throwable $e) {
-    // Non-critical — don't block the viewer
-    if (function_exists('api_log')) {
-        api_log('warn', 'Failed to increment view_count', ['resource_id' => $id]);
-    }
-}
+// ── Las visitas ya NO se cuentan aquí ────────────────────────
+//
+// Había un `UPDATE resources SET view_count = view_count + 1` en este punto.
+// Se retiró [2026-08-06] y `view_count` queda CONGELADO como marca histórica.
+//
+// Contaba por CARGA y sin deduplicar: una persona recargando ocho veces valía
+// ocho visitas, y los crawlers sumaban igual que las personas. Peor aún, este
+// era uno de los dos únicos sitios que contaban — /resource/N, que es donde de
+// verdad se usa el recurso, no contaba nada.
+//
+// Ahora mide assets/js/track.js contra api/track.php: una fila por persona,
+// recurso y día, en `resource_views`, y el contador vivo es
+// `resources.unique_views`. Ver AGENTS.md §6.8.
+//
+// ⚠️ NO vuelvas a añadir un incremento aquí "por si acaso": duplicaría la
+// visita del mismo usuario en la misma carga y las dos métricas dejarían de
+// poder compararse entre sí.
 
 // ── Render ────────────────────────────────────────────────────
 $mode = $_GET['mode'] ?? 'view'; // 'view' or 'present'
@@ -98,6 +106,12 @@ $isPresent = ($mode === 'present');
     <link rel="manifest" href="/manifest.webmanifest">
     <meta name="theme-color" content="#7c3aed">
     <script src="/assets/js/pwa.js" defer></script>
+    <!-- Misma medición que /resource/N, marcando la superficie 'viewer' para
+         poder distinguir quién abre a pantalla completa de quién se queda en
+         la ficha. Sustituye al UPDATE crudo que había aquí: contaba por CARGA
+         y sin deduplicar, así que una persona recargando ocho veces valía
+         ocho visitas. -->
+    <script src="/assets/js/track.js" data-resource-id="<?= $id ?>" data-surface="viewer" defer></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         html, body { height: 100%; overflow: hidden; font-family: system-ui, sans-serif; }

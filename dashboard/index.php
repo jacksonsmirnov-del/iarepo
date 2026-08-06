@@ -22,6 +22,44 @@ $stmt = $db->prepare('SELECT id, title, description, code_type, subject_area, vi
 $stmt->execute([$user['id']]);
 $resources = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
+// ── «¿Les quedó claro?» — el agregado, sólo para el autor ────────
+//
+// Se muestra AQUÍ y no en la ficha pública a propósito: un contador de "me
+// perdí" visible para cualquiera sería una picota. Es información para mejorar
+// el recurso, no una nota.
+//
+// Nunca se sabe QUIÉN contestó qué: la tabla guarda un viewer_key hasheado con
+// una sal diaria que se borra a los 2 días. El profesor ve cuántos, no cuáles.
+//
+// GROUP BY en vez de contadores desnormalizados: serían tres columnas más que
+// mantener en sincronía, y este repo ya arrastra el caso contrario con
+// fork_count. Una consulta de un milisegundo es mejor que un contador que
+// puede mentir.
+//
+// try/catch por lo de siempre: esta página está en
+// quality/baseline_html_helpers.txt, así que un ERROR 1054 sin capturar
+// —despliegue antes que migration_014— la sacaría a medio renderizar con un
+// JSON incrustado. Degradando a vacío, la sección simplemente no aparece.
+$comprehension = [];
+try {
+    if ($resources) {
+        $ids = array_column($resources, 'id');
+        $in  = implode(',', array_fill(0, count($ids), '?'));
+        $cStmt = $db->prepare("
+            SELECT resource_id, answer, COUNT(*) AS n
+            FROM resource_comprehension
+            WHERE resource_id IN ($in)
+            GROUP BY resource_id, answer
+        ");
+        $cStmt->execute($ids);
+        foreach ($cStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $comprehension[(int)$row['resource_id']][$row['answer']] = (int)$row['n'];
+        }
+    }
+} catch (Throwable $e) {
+    $comprehension = [];
+}
+
 // Stats
 $totalViews = array_sum(array_column($resources, 'view_count'));
 $totalLikes = array_sum(array_column($resources, 'like_count'));
@@ -284,6 +322,24 @@ a{color:var(--accent2);text-decoration:none}
                 <span>🔄 <?= (int)($r['fork_count'] ?? 0) ?></span>
                 <span><?= date('d/m/Y', strtotime($r['created_at'])) ?></span>
               </div>
+              <?php
+              // Sólo si alguien ha contestado. Un "0 de 0" no dice nada y
+              // llenaría el panel de ruido en un catálogo recién estrenado.
+              $cmp = $comprehension[(int)$r['id']] ?? [];
+              if ($cmp):
+                  $claro   = (int)($cmp['claro'] ?? 0);
+                  $regular = (int)($cmp['regular'] ?? 0);
+                  $perdido = (int)($cmp['perdido'] ?? 0);
+              ?>
+              <div class="resource-meta" style="margin-top:4px">
+                <span title="<?= h(t('Respuestas anónimas de quienes usaron el recurso')) ?>">
+                  <?= h(t('¿Les quedó claro?')) ?>
+                </span>
+                <span style="color:#10b981">✔ <?= $claro ?></span>
+                <span style="color:#f59e0b">～ <?= $regular ?></span>
+                <span style="color:#ef4444">✖ <?= $perdido ?></span>
+              </div>
+              <?php endif; ?>
             </div>
             <div class="resource-actions">
               <a href="/view/<?= (int)$r['id'] ?>" target="_blank" class="btn btn-outline btn-sm">👁 <?= h(t('Ver')) ?></a>

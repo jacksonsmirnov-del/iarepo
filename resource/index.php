@@ -63,7 +63,96 @@ if ($user) {
 }
 
 // Estudiante: oculta los CTA de creación/fork (la API igual los bloquea por rol).
-$isStudent = ($sessionUser['role'] ?? '') === 'student';
+//
+// Mira las DOS identidades. Sólo consultaba $sessionUser (Google), así que un
+// alumno que entra desde Campus —donde la identidad viaja en el JWT y
+// $sessionUser es null— salía clasificado como docente y veía el botón Fork,
+// contra lo que dice el propio comentario. authenticate() ya devuelve el rol
+// normalizado de las dos fuentes.
+$isStudent = ($sessionUser['role'] ?? '') === 'student'
+          || ($user['role'] ?? '') === 'student';
+
+// ¿Este docente ya declaró hoy que usó el recurso en clase?
+//
+// Sólo decide el estado inicial del botón: la verdad la impone el índice
+// UNIQUE uniq_usage_signal (migration_011), no esta consulta.
+//
+// ── POR QUÉ VA ENVUELTA EN try/catch ───────────────────────────
+// Esta página es una de las 7 de quality/baseline_html_helpers.txt: carga
+// shared/helpers.php y con él shared/error_handler.php, cuyos handlers hacen
+// echo json_encode(...) + exit(1). Si el despliegue llega ANTES que la
+// migración —que se aplica a mano, RUNBOOK §4— la columna usage_day no
+// existe, el driver lanza ERROR 1054 y la página saldría a medio renderizar
+// con un JSON incrustado: exactamente la trampa nº1 del CLAUDE.md.
+// Degradando a false, la única consecuencia de ese orden de despliegue es que
+// el botón aparece sin marcar. La página nunca se rompe.
+$usedInClassToday = false;
+if ($user && !$isStudent) {
+    try {
+        $useCheck = $db->prepare("
+            SELECT id FROM resource_usage
+            WHERE resource_id = ? AND user_id = ? AND tenant_id = ?
+              AND usage_type = 'presented' AND usage_day = ?
+        ");
+        $useCheck->execute([$id, $user['user_id'], $user['tenant_id'] ?? 0, date('Y-m-d')]);
+        $usedInClassToday = (bool)$useCheck->fetch();
+    } catch (Throwable $e) {
+        $usedInClassToday = false;
+    }
+}
+
+// ── El linaje: otras versiones públicas de este recurso ──────────
+//
+// `root_id` (migration_013) hace que "todas las versiones de esto" sea una
+// consulta por índice y no un recorrido de la cadena de forks. Un original
+// tiene root_id = su propio id, así que la MISMA consulta sirve para los dos
+// casos: mirando desde el original o desde una de sus versiones.
+//
+// Sólo entran las 'community'. Un fork nace en 'draft' y casi ninguno se
+// publica, así que la mayoría son copias privadas de gente trasteando: sacarlas
+// aquí enseñaría enlaces que nadie más puede abrir.
+//
+// try/catch por lo mismo que arriba: si el despliegue llega antes que la
+// migración, root_id no existe, el driver lanza ERROR 1054 y esta página
+// —que carga helpers.php— saldría a medio renderizar con un JSON incrustado.
+// Degradando a lista vacía, el panel simplemente no aparece.
+$versions   = [];
+$lineageRoot = null;   // el original, cuando ESTA página es una versión derivada
+$rootId     = $id;
+
+try {
+    $rootId = (int)($r['root_id'] ?? 0) ?: (int)($r['fork_of'] ?? 0) ?: $id;
+
+    $vStmt = $db->prepare("
+        SELECT id, title, author_display_name, author_user_id, created_at, is_recommended
+        FROM resources
+        WHERE root_id = ? AND id <> ? AND is_active = 1 AND visibility = 'community'
+        ORDER BY is_recommended DESC, created_at DESC
+        LIMIT 20
+    ");
+    $vStmt->execute([$rootId, $id]);
+    $versions = $vStmt->fetchAll();
+
+    if ($rootId !== $id) {
+        $rStmt = $db->prepare("SELECT id, title, author_display_name, author_user_id
+                               FROM resources WHERE id = ? AND is_active = 1");
+        $rStmt->execute([$rootId]);
+        $lineageRoot = $rStmt->fetch() ?: null;
+    }
+} catch (Throwable $e) {
+    $versions = [];
+    $lineageRoot = null;
+    $rootId = $id;
+}
+
+// ¿Puede esta persona destacar versiones? Sólo el autor de la RAÍZ. Si pudiera
+// hacerlo el autor de cada fork, "recomendada" pasaría a significar "su autor
+// pulsó un botón" y el distintivo no valdría nada. La API lo comprueba igual.
+$canRecommend = false;
+if ($user && $rootId === $id) {
+    $canRecommend = (int)($user['user_id'] ?? 0) === (int)$r['author_user_id']
+                 && (int)($user['tenant_id'] ?? 0) === (int)$r['author_tenant_id'];
+}
 
 // Similar resources (same category)
 $similar = [];
@@ -129,6 +218,13 @@ $metaDesc = mb_substr($metaDesc, 0, 160);
 <link rel="manifest" href="/manifest.webmanifest">
 <meta name="theme-color" content="#7c3aed">
 <script src="/assets/js/pwa.js" defer></script>
+<!-- Medición de visitas. ESTA es la página que no contaba nada pese a ser
+     donde de verdad se usa el recurso (se renderiza funcionando ahí abajo, en
+     un iframe srcdoc): 20 alumnos trabajando daban 8 visitas. Va por beacon y
+     no por un UPDATE en PHP a propósito — esta página carga helpers.php y un
+     fallo escribiendo en la BD la sacaría a medio renderizar con un JSON
+     incrustado (trampa nº1 del CLAUDE.md). -->
+<script src="/assets/js/track.js" data-resource-id="<?= $id ?>" data-surface="detail" defer></script>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <script type="application/ld+json">
 {
@@ -204,6 +300,24 @@ a{color:var(--accent2);text-decoration:none}
 .btn-fav:hover{border-color:#f59e0b;color:#f59e0b}
 .btn-fav.is-fav{border-color:#f59e0b;color:#f59e0b;background:rgba(245,158,11,.1)}
 .btn-fav.is-fav i{fill:#f59e0b}
+/* "Lo usé en clase". Verde, distinto del ámbar de guardar y del rojo del
+   like: es una afirmación docente, no un gesto de preferencia. */
+.used-btn:hover:not(:disabled){border-color:#10b981;color:#10b981}
+.used-btn.is-used{border-color:#10b981;color:#10b981;background:rgba(16,185,129,.1)}
+.used-btn:disabled{cursor:default;opacity:1}
+/* Prompt de comprensión. Aparece abajo a la derecha y sólo tras uso real;
+   nunca tapa el recurso, que es lo que la persona vino a hacer. */
+.cmp-prompt{position:fixed;right:16px;bottom:16px;z-index:150;max-width:320px;background:var(--bg2);
+  border:1px solid var(--border);border-radius:14px;padding:16px;box-shadow:0 18px 48px rgba(0,0,0,.22);
+  display:none}
+.cmp-prompt.open{display:block}
+.cmp-prompt p{font-size:.88rem;font-weight:600;margin-bottom:10px}
+.cmp-opts{display:flex;flex-direction:column;gap:6px}
+.cmp-opt{padding:8px 12px;border-radius:8px;border:1px solid var(--border);background:var(--bg3);
+  color:var(--text2);font-family:inherit;font-size:.82rem;cursor:pointer;text-align:left;transition:.15s}
+.cmp-opt:hover{border-color:var(--accent);color:var(--accent)}
+.cmp-close{position:absolute;top:8px;right:10px;background:none;border:none;color:var(--text3);
+  font-size:1.1rem;cursor:pointer;line-height:1;font-family:inherit}
 
 /* Sidebar */
 .sidebar{display:flex;flex-direction:column;gap:16px}
@@ -381,6 +495,15 @@ a{color:var(--accent2);text-decoration:none}
           <span id="likeCount"><?= (int)($r['like_count'] ?? 0) ?></span>
         </button>
         <button class="btn btn-fav <?= $userFavorited ? 'is-fav' : '' ?>" id="favBtn" aria-pressed="<?= $userFavorited ? 'true' : 'false' ?>" data-id="<?= $id ?>"><i data-lucide="star" style="width:14px;height:14px"></i> <span><?= h(t('Guardar')) ?></span></button>
+        <?php if ($user && !$isStudent): ?>
+        <!-- La señal de profesor. Deshabilitado si ya se registró hoy: el
+             índice UNIQUE lo rechazaría igual, pero es mejor no ofrecer un
+             clic que sólo puede devolver un 409. -->
+        <button class="btn btn-outline used-btn<?= $usedInClassToday ? ' is-used' : '' ?>" id="usedBtn" data-id="<?= $id ?>"<?= $usedInClassToday ? ' disabled' : '' ?>>
+          <i data-lucide="graduation-cap" style="width:14px;height:14px"></i>
+          <span id="usedBtnLabel"><?= $usedInClassToday ? h(t('Registrado hoy')) : h(t('Lo usé en clase')) ?></span>
+        </button>
+        <?php endif; ?>
         <?php if (!$isStudent): ?>
         <button class="btn btn-outline" id="forkBtn" data-id="<?= $id ?>"><i data-lucide="git-fork" style="width:14px;height:14px"></i> <?= h(t('Fork')) ?></button>
         <?php endif; ?>
@@ -420,9 +543,37 @@ a{color:var(--accent2);text-decoration:none}
       </div>
 
       <div class="stats-row">
-        <div class="stat-item"><strong><?= (int)$r['view_count'] ?></strong><span><?= h(t('Vistas')) ?></span></div>
+        <?php
+        // Visitas = histórico congelado + visitas únicas reales.
+        //
+        // Se SUMAN en pantalla, aunque midan cosas distintas (cargas de página
+        // con bots incluidos, contra personas-día), por una razón concreta: si
+        // se mostrara sólo `unique_views`, un recurso con 290 visitas
+        // amanecería con 0 el día del despliegue. Esas cargas ocurrieron; el
+        // número que ve el autor no puede desplomarse porque hayamos mejorado
+        // la forma de medir.
+        //
+        // El desglose está en el tooltip, y para RANKING se usa siempre
+        // `unique_views` a solas: ahí sí importa que la unidad sea limpia.
+        $viewsLegacy = (int)($r['view_count'] ?? 0);
+        $viewsUnique = (int)($r['unique_views'] ?? 0);   // ?? 0 → sobrevive a que aún no se haya aplicado migration_012
+        ?>
+        <div class="stat-item" title="<?= h(t('Visitas únicas')) ?>: <?= $viewsUnique ?> · <?= h(t('histórico anterior')) ?>: <?= $viewsLegacy ?>">
+          <strong><?= $viewsLegacy + $viewsUnique ?></strong><span><?= h(t('Vistas')) ?></span>
+        </div>
         <div class="stat-item"><strong><?= (int)($r['like_count'] ?? 0) ?></strong><span><?= h(t('Likes')) ?></span></div>
-        <div class="stat-item"><strong><?= (int)$r['fork_count'] ?></strong><span><?= h(t('Forks')) ?></span></div>
+        <!-- Versiones PÚBLICAS, no `fork_count`.
+             fork_count cuenta todos los forks incluidos los 'draft' —que son
+             casi todos, porque nacen privados—, así que la ficha decía "12
+             Forks" y al pinchar aparecían 2. Aquí se muestra lo que de verdad
+             se puede abrir, que es el mismo listado del panel de abajo. -->
+        <div class="stat-item" title="<?= h(t('Versiones públicas de este recurso')) ?>">
+          <strong><?= count($versions) ?></strong><span><?= h(t('Versiones')) ?></span>
+        </div>
+        <!-- Cuántos docentes lo han llevado a clase. Hoy vale 0 en todo el
+             catálogo porque nadie llamaba nunca a api/usage.php; se muestra
+             desde ya para que el contador empiece a significar algo. -->
+        <div class="stat-item"><strong id="useCount"><?= (int)($r['use_count'] ?? 0) ?></strong><span><?= h(t('Usos en clase')) ?></span></div>
       </div>
 
       <?php if ($resourceTags): ?>
@@ -458,6 +609,55 @@ a{color:var(--accent2);text-decoration:none}
         </div>
       <?php endif; ?>
     </div>
+
+    <?php if ($lineageRoot || $versions): ?>
+    <!-- ── El linaje ───────────────────────────────────────────────
+         Un fork deja de ser "otro recurso suelto en el catálogo" y pasa a
+         verse como lo que es: otra versión de lo mismo. Los forks NO se
+         esconden del catálogo a propósito — si alguien mejora un recurso de
+         verdad, esconderlo bajo el original lo castiga. Se agrupan, no se
+         ocultan. -->
+    <div class="meta-card">
+      <h3 style="font-size:1rem;font-weight:600;margin-bottom:10px;display:flex;align-items:center;gap:6px">
+        <i data-lucide="git-branch" style="width:16px;height:16px"></i>
+        <?= h(t('Otras versiones')) ?>
+      </h3>
+
+      <?php if ($lineageRoot): ?>
+        <!-- Esta página ES una versión derivada: el original va primero y
+             marcado, para que se sepa de dónde viene lo que estás mirando. -->
+        <a href="/resource/<?= (int)$lineageRoot['id'] ?>" class="similar-card"
+           style="text-decoration:none;color:var(--text);display:block;margin-bottom:8px;border-color:var(--accent)">
+          <h4><?= h($lineageRoot['title']) ?></h4>
+          <span><?= h(t('Original de')) ?> <?= h($lineageRoot['author_display_name']) ?></span>
+        </a>
+      <?php endif; ?>
+
+      <div class="similar-grid">
+        <?php foreach ($versions as $v): ?>
+          <a href="/resource/<?= (int)$v['id'] ?>" class="similar-card" style="text-decoration:none;color:var(--text)">
+            <h4>
+              <?php if ((int)$v['is_recommended']): ?><span title="<?= h(t('Versión recomendada por el autor del original')) ?>">★ </span><?php endif; ?>
+              <?= h($v['title']) ?>
+            </h4>
+            <span><?= h($v['author_display_name']) ?> · <?= h(date('Y-m-d', strtotime((string)$v['created_at']))) ?></span>
+          </a>
+          <?php if ($canRecommend): ?>
+            <!-- Sólo lo ve el autor de la raíz. La API lo comprueba igual:
+                 ocultar el botón no protege nada. -->
+            <button class="btn btn-outline rec-btn" data-id="<?= (int)$v['id'] ?>"
+                    style="font-size:.72rem;padding:4px 10px;margin:-4px 0 8px">
+              <?= (int)$v['is_recommended'] ? h(t('Quitar recomendación')) : h(t('Recomendar esta versión')) ?>
+            </button>
+          <?php endif; ?>
+        <?php endforeach; ?>
+      </div>
+
+      <?php if (!$versions): ?>
+        <p style="font-size:.8rem;color:var(--text3)"><?= h(t('Aún no hay otras versiones públicas.')) ?></p>
+      <?php endif; ?>
+    </div>
+    <?php endif; ?>
 
     <?php if ($byAuthor): ?>
     <div class="meta-card">
@@ -562,6 +762,24 @@ a{color:var(--accent2);text-decoration:none}
 
 <div class="share-toast" id="shareToast">✓ Enlace copiado al portapapeles</div>
 
+<!-- ── «¿Te quedó claro?» ──────────────────────────────────────────
+     NO es una valoración. Un menor contestando delante de su profesor no
+     puede decir con honestidad si algo "le gustó"; sí puede decir si lo
+     entendió — y eso es lo que el profesor quería saber de verdad.
+     Se muestra sólo tras uso real (evento iarepo:engaged de track.js) y
+     api/feedback.php vuelve a comprobarlo contra la BD: ocultarlo aquí no
+     protege nada. Sin texto libre a propósito: un campo abierto rellenado
+     por menores es contenido que habría que moderar. -->
+<div class="cmp-prompt" id="cmpPrompt" role="dialog" aria-live="polite">
+  <button class="cmp-close" id="cmpClose" aria-label="<?= h(t('Cerrar')) ?>">×</button>
+  <p><?= h(t('¿Te quedó claro este recurso?')) ?></p>
+  <div class="cmp-opts">
+    <button class="cmp-opt" data-answer="claro"><?= h(t('Me quedó claro')) ?></button>
+    <button class="cmp-opt" data-answer="regular"><?= h(t('Más o menos')) ?></button>
+    <button class="cmp-opt" data-answer="perdido"><?= h(t('Me perdí')) ?></button>
+  </div>
+</div>
+
 <button class="theme-toggle" aria-label="Cambiar tema" id="themeBtn" title="Cambiar tema"><i data-lucide="moon" style="width:18px;height:18px"></i></button>
 
 <script>
@@ -579,6 +797,18 @@ const T = {
   favSaved: <?= json_encode(t('Guardado en tus favoritos ⭐')) ?>,
   favRemoved: <?= json_encode(t('Quitado de favoritos')) ?>,
   loginToSave: <?= json_encode(t('Regístrate para guardar tus favoritos ⭐')) ?>,
+  usedConfirm: <?= json_encode(t('¿Confirmas que usaste este recurso en una clase?')) ?>,
+  usedDone: <?= json_encode(t('¡Registrado! Esto ayuda a otros profesores a encontrarlo.')) ?>,
+  usedAlready: <?= json_encode(t('Ya registraste este uso hoy')) ?>,
+  usedLabelDone: <?= json_encode(t('Registrado hoy')) ?>,
+  usedError: <?= json_encode(t('No se pudo registrar el uso')) ?>,
+  recAdd: <?= json_encode(t('Recomendar esta versión')) ?>,
+  recRemove: <?= json_encode(t('Quitar recomendación')) ?>,
+  recDone: <?= json_encode(t('Versión recomendada ★')) ?>,
+  recUndone: <?= json_encode(t('Recomendación retirada')) ?>,
+  recError: <?= json_encode(t('No se pudo cambiar la recomendación')) ?>,
+  cmpThanks: <?= json_encode(t('¡Gracias! Esto ayuda a mejorar el recurso.')) ?>,
+  cmpError: <?= json_encode(t('No se pudo enviar tu respuesta')) ?>,
 };
 
 // Theme
@@ -643,6 +873,120 @@ if(forkBtnEl) forkBtnEl.addEventListener('click', async()=>{
     alert(T.forkDone);
   }catch(e){alert(e.message)}
 });
+
+// "Lo usé en clase" — la señal de profesor.
+//
+// El botón sólo se pinta para docentes autenticados, pero eso es cosmética:
+// quien mande el POST a mano se topa con requireRole() en api/usage.php. Aquí
+// no se defiende nada, sólo se evita ofrecer un clic que va a fallar.
+//
+// Pide confirmación a propósito: es una AFIRMACIÓN sobre lo que hiciste en tu
+// clase, no un "me gusta". La fricción es la que hace que el dato valga.
+const usedBtnEl=document.getElementById('usedBtn');
+if(usedBtnEl) usedBtnEl.addEventListener('click', async()=>{
+  if(!confirm(T.usedConfirm)) return;
+  usedBtnEl.disabled=true;
+  try{
+    // Este endpoint lee el cuerpo con json_body(), no query params como
+    // likes/fork: sin el Content-Type y el JSON responde 400 INVALID_JSON.
+    const res=await fetch('/api/usage.php',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({resource_id:RID,usage_type:'presented'})
+    });
+    const data=await res.json();
+    if(!data.ok){
+      // 409 no es un fallo: es la dedup diaria funcionando. Se trata como
+      // éxito en la UI —el botón queda marcado igual— porque para el docente
+      // "ya estaba registrado" y "acabo de registrarlo" son el mismo estado.
+      if(data.code==='ALREADY_RECORDED'){markUsed(T.usedAlready);return}
+      throw new Error(data.error||T.usedError);
+    }
+    if(typeof data.use_count==='number') document.getElementById('useCount').textContent=data.use_count;
+    markUsed(T.usedDone);
+  }catch(e){
+    favToast(e.message||T.usedError);
+    usedBtnEl.disabled=false;
+  }
+});
+function markUsed(msg){
+  usedBtnEl.classList.add('is-used');
+  usedBtnEl.disabled=true;
+  document.getElementById('usedBtnLabel').textContent=T.usedLabelDone;
+  favToast(msg);
+}
+
+// Recomendar una versión (sólo el autor del recurso raíz)
+//
+// El botón sólo se pinta para él, pero eso es cosmética: la API comprueba la
+// autoría de la RAÍZ y responde 403 a cualquier otro. Si pudiera destacarse
+// cada autor su propio fork, "recomendada" significaría "su autor pulsó un
+// botón" y el distintivo perdería todo su valor.
+document.querySelectorAll('.rec-btn').forEach(function(btn){
+  btn.addEventListener('click', async()=>{
+    btn.disabled=true;
+    try{
+      const res=await fetch(`/api/resources.php?action=recommend&id=${btn.dataset.id}`,{method:'POST'});
+      const data=await res.json();
+      if(!data.ok) throw new Error(data.error||T.recError);
+      btn.textContent = data.is_recommended ? T.recRemove : T.recAdd;
+      favToast(data.is_recommended ? T.recDone : T.recUndone);
+    }catch(e){ favToast(e.message||T.recError) }
+    finally{ btn.disabled=false }
+  });
+});
+
+// «¿Te quedó claro?» — se arma cuando track.js confirma uso real.
+//
+// Una sola vez por carga y recordando en localStorage que ya se contestó, para
+// no volver a preguntar en cada visita. La verdad la impone la clave PRIMARY de
+// resource_comprehension (una respuesta por persona, recurso y día); esto sólo
+// evita ser pesado.
+(function(){
+  const box = document.getElementById('cmpPrompt');
+  if(!box) return;
+  const seenKey = 'iarepo_cmp_' + RID;
+  try{ if(localStorage.getItem(seenKey)) return }catch(e){}
+
+  let vid = null;
+  document.addEventListener('iarepo:engaged', function(ev){
+    if(ev.detail && ev.detail.resourceId !== RID) return;
+    vid = ev.detail ? ev.detail.vid : null;
+    box.classList.add('open');
+  });
+
+  function done(msg){
+    try{ localStorage.setItem(seenKey,'1') }catch(e){}
+    box.classList.remove('open');
+    favToast(msg);
+  }
+
+  document.getElementById('cmpClose').addEventListener('click', function(){
+    // Cerrar sin contestar también se recuerda: insistir a quien ya dijo que
+    // no es la forma más rápida de que deje de leer cualquier cosa del sitio.
+    try{ localStorage.setItem(seenKey,'1') }catch(e){}
+    box.classList.remove('open');
+  });
+
+  box.querySelectorAll('.cmp-opt').forEach(function(btn){
+    btn.addEventListener('click', async function(){
+      box.querySelectorAll('.cmp-opt').forEach(b=>b.disabled=true);
+      try{
+        const res = await fetch('/api/feedback.php',{
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({resource_id:RID, vid:vid, answer:btn.dataset.answer})
+        });
+        const data = await res.json();
+        if(!data.ok) throw new Error(data.error||T.cmpError);
+        done(T.cmpThanks);
+      }catch(e){
+        box.querySelectorAll('.cmp-opt').forEach(b=>b.disabled=false);
+        favToast(e.message||T.cmpError);
+      }
+    });
+  });
+})();
 
 // Delete (owner only — button only rendered for the author)
 const deleteResBtn=document.getElementById('deleteResBtn');

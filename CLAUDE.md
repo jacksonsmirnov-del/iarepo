@@ -113,8 +113,16 @@ Detalles: `quality/guards.sh --help`, `php tests/run.php --help`, `tests/README.
 
 ```
 index.php          Landing + buscador (todo el JS del catálogo vive aquí, inline)
-api/*.php          15 endpoints REST. helpers.php SÍ va aquí.  (ls -1 api/*.php)
+api/*.php          17 endpoints REST. helpers.php SÍ va aquí.  (ls -1 api/*.php)
+                   track.php = visitas/atención por beacon (AGENTS.md §6.8).
+                   feedback.php = "¿te quedó claro?" (§6.9). Su puerta —sólo
+                   responde quien demostró uso— está en el SERVIDOR.
+                   ⛔ Ninguno guarda IPs, y hay un test que barre los dos.
+assets/js/track.js el cliente del beacon. Cambiar los campos que manda obliga
+                   a tocar legal/terms.php §10.1 (hay test que lo exige)
 shared/            auth jwt db cors helpers error_handler error_tracker i18n i18n_en
+                   viewer_key = identidad anónima + sal diaria caducable.
+                   NO carga helpers.php (igual que search.php)
                    mailer notify moderation similarity · search + search_synonyms
                    (diccionario ES↔EN, datos puros)
 resource/ viewer/ dashboard/ profile/ collection/ favorites/ auth/ admin/ legal/
@@ -156,12 +164,26 @@ LiteSpeed**, que es lo que corre producción.
    captación de estudiantes), `collections` es curaduría pública. `AGENTS.md` §5.3.
 2. **Existe el rol `student`** (ENUM desde `migration_009`), con enrutado propio: no
    tiene dashboard (lo redirigen a `/favorites/`) y no ve Fork. Ojo al tocar nav.
+   ⚠️ **Los forks son "otras versiones", no recursos sueltos** (`AGENTS.md` §5.5):
+   `root_id` es la raíz del linaje y para un original vale **su propio id**. La ficha
+   muestra las versiones **públicas**, no `fork_count` (que incluye los `draft`, o sea
+   casi todos). **Solo el autor de la RAÍZ** puede marcar `is_recommended`; ocultar el
+   botón no es la protección.
 3. **Hay un service worker** (`sw.js`, registrado por `assets/js/pwa.js`). Si un cambio
    "no aparece" en el navegador, es la caché del SW, no tu código.
+   ⚠️ **`view_count` está CONGELADO** desde 2026-08-06 y no vuelve a subir: era cargas de
+   página sin deduplicar, y encima **`/resource/N` no contaba nada** pese a ser donde se
+   usa el recurso (20 alumnos → 8 visitas). La métrica viva es `unique_views`, que escribe
+   `api/track.php` por beacon, una fila por persona y día. **No repongas ningún
+   `view_count + 1`**: contaría en las dos métricas a la vez. `AGENTS.md` §6.8.
 4. **`shared/i18n.php::lang()` cachea el idioma en un `static` irreversible**: un
    proceso PHP solo puede hablar un idioma. Importa al escribir tests.
-5. **`resources.lang` NO es de fiar** (§7) y `use_count` es 0 en todo el catálogo. No
-   construyas lógica de producto encima sin medir primero.
+5. **`resources.lang` NO es de fiar** (§7). `use_count` era 0 en todo el catálogo porque
+   `api/usage.php` existía y **nadie lo llamaba nunca**; desde 2026-08-06 hay un botón
+   ("Lo usé en clase") que por fin lo alimenta. Sigue sin haber datos: no construyas
+   ranking encima hasta medir. ⚠️ Su dedup depende de `usage_day`, y **hay tres formas**
+   según el `usage_type` (`AGENTS.md` §5.4) — unificarlas rompe forkear dos veces el
+   mismo día.
 
 ---
 
@@ -225,12 +247,34 @@ es una constante literal y **no** dice nada.
 **Deuda abierta hoy (2026-08-04) — `docs/RUNBOOK.md §10` es la lista de lo que falta y
 solo puede hacer el mantenedor:**
 
-- 🔴 **La contraseña de la BD de producción está en el historial público** (commit
-  `5b6c1e6`). **Rotarla es el paso 0 y no depende del deploy** (`docs/RUNBOOK.md §0`).
+- ✅ **Contraseña de la BD: ROTADA** [2026-08-06, confirmado por el mantenedor]. El commit
+  `5b6c1e6` sigue conteniendo las credenciales VIEJAS —nombre de BD, usuario y contraseña—
+  y **seguirá para siempre**: git conserva el objeto y el repo es público. Eso es esperado
+  y no requiere más acción; lo que importaba era que la contraseña de ahí ya no abra nada.
+  ⚠️ **No vuelvas a pedir que se rote** sin comprobarlo antes: esta línea estuvo
+  desactualizada y provocó que se repitiera el aviso cuatro veces. El nombre de BD y el
+  usuario son públicos de forma permanente; asumido.
 - **La tanda del 2026-08-04 está SIN DESPLEGAR** (buscador con sinónimos, hook
   verificable, heartbeats, bloqueos de `.htaccess`, `tests/`, `quality/`, `docs/`):
   producción sirve el código viejo. **No supongas que lo que lees en el repo es lo que
   responde `iarepo.com`** — pregúntale a `health.php` por su `commit`.
+- **La tanda del 2026-08-06 tampoco.** Tres bloques: la señal "lo usé en clase"
+  (`migration_011`), la medición de visitas (`migration_012`, `api/track.php`,
+  `assets/js/track.js`, `view_count` **congelado**) y el linaje de versiones
+  (`migration_013`, `root_id`, `is_recommended`, panel en la ficha) y el check de
+  comprensión (`migration_014`, `api/feedback.php`). Viaja **encima** de
+  la tanda anterior, así que hereda su riesgo: si el `REGEXP` del buscador no funciona
+  contra la MariaDB de producción, el rollback se lleva las cuatro por delante.
+  ⚠️ **Las CUATRO migraciones se aplican A MANO y van DESPUÉS del push** (`RUNBOOK`
+  §10.5.1 a §10.5.4): sus ficheros sólo llegan al servidor con el checkout del hook, así
+  que "aplicarlas antes" es inejecutable. La ventana entre push y migración está cubierta
+  —toda consulta nueva degrada— pero las features están inertes hasta cerrarla. Van **antes** del push: si llegan después, las
+  features quedan inertes —las páginas degradan a propósito y no se rompen— pero nada
+  funciona hasta entonces.
+- ⚖️ **`legal/terms.php` §10.1 y §10.2 son NUEVOS**: la web guarda un identificador
+  aleatorio en el navegador y hace una pregunta de comprensión. Están redactados con
+  precisión, pero **revísalos antes de desplegar** — es un texto publicado con tu nombre
+  encima, y los usuarios son menores.
 - **El cron `link_check` lleva parado desde 2026-05-30** (66 días sin que nadie lo notara).
   Reactivarlo en cron-job.org; los latidos solo hacen que se **vea**.
 - El backup existe y está ensayado con restauración real (`setup/tools/backup_db.sh`);

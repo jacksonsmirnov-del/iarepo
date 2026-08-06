@@ -159,6 +159,50 @@ function iarepo_bail(string $msg): never
     throw new IarepoAssertionFailed($msg);
 }
 
+/**
+ * Devuelve el código EJECUTABLE de un fuente PHP: sin comentarios, con el HTML
+ * embebido intacto.
+ *
+ * ── PARA QUÉ ──────────────────────────────────────────────────
+ * Varias suites auditan el TEXTO del código de producción, porque los ficheros
+ * de api/ y las páginas son scripts que no se pueden incluir desde un test
+ * (abren conexión, llaman a cors(), terminan en exit).
+ *
+ * ── POR QUÉ NO VALE UN grep A PELO ────────────────────────────
+ * Sin quitar los comentarios, esos tests auditan su propia documentación.
+ * Pasó al escribirlos: la cabecera de api/usage.php explica un fallo ya
+ * arreglado CITANDO el patrón malo, y el test que prohíbe ese patrón se ponía
+ * rojo contra el comentario que celebra haberlo quitado.
+ *
+ * Un guard que no distingue código de prosa castiga documentar y premia el
+ * silencio — al revés de lo que necesita este repo. Los saltos de línea se
+ * conservan para que un fallo siga apuntando a una línea creíble.
+ */
+function iarepo_php_code_only(string $src): string
+{
+    $out = '';
+    foreach (token_get_all($src) as $tok) {
+        if (is_array($tok)) {
+            if ($tok[0] === T_COMMENT || $tok[0] === T_DOC_COMMENT) {
+                $out .= str_repeat("\n", substr_count($tok[1], "\n"));
+                continue;
+            }
+            $out .= $tok[1];
+            continue;
+        }
+        $out .= $tok;
+    }
+    return $out;
+}
+
+/** Igual, para ficheros .sql: quita los comentarios '-- …'. */
+function iarepo_sql_code_only(string $src): string
+{
+    // Mismo criterio que setup/run_migration.php:39, que también los quita
+    // antes de trocear por ';'.
+    return (string) preg_replace('/^\s*--.*$/m', '', $src);
+}
+
 function assert_true(mixed $cond, string $msg = ''): void
 {
     iarepo_tick();

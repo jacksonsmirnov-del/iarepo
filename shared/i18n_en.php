@@ -138,6 +138,43 @@ return [
     '¿Eliminar este recurso? Esta acción no se puede deshacer.' => 'Delete this resource? This cannot be undone.',
     '¡Copiado!' => 'Copied!',
 
+    // ── Señal de uso docente ("lo usé en clase") ──
+    'Lo usé en clase' => 'I used this in class',
+    'Registrado hoy' => 'Recorded today',
+    'Usos en clase' => 'Classroom uses',
+    '¿Confirmas que usaste este recurso en una clase?' => 'Confirm that you used this resource in a class?',
+    '¡Registrado! Esto ayuda a otros profesores a encontrarlo.' => 'Recorded! This helps other teachers find it.',
+    'Ya registraste este uso hoy' => 'You already recorded this use today',
+    'No se pudo registrar el uso' => 'Could not record the use',
+    'Visitas únicas' => 'Unique visits',
+    'histórico anterior' => 'earlier total',
+
+    // ── Linaje de forks: "otras versiones" ──
+    'Otras versiones' => 'Other versions',
+    'Versiones' => 'Versions',
+    'Versiones públicas de este recurso' => 'Public versions of this resource',
+    'Original de' => 'Original by',
+    'Versión recomendada por el autor del original' => 'Version recommended by the author of the original',
+    'Recomendar esta versión' => 'Recommend this version',
+    'Quitar recomendación' => 'Remove recommendation',
+    'Versión recomendada ★' => 'Version recommended ★',
+    'Recomendación retirada' => 'Recommendation removed',
+    'No se pudo cambiar la recomendación' => 'Could not change the recommendation',
+    'Aún no hay otras versiones públicas.' => 'There are no other public versions yet.',
+
+    // ── Check de comprensión ("¿te quedó claro?") ──
+    // NO es una valoración: es una pregunta sobre uno mismo, que es lo único
+    // que un menor puede contestar con honestidad delante de su profesor.
+    '¿Te quedó claro este recurso?' => 'Was this resource clear to you?',
+    'Me quedó claro' => 'It was clear',
+    'Más o menos' => 'More or less',
+    'Me perdí' => 'I got lost',
+    '¡Gracias! Esto ayuda a mejorar el recurso.' => 'Thank you! This helps improve the resource.',
+    'No se pudo enviar tu respuesta' => 'Could not send your answer',
+    '¿Les quedó claro?' => 'Was it clear to them?',
+    'Respuestas anónimas de quienes usaron el recurso' => 'Anonymous answers from people who used the resource',
+    'Cerrar' => 'Close',
+
     // ── 404 ──
     'Página no encontrada — iarepo' => 'Page not found — iarepo',
     'Esta página no existe' => 'This page does not exist',

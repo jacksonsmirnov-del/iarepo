@@ -30,7 +30,7 @@ if (!$coll['is_public'] && !$isOwner) { header('Location: /'); exit; }
 $items = $db->prepare("
     SELECT ci.id AS item_id, r.id, r.title, r.description, r.code_type,
            r.subject_area, r.level, r.lang, r.view_count, r.like_count, r.fork_count,
-           r.author_display_name, r.visibility, r.category_id,
+           r.author_display_name, r.author_user_id, r.visibility, r.category_id,
            c.name AS category_name, c.icon AS category_icon
     FROM collection_items ci
     JOIN resources r ON r.id = ci.resource_id
@@ -193,7 +193,12 @@ a{color:var(--accent2);text-decoration:none}
             <span>👁 <?= (int)$r['view_count'] ?></span>
             <span>❤ <?= (int)$r['like_count'] ?></span>
             <span>🔄 <?= (int)$r['fork_count'] ?></span>
-            <span>· <?= h($r['author_display_name']) ?></span>
+            <!-- El nombre del autor era el único sitio del repo donde se
+                 mostraba sin enlazar a su perfil. La ficha y el dashboard ya
+                 enlazaban; buscar por nombre de autor ya funcionaba
+                 (shared/search.php:302 lo mete en el haystack). Faltaba el
+                 camino corto: pinchar el nombre. -->
+            <span>· <a href="/profile/<?= (int)$r['author_user_id'] ?>" style="color:var(--accent2);text-decoration:none"><?= h($r['author_display_name']) ?></a></span>
           </div>
           <div class="card-actions">
             <a href="/resource/<?= (int)$r['id'] ?>" class="btn btn-primary"><?= h(t('Ver recurso')) ?></a>

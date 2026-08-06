@@ -481,7 +481,17 @@ function test_it_tablas_del_listado_existen(): void
         'SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE()'
     )->fetchAll(PDO::FETCH_COLUMN);
 
-    $necesarias = ['resources', 'categories', 'resource_tags', 'resource_likes'];
+    // resource_usage entró en esta lista al cablear "lo usé en clase"
+    // [2026-08-06]. No estaba, y por eso el escáner no habría dicho nada si el
+    // repo dejara de crearla: api/usage.php y el fork de api/resources.php
+    // escriben en ella, así que su ausencia rompe las dos cosas — y el fork lo
+    // haría dentro de una transacción, con rollback y sin rastro.
+    // resource_views y view_salts entraron con la medición de visitas
+    // [2026-08-06]. Si el repo dejara de crearlas, api/track.php fallaría en
+    // CADA visita — y como el beacon ignora la respuesta, nadie lo vería en la
+    // web: sólo dejarían de contarse las visitas, en silencio.
+    $necesarias = ['resources', 'categories', 'resource_tags', 'resource_likes', 'resource_usage',
+                   'resource_views', 'view_salts'];
     it_eq([], array_values(array_diff($necesarias, $reales)),
         'Faltan tablas que consulta el listado de api/resources.php');
 }

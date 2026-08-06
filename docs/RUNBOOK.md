@@ -829,6 +829,196 @@ nunca ha latido". Es lo correcto: todavía no ha corrido ninguno. `moderation` d
 latir en los 2 minutos siguientes; `link_check` **no latirá hasta que lo reactives**
 (§10.6), y ese es justo el hallazgo.
 
+### 10.5.1 Aplicar la migración 011 (señal "lo usé en clase")
+
+⚠️ **Va DESPUÉS del push, y no hay alternativa:** este fichero de migración **no existe
+en el servidor hasta que el push lo deposita allí** (`setup/` se despliega por el
+checkout del hook). Cualquier instrucción de "aplicarla antes" es inejecutable.
+
+**Y por eso todas las consultas nuevas degradan.** Entre el push y la migración hay una
+ventana en la que el código pide columnas que aún no existen; está cubierta a propósito:
+la consulta de la página va en `try/catch` y degrada a "no registrado". Sin eso, un
+`ERROR 1054` sin capturar sacaría la página a medio renderizar con un JSON incrustado
+(trampa nº1 del `CLAUDE.md`). El botón queda **inerte** durante esa ventana —pulsarlo da
+un 500 genérico y el motivo real queda en el log— pero **ninguna página se rompe**.
+Cierra la ventana aplicando la migración justo después del push.
+
+Es **idempotente** (`CREATE TABLE IF NOT EXISTS` + `ADD COLUMN IF NOT EXISTS` + `ADD
+UNIQUE KEY IF NOT EXISTS` + un `MODIFY` que reafirma una definición ya correcta) y
+**defensiva**: no asume qué contiene `resource_usage` en producción, lo garantiza.
+
+```bash
+# 1. Probarla ANTES contra MariaDB real. Aplica la migración sobre una tabla
+#    con la forma de producción Y CON DATOS, y exige que forkear dos veces el
+#    mismo día siga siendo legal.
+make integration        # tests/integration/usage_signal_db_test.php
+
+# 2. En el servidor, desde el doc root
+ssh -p <SSH_PORT> <SSH_USER>@<SSH_HOST>
+cd <DOC_ROOT>
+php setup/run_migration.php setup/migration_011_usage_signal.sql
+
+# 3. Verificar el esquema resultante (sin exponer credenciales: el script las lee de .env.php)
+php -r '$e=require ".env.php"; $d=new PDO("mysql:host={$e["DB_HOST"]};dbname={$e["DB_NAME"]}",$e["DB_USER"],$e["DB_PASS"]);
+foreach($d->query("SHOW COLUMNS FROM resource_usage LIKE \"usage_day\"") as $r) print_r($r);'
+```
+
+**Verificar después del deploy**, ya con el código arriba: entra en cualquier recurso
+como docente, pulsa **"Lo usé en clase"** y comprueba que
+
+- el botón queda en verde y dice "Registrado hoy",
+- el contador **Usos en clase** sube,
+- **pulsarlo otra vez tras recargar no lo vuelve a subir** (ésa es la dedup), y
+- un usuario con rol `student` **no ve el botón** y, si lanza el `POST` a mano, recibe
+  **403**.
+
+### 10.5.2 Aplicar la migración 012 (medición de visitas)
+
+⚠️ **Va DESPUÉS del push**, por lo mismo que la 011: el fichero llega con el checkout.
+Durante la ventana, la ficha muestra sólo el histórico (hay un `?? 0` que lo cubre) y el
+beacon devuelve 500 sin romper ninguna página — pero no se cuenta nada.
+
+Idempotente: `CREATE TABLE IF NOT EXISTS` ×2 + `ADD COLUMN IF NOT EXISTS`.
+
+```bash
+# 1. Probarla contra MariaDB real ANTES. Verifica lo que sostiene todo el
+#    arreglo: que rowCount() valga 1 al insertar y 2 al actualizar.
+make integration        # tests/integration/tracking_db_test.php
+
+# 2. En el servidor, desde el doc root
+ssh -p <SSH_PORT> <SSH_USER>@<SSH_HOST>
+cd <DOC_ROOT>
+php setup/run_migration.php setup/migration_012_engagement.sql
+```
+
+**Verificar después del deploy**, con el código arriba:
+
+```bash
+# La ficha ya no debe dar 500 y el beacon debe aceptar una visita de prueba
+curl -s -o /dev/null -w '%{http_code}\n' https://iarepo.com/resource/1
+curl -s -X POST https://iarepo.com/api/track.php \
+     -d '{"resource_id":1,"vid":"0123456789abcdef0123456789abcdef","surface":"detail","engaged_secs":0,"interacted":0}'
+#    Espera: {"ok":true,...}
+```
+
+Luego abre `/resource/<id>` en el navegador y comprueba que:
+
+- el número de **Vistas** sube en **uno** (no en dos ni en cada recarga: recargar el
+  mismo día **no** debe volver a subirlo — ésa es la deduplicación),
+- pasar el ratón por encima muestra el desglose «visitas únicas · histórico anterior»,
+- `localStorage.getItem('iarepo_vid')` devuelve 32 caracteres hex.
+
+**Y una comprobación de privacidad que conviene hacer una vez**, porque es lo que se
+promete en `legal/terms.php`:
+
+```sql
+-- No debe existir ninguna columna de red en la tabla de visitas
+SHOW COLUMNS FROM resource_views;
+-- Y a los 3 días no debe quedar la sal del primer día
+SELECT view_day FROM view_salts ORDER BY view_day;
+```
+
+### 10.5.3 Aplicar la migración 013 (linaje de versiones)
+
+⚠️ **Después del push**, como las anteriores. Durante la ventana el panel de versiones no
+aparece (hay `try/catch` que degrada a lista vacía) y la ficha muestra 0 versiones. No se
+rompe nada, pero no funciona.
+
+A diferencia de las otras dos, ésta **modifica filas existentes**: rellena `root_id` en
+todo el catálogo. Es idempotente y no toca ningún título, pero conviene mirar el resultado.
+
+```bash
+# 1. Probarla contra MariaDB real ANTES. Aquí ya se cazó un ERROR 1064 en la
+#    propia migración que habría parado el ALTER a medias en el servidor.
+make integration        # tests/integration/fork_lineage_db_test.php
+
+# 2. En el servidor
+ssh -p <SSH_PORT> <SSH_USER>@<SSH_HOST>
+cd <DOC_ROOT>
+php setup/run_migration.php setup/migration_013_fork_lineage.sql
+```
+
+**Verificar el backfill** — ninguna de estas dos consultas debe devolver filas:
+
+```sql
+-- (a) Nadie sin raíz asignada
+SELECT COUNT(*) FROM resources WHERE root_id IS NULL;
+
+-- (b) Ninguna raíz apunta a un recurso que a su vez es un fork.
+--     Si sale algo, el aplanado se quedó corto: hay linajes de más de 5
+--     niveles y hay que repetir el UPDATE ... JOIN alguna vez más.
+SELECT r.id, r.root_id FROM resources r
+  JOIN resources p ON r.root_id = p.id
+ WHERE p.fork_of IS NOT NULL;
+```
+
+**Verificar en el navegador**, ya con el código arriba:
+
+- En un recurso que tenga forks públicos, aparece el panel **«Otras versiones»** con
+  autor y fecha, y el contador de la ficha dice **Versiones** (no «Forks»).
+- Abriendo una de esas versiones, el panel muestra el **original** arriba y marcado.
+- Como autor del original, sale **«Recomendar esta versión»**; al pulsarlo la versión
+  sube al principio con **★**.
+- Como **otra persona**, ese botón no existe — y lanzando el `POST` a mano debe responder
+  **403**:
+
+```bash
+curl -s -X POST 'https://iarepo.com/api/resources.php?action=recommend&id=<ID_DE_UN_FORK>'
+#   Espera 401 sin sesión, o 403 si la sesión no es la del autor del original
+```
+
+**Nota sobre los títulos:** los forks ya creados conservan el prefijo `Fork: ` porque son
+contenido de usuario y la migración no los toca. Si quieres limpiarlos, es una decisión
+tuya y va aparte:
+
+```sql
+-- OPCIONAL, y sólo si estás de acuerdo. Repásalo con un SELECT antes.
+SELECT id, title FROM resources WHERE title LIKE 'Fork: %';
+-- UPDATE resources SET title = TRIM(SUBSTRING(title, 7)) WHERE title LIKE 'Fork: %';
+```
+
+### 10.5.4 Aplicar la migración 014 (check de comprensión)
+
+⚠️ **Después del push**, como las otras tres. Durante la ventana el panel del autor no
+muestra el bloque «¿Les quedó claro?» (hay `try/catch` que degrada) y el prompt devuelve
+500 sin romper ninguna página.
+
+**Depende de la 012**: la puerta que decide quién puede contestar consulta
+`resource_views`. Aplícalas en orden.
+
+```bash
+make integration        # tests/integration/comprehension_db_test.php
+
+ssh -p <SSH_PORT> <SSH_USER>@<SSH_HOST>
+cd <DOC_ROOT>
+php setup/run_migration.php setup/migration_014_comprehension.sql
+```
+
+**Verificar la puerta**, que es lo único que impide envenenar el dato. Sin haber usado el
+recurso, el `POST` a mano tiene que dar **403**:
+
+```bash
+curl -s -X POST https://iarepo.com/api/feedback.php \
+     -d '{"resource_id":1,"vid":"0123456789abcdef0123456789abcdef","answer":"perdido"}'
+#    Espera: {"ok":false,...,"code":"NOT_ENGAGED"}
+```
+
+**Verificar el camino normal:** abre un recurso, interactúa con él y **déjalo abierto y
+visible 3 minutos**. Debe aparecer abajo a la derecha «¿Te quedó claro este recurso?» con
+tres botones. Al contestar, el bloque **«¿Les quedó claro?»** aparece en el dashboard del
+autor de ese recurso — **y en ningún sitio público**.
+
+⚠️ **Comprobación de privacidad**, porque es lo que promete `legal/terms.php` §10.2:
+
+```sql
+-- No debe existir NINGUNA columna con identidad ni texto libre
+SHOW COLUMNS FROM resource_comprehension;
+--   Esperado: resource_id, viewer_key, view_day, answer, created_at, updated_at
+--   Si aparece un user_id, un nombre o un VARCHAR de comentarios, algo se coló:
+--   dejaría de ser un agregado anónimo y pasaría a ser un registro nominal de
+--   qué menor no entendió qué.
+```
+
 ### 10.6 Reactivar el cron de `link_check`
 
 **Lleva parado desde 2026-05-30.** 66 días sin que nadie lo supiera: no falló, simplemente

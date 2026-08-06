@@ -227,10 +227,74 @@ $pageDesc  = 'Términos de uso, política de atribución y licencia de iarepo.co
     <!-- ═══════════════════════════════════════════ -->
     <h2>10. Privacidad</h2>
     <ul>
-        <li>No recopilamos datos personales de visitantes anónimos.</li>
         <li>Los usuarios registrados proporcionan solo nombre y correo.</li>
         <li>No vendemos ni compartimos datos con terceros.</li>
         <li>No usamos cookies de rastreo ni publicidad.</li>
+        <li><strong>No guardamos direcciones IP</strong> asociadas a la navegación.</li>
+    </ul>
+
+    <h3>10.1 Medición de uso de los recursos</h3>
+    <p>
+        Para saber qué recursos resultan útiles a quien da clase, contamos cuántas
+        personas distintas abren cada recurso. Esto es lo único que ocurre, dicho
+        con precisión:
+    </p>
+    <ul>
+        <li>
+            Tu navegador genera <strong>un identificador aleatorio</strong> y lo guarda
+            en el almacenamiento local del propio navegador. <strong>No es una cookie</strong>,
+            no viaja a otros sitios web y no está ligado a tu nombre, tu correo ni tu
+            dirección IP.
+        </li>
+        <li>
+            Se registra <strong>qué recurso se abrió, en qué fecha, cuánto tiempo estuvo
+            visible en pantalla</strong> y si llegó a interactuarse con él. No se registra
+            nada de lo que ocurre <em>dentro</em> del recurso: se ejecuta aislado y no
+            podemos ver su contenido.
+        </li>
+        <li>
+            Ese identificador <strong>nunca se almacena tal cual</strong>. Se guarda una
+            huella criptográfica calculada con una clave que <strong>se destruye a los dos
+            días</strong>. Pasado ese plazo, ni nosotros podemos volver a relacionar un
+            registro con el navegador que lo produjo, ni enlazar dos días distintos de la
+            misma persona.
+        </li>
+        <li>
+            El resultado sólo se usa <strong>de forma agregada</strong> («este recurso lo
+            abrieron 34 personas»). No construimos perfiles ni seguimos a nadie entre
+            sitios.
+        </li>
+    </ul>
+    <p>
+        <strong>Cómo desactivarlo:</strong> borra los datos del sitio desde tu navegador
+        o navega en una ventana privada. Si el almacenamiento local no está disponible,
+        la web funciona igual: simplemente no se cuenta la visita.
+    </p>
+
+    <h3>10.2 La pregunta «¿te quedó claro?»</h3>
+    <p>
+        Después de usar un recurso durante un rato puede aparecer una pregunta con tres
+        respuestas posibles: <em>me quedó claro</em>, <em>más o menos</em> o
+        <em>me perdí</em>. Es opcional y se puede cerrar sin contestar.
+    </p>
+    <ul>
+        <li>
+            <strong>No es una valoración del recurso ni una nota.</strong> Sirve para que
+            quien lo publicó sepa si se entiende y pueda mejorarlo.
+        </li>
+        <li>
+            La respuesta se guarda <strong>de la misma forma anónima</strong> descrita
+            arriba, contra la misma huella criptográfica que caduca a los dos días.
+            <strong>En ningún momento se registra quién contestó qué</strong>, ni siquiera
+            para quien publicó el recurso: sólo ve cuántas respuestas de cada tipo hay.
+        </li>
+        <li>
+            <strong>No hay campo de texto libre</strong>, únicamente esas tres opciones.
+        </li>
+        <li>
+            El resultado <strong>no se muestra públicamente</strong>: sólo lo ve el autor
+            del recurso, en su panel.
+        </li>
     </ul>
 
     <!-- ═══════════════════════════════════════════ -->

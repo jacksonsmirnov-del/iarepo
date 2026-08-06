@@ -34,12 +34,57 @@ tests/unit/jwt_test.php
 tests/unit/i18n_test.php
 tests/unit/similarity_test.php
 tests/unit/helpers_isolation_test.php
+# usage_signal_test.php vigila las tres propiedades de "lo usé en clase" que
+# NO fallan ruidosamente al romperse: que sólo la afirmen docentes, que
+# deduplique por día, y que un error no publique el mensaje de la excepción.
+# Sin requireRole la API sigue respondiendo 200 — sólo que la métrica pasa a
+# medir otra cosa.
+tests/unit/usage_signal_test.php
+# tracking_test.php vigila la medición de visitas, cuyas cuatro propiedades se
+# rompen sin que nada falle: que no se guarde ninguna IP, que la identidad vaya
+# hasheada con una sal que caduca, que sólo la fila NUEVA cuente como visita, y
+# que nadie reponga el `view_count + 1`. Incluye un test insólito a propósito —
+# que legal/terms.php declare lo que el código hace— porque empezar a medir sin
+# tocar el texto publicado no rompía nada y dejaba una afirmación falsa online.
+tests/unit/tracking_test.php
+# fork_lineage_test.php vigila el linaje de versiones. Su regla frágil es quién
+# puede DESTACAR una versión: si deja de comprobarse la autoría de la RAÍZ, cada
+# autor destaca su propio fork, "recomendada" pasa a significar "su autor pulsó
+# un botón" y el distintivo deja de valer — sin que nada falle.
+tests/unit/fork_lineage_test.php
+# comprehension_test.php vigila «¿te quedó claro?». Lo frágil es que la puerta
+# (sólo contesta quien demostró uso) viva en el SERVIDOR: sin ella cualquiera
+# inunda un recurso de "me perdí" sin abrirlo y la API responde 200. También fija
+# que la respuesta sea anónima y que el agregado NO sea público.
+tests/unit/comprehension_test.php
 
 # ── Integración con BD real (capa 3) ────────────────────────────
 tests/integration/bootstrap.php
 tests/integration/search_db_test.php
 tests/integration/search_fuzz_test.php
 tests/integration/schema_drift_test.php
+# usage_signal_db_test.php aplica migration_011 sobre una tabla con la forma de
+# producción Y CON DATOS, y exige que lo que era legal siga siéndolo. Cubre el
+# fallo silencioso de la migración: no que reviente, sino que se aplique bien y
+# de paso rompa forkear dos veces el mismo día — api/resources.php roto sin que
+# nadie toque api/resources.php.
+tests/integration/usage_signal_db_test.php
+# tracking_db_test.php prueba contra MariaDB la propiedad de la que depende TODO
+# el arreglo de las visitas: que rowCount() valga 1 al insertar y 2 al
+# actualizar. Si dejara de cumplirse no habría ningún error — el contador
+# volvería a sumar en cada beacon y las visitas medirían eventos otra vez, que
+# es justo el bug que se arregló.
+tests/integration/tracking_db_test.php
+# fork_lineage_db_test.php prueba el backfill de root_id, que aplana cadenas de
+# forks repitiendo el mismo UPDATE ... JOIN. Ya cazó un ERROR 1064 en la propia
+# migración (COMMENT y AFTER en el orden equivocado) que habría parado el ALTER a
+# medias en el servidor. Si el aplanado se quedara corto, un fork de un fork no
+# aparecería entre las versiones del original: invisible y sin error.
+tests/integration/fork_lineage_db_test.php
+# comprehension_db_test.php prueba esa puerta con datos reales en las DOS
+# direcciones: demasiado abierta envenena el dato, demasiado cerrada hace que no
+# llegue ninguna respuesta — y ninguna de las dos falla ruidosamente.
+tests/integration/comprehension_db_test.php
 tests/fixtures/seed.sql
 
 # ── Capas 1 y 5 (el gate se protege a sí mismo) ─────────────────

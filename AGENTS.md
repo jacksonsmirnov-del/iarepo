@@ -89,7 +89,7 @@ author_display_name  VARCHAR(150)
 author_tenant_name   VARCHAR(150)  -- vacío para externos
 ```
 
-### 2.2 Las 19 tablas [V 2026-08-04]
+### 2.2 Las tablas [19 V 2026-08-04 · +3 el 2026-08-06: `resource_views`, `view_salts` (§6.8) y `resource_comprehension` (§6.9)]
 
 Fuente: `CREATE TABLE` en `setup/*.sql`. Recuento vivo (no lo cites, córrelo):
 
@@ -264,7 +264,7 @@ headless y subidos por SCP), `deploy_version.txt` (lo escribe el hook en cada de
 
 ## 4. API REST
 
-### 4.1 Los 15 endpoints [V 2026-08-04: `ls -1 api/*.php | wc -l` → 15]
+### 4.1 Los endpoints [17 V 2026-08-06: `ls -1 api/*.php | wc -l` → 17. Nuevos: `track.php` (§6.8) y `feedback.php` (§6.9)]
 
 | Endpoint | Métodos | Auth | Función |
 |---|---|---|---|
@@ -470,6 +470,19 @@ y `area` no tienen semántica útil para ellos: todos los externos comparten el 
 permite cambiar entre profesor y estudiante; `auth/onboarding.php:47` decide el destino
 tras el alta.
 
+⚠️ **Ese enrutado era sólo cosmético hasta 2026-08-06: NINGÚN endpoint comprobaba el
+rol.** `requireRole()` existe en `shared/auth.php:110` desde siempre y no lo llamaba
+nadie; ocultar un botón no protege nada, porque el `POST` se lanza a mano con dos
+líneas. El primero en usarlo es `api/usage.php` (§5.4). Si añades una acción reservada
+a docentes, la comprobación va **en el servidor**; la plantilla sólo evita ofrecer un
+clic que va a fallar.
+
+Segundo detalle del mismo arreglo: `$isStudent` sólo miraba `$sessionUser` (Google), así
+que **un alumno entrando desde Campus —identidad en el JWT, `$sessionUser` a `null`—
+salía clasificado como docente** y veía Fork, contra lo que decía su propio comentario.
+Hoy mira las dos identidades. Al escribir comprobaciones de rol en páginas, recuerda que
+hay **dos** fuentes de identidad y `authenticate()` normaliza ambas.
+
 **Favoritos y colecciones son DOS sistemas distintos, a propósito. NO los unifiques:**
 
 | | Favorito ⭐ | Colección 🔖 |
@@ -482,6 +495,118 @@ tras el alta.
 
 Ver dos botones de "guardar" en la misma página y fusionarlos destruye el embudo de
 registro de estudiantes.
+
+### 5.4 La señal de uso docente — "lo usé en clase" [2026-08-06]
+
+**Qué mide y por qué es distinta.** Las visitas miden curiosidad y los `like` miden
+impulso. `usage_type = 'presented'` mide **intención**: lo afirma un profesional que se
+jugó 50 minutos de clase. Es la señal que debería ordenar el catálogo, y es la razón por
+la que **no se implementó un sistema de estrellas** — con 546 recursos y tráfico bajo, la
+mayoría tendría 0-3 votos, y una media de dos votos es ruido con aspecto de autoridad.
+
+`api/usage.php` sabía registrarla desde el primer día y **nunca se llamó**: `use_count`
+estaba a 0 en todo el catálogo. Al cablearlo por fin a un botón
+(`resource/index.php`, `#usedBtn`) hubo que cerrar tres agujeros que no importaban
+mientras el endpoint estaba muerto:
+
+| Agujero | Dónde se cerró | Qué pasaba si no |
+|---|---|---|
+| Cualquiera podía afirmar uso | `requireRole()` en `api/usage.php` | un alumno alimenta la métrica docente |
+| `presented` no deduplicaba | índice `uniq_usage_signal` (`migration_011`) | pulsar 5 veces = 5 usos |
+| El 500 publicaba `$e->getMessage()` | `api_log()` + mensaje genérico | tablas y consultas de MariaDB a quien provoque un fallo |
+
+**El contrato de `usage_day` — es lo que más se presta a "arreglarse" mal.** La columna
+decide qué filas deduplica el índice UNIQUE y cuáles no:
+
+| `usage_type` | `usage_day` | Quién lo escribe | Efecto |
+|---|---|---|---|
+| `presented`, `sent` | `CURDATE()` | `api/usage.php` | 1 por profesor, recurso y **día** |
+| `endorsed` | `NULL` | `api/usage.php` | lo deduplica **para siempre** el `SELECT` de la app; un índice diario lo debilitaría dejando volver a endosar mañana |
+| `forked` | `NULL` | `api/resources.php` (ni menciona la columna) | **nunca** deduplica: forkear dos veces el mismo día es legal |
+
+En InnoDB un UNIQUE **admite múltiples `NULL`**, así que las dos exenciones se cumplen
+solas, sin ninguna excepción escrita. ⚠️ **Completar el índice para que cubra `forked`
+rompería `api/resources.php` sin tocar `api/resources.php`.** Hay un test por cada fila
+de esa tabla (`tests/integration/usage_signal_db_test.php`).
+
+**`use_count` cuenta `presented` + `sent` + `endorsed`, nunca `forked`** — no porque se
+filtre, sino porque los forks no pasan por ese contador. `fork_count` ya los cuenta;
+sumarlos aquí haría que copiar un recurso valiera lo mismo que dar clase con él.
+
+**La clave lleva `tenant_id`.** Los `user_id` vienen de Campus y sólo son únicos dentro
+de su tenant: sin él, el usuario 7 del colegio A bloquearía al usuario 7 del colegio B.
+
+**El 409 no es un error.** Un choque con la dedup responde `409 ALREADY_RECORDED`, no
+500: es la restricción haciendo su trabajo. El front rama por el **código**, nunca por el
+texto del mensaje — las respuestas de `api/*.php` van en inglés y sin `t()` porque son
+contrato para Campus; lo que el usuario lee lo decide la página.
+
+⚠️ **`migration_011` se aplica a mano y el despliegue no la espera.** Si el código llega
+antes que la migración, `resource/index.php` consultaría una columna inexistente — y esa
+página carga `helpers.php` (está en `quality/baseline_html_helpers.txt`), así que un
+`ERROR 1054` sin capturar la sacaría a medio renderizar con un JSON incrustado: la
+trampa nº1 del `CLAUDE.md`. Por eso esa consulta va envuelta en `try/catch` y degrada a
+"no registrado". El botón queda inerte hasta que la migración corra, pero **la página
+nunca se rompe**.
+
+### 5.5 Linaje de forks: "otras versiones" [2026-08-06]
+
+**El problema que resuelve.** Un fork era un recurso suelto más en el catálogo, con
+`fork_of` apuntando a su padre. Eso dejaba tres cosas rotas:
+
+| Síntoma | Causa |
+|---|---|
+| «12 Forks» en la ficha, 2 al pinchar | `fork_count` cuenta también los `draft`, que son **casi todos** (un fork nace privado) |
+| «Fork: Simple Harmonic Motion» en la tarjeta | el prefijo `'Fork: '` iba dentro del título |
+| No hay forma de destacar una versión | ordenar por votos hace ganar **siempre** al original |
+
+Ese último punto es el importante y el menos obvio: **el original lleva años acumulando
+visitas y un fork mejor publicado ayer empieza en cero.** Con ranking por conteo bruto no
+lo alcanza nunca —no por peor, por posterior— y forkear no puede salir rentable. Es un
+bloqueo estructural, no un ajuste de pesos.
+
+**Cómo se modela ahora.**
+
+- **`root_id`** — raíz del linaje. Para un original vale **su propio id**, así que "dame
+  todas las versiones de X" es siempre `WHERE root_id = X`, sin caso especial y sin
+  recorrer la cadena. `fork_of` sigue existiendo y sigue siendo el padre inmediato.
+- **`is_recommended`** — el autor de la **raíz** destaca una versión. Es el pull request
+  de los pobres: le da al fork un camino al primer puesto que **no** es un concurso de
+  popularidad, y encaja con cómo piensa un profesor («la versión de María está mejor que
+  la mía»).
+
+⚠️ **Sólo el autor de la RAÍZ puede destacar, y sólo versiones `community`.** Si pudiera
+hacerlo el autor de cada fork, «recomendada» pasaría a significar «su autor pulsó un
+botón». La comprobación vive en `api/resources.php?action=recommend`; ocultar el botón en
+la ficha **no es la protección** (hay test que fija las dos capas).
+
+**Los forks NO se esconden del catálogo.** Si alguien mejora un recurso de verdad,
+esconderlo bajo el original lo castiga. Se **agrupan**, no se ocultan: siguen siendo
+buscables y la ficha muestra el linaje desde cualquier punto —desde el original se ven
+las versiones, desde una versión se ven el original y las hermanas—.
+
+**`fork_count` no se tocó** y sigue contando todos los forks incluidos los privados: es un
+dato interno correcto. Lo que cambió es la **interfaz**, que ahora muestra las versiones
+públicas, y sale del mismo listado que pinta el panel, así que no pueden discrepar.
+
+**El backfill del linaje aplana la cadena repitiendo cuatro veces el mismo
+`UPDATE … JOIN`** (cada repetición sube un nivel). Se eligió ese idioma poco habitual
+porque `setup/run_migration.php:41` trocea con `explode(';')` y un `WITH RECURSIVE` ataría
+el resultado a una versión de MariaDB que en producción es **desconocida**. Cubre linajes
+de 5 niveles; hoy las cadenas son de longitud 1.
+
+⚠️ **Un fork huérfano** (`fork_of` no tiene clave ajena, así que puede apuntar a un
+recurso borrado) se convierte en su propia raíz. Sin ese paso quedaría con un `root_id`
+muerto y **no aparecería en ningún listado**, sin que nada fallara.
+
+**La migración no reescribe títulos.** El prefijo `'Fork: '` deja de añadirse, pero los
+títulos ya creados son **contenido de usuario**: limpiarlos por lote es una decisión del
+mantenedor, no un efecto colateral de una migración de esquema.
+
+⚠️ Al escribir `migration_013` se coló un **`ERROR 1064`**: en MariaDB el `COMMENT` es
+parte de la definición de la columna y va **antes** de `AFTER`. Escrito al revés, el
+`ALTER` se para y deja el esquema a medias. Lo cazó la suite de integración antes de
+llegar al servidor — es la razón de que esa suite exista.
 
 ---
 
@@ -608,6 +733,136 @@ Mientras esté a `false`, escribir en el buscador salta a `relevance`; una vez e
 ha elegido orden, seguir tecleando **no** se lo pisa. `buildParams()` manda `sort` solo
 cuando difiere del defecto **efectivo** (`relevance` si hay texto, `recent` si no), de
 modo que `?search=ondas` significa lo mismo en la URL y en la API.
+
+### 6.8 Medición de visitas y atención [2026-08-06]
+
+**El bug que arregla.** `view_count` medía mal por dos motivos a la vez:
+
+1. **No contaba la página donde ocurre el uso.** Sólo incrementaban `viewer/index.php` y
+   `api/resources.php?id=`. Pero `/resource/N` renderiza el recurso **funcionando** en un
+   iframe `srcdoc`: se usa el simulador entero sin salir de ahí, y el contador no se
+   movía. Síntoma que lo destapó: **20 alumnos trabajando, 8 visitas registradas**.
+2. **No deduplicaba nada.** Un `+1` por carga, crawlers incluidos. Una persona recargando
+   ocho veces valía ocho visitas, así que el 290 de un recurso y el 8 de otro no medían
+   lo mismo.
+
+**Cómo se mide ahora.** `assets/js/track.js` (beacon) → `api/track.php` → una fila en
+`resource_views` por **persona, recurso y día**. El contador vivo es
+`resources.unique_views`.
+
+⚠️ **`view_count` está CONGELADO**, no reescrito. Los dos incrementos crudos se
+retiraron. Reescribirlo con el número correcto habría hecho que un recurso con 290
+visitas amaneciera con 12; esas cargas ocurrieron y son un histórico real, sólo que de
+otra magnitud. La ficha muestra **la suma** de ambos (desglose en el `title`) para que el
+número no se desplome; para **ranking se usa `unique_views` a solas**, donde sí importa
+que la unidad sea limpia.
+
+⚠️ **`shared/search.php:1002` sigue desempatando por `view_count`, a propósito.** Con
+`unique_views` a 0 en todo el catálogo, cambiarlo hoy aplanaría el orden de golpe. Es su
+propia tarea, con datos delante y tests de relevancia.
+
+**Por qué se identifica el navegador y NO la IP.** El diseño obvio —hash de IP— habría
+**empeorado el caso que lo originó**: los alumnos de un colegio salen por el NAT del
+centro (una IP para toda el aula) y con los equipos del aula hasta el `User-Agent`
+coincide, así que 20 alumnos habrían contado como uno. El identificador anónimo lo genera
+el navegador (`localStorage`, 32 hex); el autenticado sale de su identidad real.
+
+**Privacidad — no es opcional, hay menores usando el sitio:**
+
+| Regla | Dónde vive |
+|---|---|
+| No se guarda ninguna IP, ni en claro ni hasheada | `api/track.php` (hay test que lo prohíbe) |
+| `viewer_key` = `sha256(identificador + sal del día)` | `iarepo_daily_salt()` |
+| Las sales se **borran** a los 2 días → pasado el plazo la fila es irreversible y no se pueden cruzar dos días de la misma persona | `DELETE FROM view_salts`, colgado del alta de la sal |
+| El beacon manda **exactamente 5 campos** y nada más | test `el_cliente_no_manda_nada_que_no_este_declarado` |
+| `legal/terms.php` §10.1 declara todo lo anterior | test `el_texto_legal_declara_lo_que_el_codigo_hace` |
+
+Ese último test es raro a propósito: `legal/terms.php` decía *"No recopilamos datos
+personales de visitantes anónimos"*, y empezar a medir sin tocar esa línea **no habría
+roto ningún test** — habría dejado publicada una afirmación falsa con el nombre del
+responsable encima. El código y lo que se promete al usuario tienen que moverse juntos.
+
+**Consecuencia de rotar la sal:** `unique_views` cuenta **persona-día**, no "personas
+distintas de siempre". Es justo la pregunta que se quería responder ("¿cuántos abrieron
+esto hoy?") y hace imposible la que no se quiere poder responder.
+
+**Detalles que parecen arbitrarios y no lo son:**
+
+- `rowCount() === 1` es lo que distingue fila nueva de actualización (verificado contra
+  MariaDB 11.8: 1 inserta, 2 actualiza, 0 no cambia). **Sin esa condición, cada beacon de
+  tiempo activo sumaría otra visita** y el contador volvería a medir eventos.
+- `engaged_secs` se capa **antes** del INSERT: es `SMALLINT UNSIGNED` y con
+  `STRICT_TRANS_TABLES` un desbordamiento aborta con `ERROR 1264` — se perdería la visita
+  entera por culpa de un dato accesorio.
+- `GREATEST` en los acumulables: el cliente manda el **acumulado**, así que un beacon
+  repetido o que llegue desordenado no infla ni hace retroceder el dato.
+- El reloj sólo corre con la pestaña **visible**; si no, una pestaña olvidada daría "3
+  horas de atención".
+- `interacted` sale de detectar que el foco entró en el iframe. Es lo único observable:
+  el iframe va con `sandbox="allow-scripts"` **sin** `allow-same-origin`, así que el
+  navegador impide leer su interior.
+
+**Contrapartida asumida:** quien navegue sin JavaScript no cuenta. Es intrascendente
+—todos los recursos del catálogo son simulaciones en JavaScript— y de paso **filtra los
+bots**, que no ejecutan JS.
+
+### 6.9 «¿Te quedó claro?» — el check de comprensión [2026-08-06]
+
+**Por qué esta pregunta y no estrellas.** Se descartó un sistema de valoración, y no por
+gusto:
+
+- Las escalas de 5 estrellas colapsan en «5 o 1»; la diferencia entre 4,8 y 4,7 no informa.
+- Con 546 recursos y tráfico bajo, la mayoría tendría 0-3 votos. **Una media de dos votos
+  es ruido con aspecto de autoridad**, y si alimenta el ranking, ordena mal.
+- Pedir una razón al puntuar bajo **suprime** el feedback negativo: la gente no escribe la
+  justificación, simplemente no puntúa. Queda una muestra sesgada al alza.
+
+Y sobre todo: quien **usa** los recursos son alumnos, muchos menores, contestando delante
+de su profesor. *«¿Te gustó?»* invita a quedar bien. *«¿Te quedó claro?»* es una pregunta
+sobre uno mismo, no un juicio sobre el trabajo de otro — y **es el dato que el profesor
+quería de verdad**: no «¿les gustó la interfaz?» sino «¿sirvió?». Deja de ser una encuesta
+y pasa a ser un chequeo de comprensión, con valor pedagógico propio; la métrica del
+catálogo sale de regalo al agregar.
+
+**La puerta está en el servidor.** Sólo responde quien tiene fila en `resource_views`
+(hoy, este recurso) con `interacted = 1` y `engaged_secs >= IAREPO_FEEDBACK_MIN_SECS`.
+
+⚠️ **El cliente esconde el prompt hasta ese momento, pero eso es cosmética**: el `POST` se
+lanza a mano con dos líneas. Sin la comprobación en `api/feedback.php`, cualquiera inunda
+un recurso de «me perdí» sin haberlo abierto y **la API responde 200** — el único dato
+pedagógico del sistema, envenenado en silencio.
+
+⚠️ **`MIN_SECS` de `assets/js/track.js` e `IAREPO_FEEDBACK_MIN_SECS` de
+`api/feedback.php` tienen que ser el mismo número.** Si el del cliente es menor, se
+pregunta a gente a la que el servidor responderá 403: el usuario contesta y recibe un
+error. Hay test que compara los dos valores.
+
+**Que la puerta sea del día no es arbitrario:** la sal rota a diario, así que la
+`viewer_key` de ayer **ya no se puede recalcular**. La anonimización y la puerta son la
+misma propiedad.
+
+| Regla | Por qué |
+|---|---|
+| **Sin texto libre**, sólo tres opciones | Un campo abierto rellenado por menores es contenido que hay que **moderar**, y el cron de moderación de este repo ya estuvo parado 66 días sin que nadie lo notara. Un `ENUM` no se modera. |
+| **Sin identidad** en `resource_comprehension` | Con `user_id` o nombre dejaría de ser un agregado y pasaría a ser un registro nominal de qué menor no entendió qué |
+| **Sin media**: se cuentan respuestas | Es lo único que un volumen pequeño permite afirmar con honestidad |
+| El agregado **sólo lo ve el autor**, en su dashboard | Un contador de «me perdí» público sería una picota, y convertiría una herramienta de mejora en una nota |
+| **Sin contadores desnormalizados**: `GROUP BY` al vuelo | Serían tres columnas más que mantener en sincronía; este repo ya arrastra el caso contrario con `fork_count` |
+
+**Se puede corregir la respuesta** (`ON DUPLICATE KEY UPDATE`): alguien marca «me perdí»,
+sigue trasteando y lo entiende. Congelar la primera guardaría la peor versión justo de
+quien acabó entendiéndolo.
+
+⚠️ **`ORDER BY` sobre un `ENUM` ordena por el ORDINAL de declaración, no
+alfabéticamente.** Trampa clásica de MariaDB; puso en rojo el test del agregado con los
+mismos números en distinto orden de claves.
+
+**La identidad del visitante vive en `shared/viewer_key.php`**, compartida con
+`api/track.php`. Estaba dentro de `track.php` hasta que este endpoint necesitó lo mismo:
+duplicarla habría sido la peor clase de duplicación —dos copias que divergen sin que nada
+falle, y la que se quedara atrás produciría claves distintas para la misma persona,
+rompiendo la deduplicación en silencio—. Ese módulo **no carga `helpers.php`**, igual que
+`shared/search.php`.
 
 ---
 
@@ -1389,6 +1644,35 @@ usa `<Directory>`: ver arriba por qué eso da 500 en todo el sitio bajo Apache.
 blanca**, al crear y al actualizar. `index.php` lo filtra en el cliente antes de
 convertirlo en clase CSS, pero la causa raíz sigue: cualquier otra superficie que pinte
 `level` sin filtrar vuelve a ser vulnerable.
+
+### Fuga CERRADA: el mensaje de la excepción en los 500 [2026-08-06]
+
+Cuatro endpoints devolvían al cliente el error crudo del driver:
+
+```php
+json_error('Fork failed: ' . $e->getMessage(), 500);   // api/resources.php (fork)
+json_error('Update failed: ' . $e->getMessage(), 500); // api/resources.php (update)
+json_error('Like failed: ' . $e->getMessage(), 500);   // api/likes.php
+json_error('Failed: ' . $e->getMessage(), 500);        // api/usage.php
+```
+
+Un `$e->getMessage()` de MariaDB lleva **nombres de tabla, nombres de columna y
+fragmentos de la consulta**, y en el camino de `update` puede arrastrar trozos de lo que
+el propio usuario acaba de enviar. Bastaba con provocar una excepción para leerlo. Era
+ruidoso hacia fuera y **mudo hacia dentro**: nada quedaba registrado.
+
+Hoy los cuatro registran el detalle con `api_log('error', …)` y responden un mensaje
+genérico con código (`FORK_FAILED`, `UPDATE_FAILED`, `LIKE_FAILED`, `USAGE_FAILED`).
+
+⚠️ **Al sanear un `catch`, registra siempre antes de responder.** Quitar el mensaje sin
+loguearlo convierte la fuga en un fallo invisible — que es exactamente lo que pasó con el
+latido de cron, donde un `try/catch` mudo se tragó un `1267 Illegal mix of collations`
+durante semanas.
+
+El patrón lo vigila `tests/unit/usage_signal_test.php`, que **barre todo `api/*.php`** (no
+sólo los cuatro corregidos): es una clase de fallo, y el siguiente `catch` que alguien
+escriba copiará el que tenga más cerca. El test descarta comentarios antes de auditar, así
+que documentar el patrón malo —como hace este párrafo— no lo pone en rojo.
 
 ---
 

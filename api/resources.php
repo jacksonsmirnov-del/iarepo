@@ -8,6 +8,8 @@
 //   POST   /api/resources.php              Create resource
 //   PUT    /api/resources.php?id=X         Update resource (creates version)
 //   POST   /api/resources.php?action=fork&id=X   Fork a resource
+//   POST   /api/resources.php?action=recommend&id=X  Destacar una version
+//          (alterna is_recommended · SOLO el autor del recurso raiz)
 //   DELETE /api/resources.php?id=X         Soft-delete resource
 //
 // Auth: JWT required for all write operations.
@@ -55,8 +57,18 @@ if ($method === 'GET') {
         if (!canView($resource, $user))
             json_error('Access denied', 403);
 
-        // Increment view count
-        $db->prepare("UPDATE resources SET view_count = view_count + 1 WHERE id = ?")->execute([$id]);
+        // Las visitas ya NO se cuentan aquí [2026-08-06]. `view_count` queda
+        // congelado como marca histórica; la métrica viva es `unique_views`,
+        // que escribe api/track.php con deduplicación por persona y día.
+        //
+        // Este incremento era especialmente engañoso: sumaba una visita por
+        // cada LECTURA de la API, incluidas las que hace la propia aplicación
+        // para pintar una ficha, sin que ningún humano hubiera mirado nada.
+        //
+        // Consecuencia asumida: una integración que sólo consuma la API sin
+        // cargar assets/js/track.js no aparece en las visitas. Es correcto —
+        // una lectura de máquina no es una visita— y las incrustaciones sí
+        // cuentan, porque apuntan a /viewer/, que lleva el beacon.
 
         // Fetch tags
         $tags = $db->prepare("SELECT tag FROM resource_tags WHERE resource_id = ? ORDER BY tag");
@@ -279,17 +291,29 @@ if ($method === 'POST') {
         if (!canView($original, $user))
             json_error('Cannot fork: access denied', 403);
 
+        // Raíz del linaje. Un fork de un fork hereda la raíz del padre, de modo
+        // que "todas las versiones de X" siempre es `WHERE root_id = X` sin
+        // recorrer la cadena. Si el padre aún no la tiene resuelta —copia sin
+        // migrar— se cae a su propio id, que es lo que vale para un original.
+        $rootId = (int) ($original['root_id'] ?? 0) ?: $originalId;
+
         $db->beginTransaction();
         try {
             // Create fork
+            //
+            // El título ya NO lleva el prefijo 'Fork: '. Ensuciaba la tarjeta
+            // del catálogo ("Fork: Simple Harmonic Motion") y era información
+            // redundante: la relación con el original ahora es un dato del
+            // linaje (root_id / fork_of) que la ficha pinta como "otras
+            // versiones", no algo que haya que meter dentro del nombre.
             $stmt = $db->prepare("
                 INSERT INTO resources (title, description, code_content, code_type, subject_area, topic_tag,
                     author_tenant_id, author_user_id, author_display_name, author_tenant_name,
-                    visibility, fork_of)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?)
+                    visibility, fork_of, root_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?)
             ");
             $stmt->execute([
-                'Fork: ' . $original['title'],
+                $original['title'],
                 $original['description'],
                 $original['code_content'],
                 $original['code_type'],
@@ -300,10 +324,18 @@ if ($method === 'POST') {
                 $user['name'],
                 $user['tenant_name'],
                 $originalId,
+                $rootId,
             ]);
             $forkId = (int) $db->lastInsertId();
 
             // Update fork count on original
+            //
+            // Cuenta TODOS los forks, incluidos los que se quedan en 'draft'
+            // —que son casi todos, porque nacen privados—. Es un dato interno
+            // correcto, pero NO es lo que debe ver el usuario: la ficha decía
+            // "12 Forks" y al pinchar aparecían 2, porque el resto son
+            // borradores ajenos e invisibles. La ficha cuenta hoy las versiones
+            // PÚBLICAS, que son las que se pueden abrir (resource/index.php).
             $db->prepare("UPDATE resources SET fork_count = fork_count + 1 WHERE id = ?")
                 ->execute([$originalId]);
 
@@ -320,8 +352,75 @@ if ($method === 'POST') {
 
             json_ok(['id' => $forkId, 'message' => 'Resource forked successfully']);
         } catch (Throwable $e) {
-            $db->rollBack();
-            json_error('Fork failed: ' . $e->getMessage(), 500);
+            if ($db->inTransaction()) $db->rollBack();
+
+            // El detalle al log, un mensaje genérico al cliente. Concatenar
+            // $e->getMessage() entregaba el error crudo de MariaDB —nombres de
+            // tabla, de columna y fragmentos de consulta— a cualquiera capaz de
+            // provocar un fallo. Mismo saneado que api/usage.php; los dos los
+            // vigila tests/unit/usage_signal_test.php.
+            api_log('error', 'fork failed', [
+                'original_id' => $originalId,
+                'error'       => $e->getMessage(),
+            ]);
+            json_error('Could not fork resource', 500, 'FORK_FAILED');
+        }
+    }
+
+    // ── POST ?action=recommend&id=X — la bendición del autor ──────
+    //
+    // El autor del recurso RAÍZ destaca una versión derivada. Es el pull
+    // request de los pobres, y existe para resolver un problema concreto del
+    // ranking: por conteo bruto de visitas o likes, el original gana SIEMPRE
+    // —lleva años acumulando y un fork mejor publicado ayer empieza en cero—,
+    // así que forkear no podría salir rentable nunca. Esto le da a una versión
+    // un camino al primer puesto que no es un concurso de popularidad.
+    //
+    // Encaja además con cómo piensa un profesor de verdad: "la versión que hizo
+    // María está mejor que la mía".
+    if ($action === 'recommend') {
+        $targetId = (int) ($_GET['id'] ?? 0);
+        if (!$targetId) json_error('Missing resource ID');
+
+        $t = $db->prepare("SELECT id, root_id, fork_of, visibility, is_recommended
+                           FROM resources WHERE id = ? AND is_active = 1");
+        $t->execute([$targetId]);
+        $target = $t->fetch();
+        if (!$target) json_error('Resource not found', 404);
+
+        $rootId = (int) ($target['root_id'] ?? 0) ?: (int) ($target['fork_of'] ?? 0) ?: $targetId;
+
+        // Un original no se destaca a sí mismo: ya es la referencia por
+        // defecto. Marcarlo no significaría nada y ensuciaría el listado.
+        if ($rootId === $targetId) json_error('An original cannot be recommended', 400, 'IS_ROOT');
+
+        // Sólo el autor de la RAÍZ, no el del fork. Si pudiera destacarse uno
+        // solo, "recomendada" pasaría a significar "su autor pulsó un botón" y
+        // el distintivo perdería todo su valor de golpe.
+        $r = $db->prepare("SELECT author_user_id, author_tenant_id FROM resources WHERE id = ?");
+        $r->execute([$rootId]);
+        $root = $r->fetch();
+        if (!$root) json_error('Root resource not found', 404);
+
+        if ((int) $root['author_user_id'] !== (int) $user['user_id']
+            || (int) $root['author_tenant_id'] !== (int) ($user['tenant_id'] ?? 0)) {
+            json_error('Only the author of the original can recommend a version', 403);
+        }
+
+        // Sólo se destacan versiones PÚBLICAS: recomendar un borrador ajeno
+        // pondría en la ficha un enlace que nadie más puede abrir.
+        if ($target['visibility'] !== 'community') {
+            json_error('Only public versions can be recommended', 400, 'NOT_PUBLIC');
+        }
+
+        try {
+            $new = ((int) $target['is_recommended']) === 1 ? 0 : 1;
+            $db->prepare("UPDATE resources SET is_recommended = ? WHERE id = ?")
+               ->execute([$new, $targetId]);
+            json_ok(['id' => $targetId, 'is_recommended' => $new]);
+        } catch (Throwable $e) {
+            api_log('error', 'recommend failed', ['resource_id' => $targetId, 'error' => $e->getMessage()]);
+            json_error('Could not update the recommendation', 500, 'RECOMMEND_FAILED');
         }
     }
 
@@ -539,8 +638,14 @@ if ($method === 'PUT') {
         $db->commit();
         json_ok(['version' => $newVersion, 'message' => 'Resource updated']);
     } catch (Throwable $e) {
-        $db->rollBack();
-        json_error('Update failed: ' . $e->getMessage(), 500);
+        if ($db->inTransaction()) $db->rollBack();
+
+        // Detalle al log, mensaje genérico al cliente (ver la cabecera de
+        // api/usage.php). Este camino es el más delicado de los tres: la
+        // actualización toca el contenido del recurso, así que su excepción
+        // puede arrastrar fragmentos de lo que el usuario acaba de enviar.
+        api_log('error', 'resource update failed', ['resource_id' => $id, 'error' => $e->getMessage()]);
+        json_error('Could not update resource', 500, 'UPDATE_FAILED');
     }
 }
 
