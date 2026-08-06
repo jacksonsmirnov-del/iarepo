@@ -143,9 +143,26 @@ function rateLimit(PDO $db, string $endpoint, int $limit, int $windowSecs = 60):
         json_error('Too many requests. Please slow down.', 429, 'RATE_LIMITED');
     }
 
-    // 1% chance: clean up expired rows to avoid table bloat
-    if (random_int(1, 100) === 1) {
-        $db->prepare("DELETE FROM api_rate_limits WHERE window_start < DATE_SUB(NOW(), INTERVAL ? SECOND)")
-           ->execute([$windowSecs * 2]);
-    }
+    // ── Purga de filas caducadas ─────────────────────────────
+    //
+    // Era `if (random_int(1, 100) === 1)`. El sorteo bastaba para el objetivo
+    // original —que la tabla no engorde— pero no para el que importa ahora:
+    // esta tabla guarda **direcciones IP en claro**, y desde 2026-08-06
+    // legal/terms.php §10.3 promete que esos registros "se borran
+    // automáticamente". Una promesa de retención no puede depender de un dado.
+    //
+    // Con poco tráfico el sorteo puede tardar en salir, y entonces la
+    // retención real la decide el volumen de visitas en vez del código.
+    // (Medido en producción el 2026-08-06: 4 filas, la más antigua de hacía 22
+    // minutos — el sorteo funcionaba razonablemente. El cambio es para que
+    // deje de depender de eso.)
+    //
+    // ── POR QUÉ INCONDICIONAL Y NO UN SORTEO MÁS PROBABLE ────
+    // La tabla tiene una fila por (IP, endpoint) activa: unidades, no miles.
+    // Con `idx_window` el DELETE es un rango indexado sobre una tabla diminuta,
+    // así que el coste que el sorteo evitaba no existe a esta escala. Es la
+    // misma decisión que en iarepo_daily_salt(): purga determinista, porque de
+    // ella depende una promesa de privacidad y no sólo el tamaño de una tabla.
+    $db->prepare("DELETE FROM api_rate_limits WHERE window_start < DATE_SUB(NOW(), INTERVAL ? SECOND)")
+       ->execute([$windowSecs * 2]);
 }

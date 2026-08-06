@@ -14,6 +14,37 @@
 
 ---
 
+## 0. ⏱️ Empieza por aquí (60 segundos, siempre)
+
+**No te fíes de este documento para el ESTADO.** Cinco de sus afirmaciones estuvieron
+caducadas a la vez el 2026-08-06 y provocaron consejos equivocados durante toda una
+sesión: la contraseña «sin rotar» (ya lo estaba), dos tandas «sin desplegar» (desplegadas),
+el cron `link_check` «parado» (vivo) y el backup «sin instalar» (corriendo). Las reglas de
+§2 y §3 son estables; **los números y los estados caducan.**
+
+```bash
+# 1. ¿Qué está VIVO en producción? (commit, BD, crons, recursos)
+curl -s https://iarepo.com/api/health.php
+
+# 2. ¿Coincide con lo que tienes delante?
+git log -1 --format='%h %s'      # si difiere del 'commit' de health → hay algo sin desplegar
+git status --short                # ¿trabajo a medias de otra sesión?
+
+# 3. ¿El gate está verde ANTES de tocar nada? (si ya está rojo, no es culpa tuya)
+make check
+```
+
+**Pregunta al usuario antes de suponer.** Si un pendiente de §8 parece hecho, compruébalo
+o pregunta; no lo repitas cuatro veces como pasó el 2026-08-06.
+
+**Lo que NUNCA caduca y conviene releer:** §2 (las seis reglas que rompen en silencio) y
+§3 (push = producción + publicación, y que tú no haces `commit`/`push`).
+
+**Si vas a tocar el buscador o el ranking:** `make integration` es obligatorio, y §7
+explica por qué el segundo brazo tiene **tres formas** que no se pueden unificar.
+
+---
+
 ## 1. Qué es esto
 
 iarepo.com: repositorio público de recursos educativos interactivos ("un GitHub para
@@ -27,8 +58,8 @@ frameworks, CDNs ni build step. Si necesitas una librería, se auto-aloja en `as
 
 ## 2. ⛔ Reglas que rompen producción en silencio
 
-Estas cinco no dan error visible. Rompen la página, se despliegan, y nadie se entera
-hasta que un usuario lo reporta.
+Estas seis no dan error visible. Rompen la página —o la base de datos equivocada—, se
+despliegan, y nadie se entera hasta que un usuario lo reporta.
 
 1. **NUNCA `require` de `shared/helpers.php` en una página que emite HTML.** Arrastra
    `shared/error_handler.php`, cuyos handlers hacen `echo json_encode(...)` + `exit(1)`:
@@ -49,6 +80,24 @@ hasta que un usuario lo reporta.
    `quality/allowed_hosts.txt`.
 5. **`.env.php` no está en git.** No lo edites, no lo imprimas, no lo commitees, no
    reconstruyas su contenido en un documento. La plantilla es `.env.php.example`.
+6. **⛔ EN EL SERVIDOR CONVIVEN VARIAS APPS. IAREPO NO ES LA PRIMERA QUE ENCUENTRAS.**
+   La misma cuenta sirve **Campus** (`claseprivada.com`), un **staging de Campus**, un
+   tercer sitio menor y **iarepo**. Las cuatro tienen su propio `.env.php`, o sea **su
+   propia base de datos**. `find ~ -name .env.php | head -1` devuelve **Campus**.
+   **El doc root de iarepo se identifica por `deploy_version.txt`**, que escribe su hook
+   y no existe en las otras tres:
+   ```bash
+   cd "$(dirname "$(find ~ -maxdepth 6 -name deploy_version.txt | head -1)")"
+   grep -q '^commit=' deploy_version.txt && echo "✓ iarepo" || echo "⛔ NO es iarepo"
+   ```
+   ⚠️ **Calibra el riesgo, no lo exageres** [V 2026-08-06, probado en el servidor]:
+   `setup/run_migration.php` lee el `.env.php` que tiene **al lado** (`require __DIR__`),
+   no el del directorio donde estés, y Campus **no tiene ese script** — desde su doc root
+   responde `Could not open input file`. La ruta normal falla sola.
+   Lo que sí muerde es (a) **phpMyAdmin**, donde eliges la BD a mano en un desplegable, y
+   (b) un `.env.php` que apunte a otra base (copiar un doc root para montar un staging y
+   dejarse el del original). Para (b) hay cinturón: el runner **aborta** si la BD tiene
+   contenido y le faltan las señas de iarepo. Detalle: `docs/RUNBOOK.md §4.1`.
 
 ---
 
@@ -244,8 +293,25 @@ git log -1 --date=short --format='%ad %s' -- CLAUDE.md AGENTS.md docs/
 viene `null`, el hook no está instalado o no pudo escribir (`AGENTS.md` §8.5). `version`
 es una constante literal y **no** dice nada.
 
-**Deuda abierta hoy (2026-08-04) — `docs/RUNBOOK.md §10` es la lista de lo que falta y
-solo puede hacer el mantenedor:**
+### Lo siguiente, cuando se retome [al 2026-08-06]
+
+**Nada urgente. El sistema está desplegado, medido y verde.** Por orden de valor:
+
+1. **Fase 5 — el ranking.** Sustituir el desempate por popularidad de `shared/search.php`
+   (hoy `view_count`, congelado) por una tasa suavizada sobre `unique_views`.
+   ⚠️ **NO antes de tener datos**: el 2026-08-06 había **1** visita única en todo el
+   catálogo, y calibrar contra ceros aplanaría el orden de resultados de golpe. Mide
+   primero: `SELECT COUNT(*) FROM resource_views`. Con 4-6 semanas de tráfico ya se puede.
+2. **Ensayar una restauración del backup** (trimestral). El dump corre y es válido, pero
+   nunca se ha restaurado: eso es una hipótesis, no un backup. `RUNBOOK §10.7`.
+3. **Mirar si la gente responde** «¿te quedó claro?» y si alguien pulsa «lo usé en clase».
+   Si a las semanas siguen a cero, el problema no es el código: es que hay que hablar con
+   los profesores. Con este volumen, **cinco conversaciones enseñan más que seis meses de
+   telemetría**.
+4. **`quality/baseline_html_helpers.txt` tiene 7 páginas**; esa lista solo puede encoger.
+   `resource/index.php` y `dashboard/index.php` son las que más lógica nueva acumulan.
+
+**Deuda abierta (revisa antes de citarla — esta sección caduca):**
 
 - ✅ **Contraseña de la BD: ROTADA** [2026-08-06, confirmado por el mantenedor]. El commit
   `5b6c1e6` sigue conteniendo las credenciales VIEJAS —nombre de BD, usuario y contraseña—
@@ -254,31 +320,28 @@ solo puede hacer el mantenedor:**
   ⚠️ **No vuelvas a pedir que se rote** sin comprobarlo antes: esta línea estuvo
   desactualizada y provocó que se repitiera el aviso cuatro veces. El nombre de BD y el
   usuario son públicos de forma permanente; asumido.
-- **La tanda del 2026-08-04 está SIN DESPLEGAR** (buscador con sinónimos, hook
-  verificable, heartbeats, bloqueos de `.htaccess`, `tests/`, `quality/`, `docs/`):
-  producción sirve el código viejo. **No supongas que lo que lees en el repo es lo que
-  responde `iarepo.com`** — pregúntale a `health.php` por su `commit`.
-- **La tanda del 2026-08-06 tampoco.** Tres bloques: la señal "lo usé en clase"
-  (`migration_011`), la medición de visitas (`migration_012`, `api/track.php`,
-  `assets/js/track.js`, `view_count` **congelado**) y el linaje de versiones
-  (`migration_013`, `root_id`, `is_recommended`, panel en la ficha) y el check de
-  comprensión (`migration_014`, `api/feedback.php`). Viaja **encima** de
-  la tanda anterior, así que hereda su riesgo: si el `REGEXP` del buscador no funciona
-  contra la MariaDB de producción, el rollback se lleva las cuatro por delante.
-  ⚠️ **Las CUATRO migraciones se aplican A MANO y van DESPUÉS del push** (`RUNBOOK`
-  §10.5.1 a §10.5.4): sus ficheros sólo llegan al servidor con el checkout del hook, así
-  que "aplicarlas antes" es inejecutable. La ventana entre push y migración está cubierta
-  —toda consulta nueva degrada— pero las features están inertes hasta cerrarla. Van **antes** del push: si llegan después, las
-  features quedan inertes —las páginas degradan a propósito y no se rompen— pero nada
-  funciona hasta entonces.
+- ✅ **La tanda del 2026-08-04 se desplegó con la del 06** (buscador con sinónimos, hook
+  verificable, heartbeats, bloqueos de `.htaccess`). Aun así: **no supongas que lo que lees
+  en el repo es lo que responde `iarepo.com`** — pregúntale a `health.php` por su `commit`.
+- ✅ **La tanda del 2026-08-06 está DESPLEGADA y sus 4 migraciones APLICADAS**
+  [V 2026-08-06 12:54 UTC, commit `592e2f8`]. Incluye: señal "lo usé en clase"
+  (`migration_011`), medición de visitas (`migration_012`, `view_count` **congelado**),
+  linaje de versiones (`migration_013`) y check de comprensión (`migration_014`).
+  Verificado en vivo: `?search=pH` → **200** (el `REGEXP` SÍ funciona contra la MariaDB de
+  producción — ese riesgo queda CERRADO), beacon → `{"ok":true}`, dedup real (6 beacons
+  del mismo visitante = 1 visita), backfill de linaje sin huérfanos, `make smoke` 54/54.
 - ⚖️ **`legal/terms.php` §10.1 y §10.2 son NUEVOS**: la web guarda un identificador
   aleatorio en el navegador y hace una pregunta de comprensión. Están redactados con
   precisión, pero **revísalos antes de desplegar** — es un texto publicado con tu nombre
   encima, y los usuarios son menores.
-- **El cron `link_check` lleva parado desde 2026-05-30** (66 días sin que nadie lo notara).
-  Reactivarlo en cron-job.org; los latidos solo hacen que se **vea**.
-- El backup existe y está ensayado con restauración real (`setup/tools/backup_db.sh`);
-  falta **instalarlo en el cron de hPanel**. Lista completa: `AGENTS.md` §13.
+- ✅ **El cron `link_check` VUELVE A CORRER** [V 2026-08-06: `health.php` da
+  `age_seconds` ~3300]. Estuvo parado desde 2026-05-30, 66 días sin que nadie lo notara.
+  Los latidos son lo que hace que eso se **vea**; míralos en `health.php`, no supongas.
+- ✅ **El backup CORRE SOLO** [V 2026-08-06: dump de las 04:15, gzip íntegro, `Dump
+  completed`]. ⚠️ Un dump sólo trae el esquema que existía al correr: el de un día es
+  ANTERIOR a una migración aplicada esa tarde, así que restaurar obliga a reaplicarla
+  (son idempotentes). Lo que sigue pendiente es **ensayar la restauración cada trimestre**
+  (`docs/RUNBOOK.md §10.7`). Lista completa: `AGENTS.md` §13.
 
 ⚠️ **Este repo se mueve rápido y hay varios agentes trabajando a la vez.** No des por
 buena ninguna afirmación de estado ("está en rojo", "faltan N cosas") sin comprobarla:

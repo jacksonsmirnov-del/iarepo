@@ -72,6 +72,37 @@ un secreto compartido.
 — `auth/signin.php`, `auth/google.php`, `auth/onboarding.php`. La versión anterior de
 este documento lo describía de tres formas contradictorias en la misma página.
 
+### 1.1 ⛔ iarepo NO es Campus, y comparten servidor [V 2026-08-06]
+
+**Son dos aplicaciones distintas, con dos bases de datos distintas, en la misma cuenta de
+hosting.** Confundirlas es el error más caro que se puede cometer aquí, y no avisa.
+
+| | **iarepo** (este repo) | **Campus** (otro repo) |
+|---|---|---|
+| Dominio | `iarepo.com` · alias `resources.claseprivada.com` | `claseprivada.com` |
+| Qué es | Repositorio público de recursos | LMS con alumnos y clases |
+| Base de datos | la suya | **otra distinta** |
+| Estructura | `api/`, `shared/`, `resource/`, `viewer/`, `setup/migration_0NN_*.sql` | `includes/services/`, páginas `401.php`–`503.php` |
+| Seña inequívoca | **`deploy_version.txt`** | *(no lo tiene)* |
+| Staging | **no tiene** | **sí tiene uno** |
+
+La cuenta aloja **cuatro** apps con `.env.php` propio: Campus, el staging de Campus, un
+tercer sitio menor, e iarepo. Cuando `CLAUDE.md` dice «no hay staging» se refiere a
+**iarepo**, y es cierto: el `staging/` del servidor es de Campus.
+
+⚠️ **`find ~ -name .env.php | head -1` devuelve Campus.** Ese reflejo, seguido de un
+`php setup/run_migration.php`, aplica una migración de iarepo **contra la base de datos de
+Campus**: conecta sin problema, no da error de permisos, y el daño es silencioso. Estuvo a
+punto de pasar el 2026-08-06.
+
+**Identifica siempre el doc root por `deploy_version.txt`**, que lo escribe el hook de
+iarepo y no existe en las otras tres. Procedimiento copiable: `docs/RUNBOOK.md §4.1`.
+
+**La relación entre ambos sigue siendo unidireccional**: Campus llama a la API de iarepo
+con JWT; iarepo nunca llama a Campus. Los `user_id` y `tenant_id` que aparecen en las
+tablas de iarepo **vienen de Campus** y sólo son únicos dentro de su tenant — de ahí que
+`tenant_id` entre en las claves de deduplicación (§5.4).
+
 ---
 
 ## 2. Arquitectura y base de datos

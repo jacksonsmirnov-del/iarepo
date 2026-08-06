@@ -646,3 +646,82 @@ function test_it_el_escaner_de_columnas_sigue_viendo_el_codigo(): void
             . '      columna añadida a mano en producción volverá a pasar desapercibida.');
     }
 }
+
+// ── 7. El cinturón de run_migration.php ───────────────────────
+//
+// El runner es seguro por construcción en la ruta normal: lee el .env.php que
+// está JUNTO a él (`require __DIR__`), no el del directorio donde estés, así
+// que invocarlo usa siempre las credenciales de iarepo. Verificado en el
+// servidor [2026-08-06]: desde el doc root de Campus responde "Could not open
+// input file", porque Campus no tiene este script.
+//
+// Lo que NO cubre esa construcción, y sí este cinturón, es que el .env.php de
+// al lado apunte a otra base de datos —copiar un doc root para montar un
+// staging y dejarse el .env.php del original, o al revés—. Ahí no hay ningún
+// error: las sentencias se aplican, sin más, contra la BD equivocada.
+
+/** Reproduce la decisión del cinturón de setup/run_migration.php. */
+function it_rm_aborta(PDO $db): bool
+{
+    $faltan = 0;
+    foreach (['resources', 'categories', 'resource_tags'] as $t) {
+        $q = $db->prepare('SELECT COUNT(*) FROM information_schema.TABLES
+                           WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?');
+        $q->execute([$t]);
+        if (!$q->fetchColumn()) $faltan++;
+    }
+    $total = (int) $db->query('SELECT COUNT(*) FROM information_schema.TABLES
+                               WHERE TABLE_SCHEMA = DATABASE()')->fetchColumn();
+    return $faltan > 0 && $total > 0;
+}
+
+function test_it_el_runner_deja_pasar_la_bd_de_iarepo(): void
+{
+    if (!($db = it_db_or_skip(__FUNCTION__))) return;
+
+    it_true(!it_rm_aborta($db),
+        'sobre la BD reconstruida desde el repo, el cinturón DEJA PASAR. Un guard '
+        . 'que bloquea el caso bueno se desactiva el primer día, y entonces no '
+        . 'protege de nada.');
+}
+
+function test_it_el_runner_aborta_en_una_bd_ajena(): void
+{
+    if (!($db = it_db_or_skip(__FUNCTION__))) return;
+
+    $db->exec('DROP DATABASE IF EXISTS it_bd_ajena');
+    $db->exec('CREATE DATABASE it_bd_ajena');
+    $db->exec('USE it_bd_ajena');
+    // Una BD con contenido, pero de otra aplicación (p. ej. Campus).
+    $db->exec('CREATE TABLE usuarios (id INT PRIMARY KEY) ENGINE=InnoDB');
+    $db->exec('CREATE TABLE clases (id INT PRIMARY KEY) ENGINE=InnoDB');
+
+    $aborta = it_rm_aborta($db);
+
+    $db->exec('USE ' . iarepo_it_cfg('DB_NAME', 'iarepo_test'));
+    $db->exec('DROP DATABASE IF EXISTS it_bd_ajena');
+
+    it_true($aborta,
+        'una BD CON CONTENIDO y sin las señas de iarepo se rechaza. Sin esto, '
+        . 'las migraciones se aplicarían contra la base equivocada sin ningún '
+        . 'error visible.');
+}
+
+function test_it_el_runner_permite_una_bd_vacia(): void
+{
+    if (!($db = it_db_or_skip(__FUNCTION__))) return;
+
+    $db->exec('DROP DATABASE IF EXISTS it_bd_vacia');
+    $db->exec('CREATE DATABASE it_bd_vacia');
+    $db->exec('USE it_bd_vacia');
+
+    $aborta = it_rm_aborta($db);
+
+    $db->exec('USE ' . iarepo_it_cfg('DB_NAME', 'iarepo_test'));
+    $db->exec('DROP DATABASE IF EXISTS it_bd_vacia');
+
+    it_true(!$aborta,
+        'una BD VACÍA sí pasa: es la reconstrucción desde cero, cuando schema.sql '
+        . 'todavía no ha corrido. Bloquearla rompería el arranque de un clon nuevo '
+        . 'y el propio bootstrap de estos tests.');
+}

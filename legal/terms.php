@@ -227,10 +227,13 @@ $pageDesc  = 'Términos de uso, política de atribución y licencia de iarepo.co
     <!-- ═══════════════════════════════════════════ -->
     <h2>10. Privacidad</h2>
     <ul>
-        <li>Los usuarios registrados proporcionan solo nombre y correo.</li>
-        <li>No vendemos ni compartimos datos con terceros.</li>
+        <li>
+            Los usuarios registrados que entran con Google aportan
+            <strong>nombre, correo, foto de perfil</strong> y el identificador que Google
+            asigna a su cuenta. Guardamos además la fecha del último acceso.
+        </li>
+        <li><strong>No vendemos ni compartimos datos con terceros.</strong></li>
         <li>No usamos cookies de rastreo ni publicidad.</li>
-        <li><strong>No guardamos direcciones IP</strong> asociadas a la navegación.</li>
     </ul>
 
     <h3>10.1 Medición de uso de los recursos</h3>
@@ -296,6 +299,35 @@ $pageDesc  = 'Términos de uso, política de atribución y licencia de iarepo.co
             del recurso, en su panel.
         </li>
     </ul>
+
+    <h3>10.3 Direcciones IP</h3>
+    <p>
+        <strong>La medición descrita en 10.1 y 10.2 no usa ni almacena direcciones IP.</strong>
+        Ni en claro ni cifradas: la huella con la que se cuenta una visita se calcula a
+        partir del identificador que genera tu navegador, nunca de tu conexión.
+    </p>
+    <p>
+        Aparte de eso, y como cualquier servidor web, el nuestro sí ve tu IP y la usa para
+        dos cosas <strong>técnicas</strong>, no analíticas:
+    </p>
+    <ul>
+        <li>
+            <strong>Limitar el abuso.</strong> Se guarda de forma temporal para contar
+            cuántas peticiones llegan desde una misma conexión y frenar ataques. Se
+            registra la conexión y el servicio llamado, <strong>no qué recurso has
+            visto</strong>, y estos registros se borran automáticamente.
+        </li>
+        <li>
+            <strong>Registro de errores.</strong> Cuando algo falla, el error queda anotado
+            en el registro del servidor junto con la dirección desde la que ocurrió, para
+            poder diagnosticarlo.
+        </li>
+    </ul>
+    <p>
+        Esos registros <strong>no comparten ningún identificador</strong> con los datos de
+        uso, y no los cruzamos. Tampoco guardan qué recurso se abrió, así que por sí solos
+        no dicen qué ha visto nadie.
+    </p>
 
     <!-- ═══════════════════════════════════════════ -->
     <h2>11. Contacto</h2>

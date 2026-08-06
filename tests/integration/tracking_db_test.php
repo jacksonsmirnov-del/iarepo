@@ -313,3 +313,83 @@ function test_dos_visitantes_simultaneos_no_rompen_la_sal(): void
     $n = (int) $db->query('SELECT COUNT(*) FROM ' . IT_SALTS_PROBE . " WHERE view_day = '2026-08-06'")->fetchColumn();
     it_eq(1, $n, 'y queda UNA sola sal para el día');
 }
+
+
+// ── La retención de IPs del limitador ───────────────────────────
+//
+// api_rate_limits guarda direcciones IP EN CLARO, y legal/terms.php §10.3
+// promete que esos registros "se borran automáticamente". Antes la purga era
+// `if (random_int(1,100) === 1)`: bastaba para que la tabla no engordara, pero
+// hacía que la retención real la decidiera el volumen de tráfico en vez del
+// código. Una promesa publicada no puede depender de un dado.
+
+const IT_RL_PROBE = 'it_rate_limits_probe';
+
+/** Reproduce el DELETE de rateLimit() con la ventana por defecto (60 s → 120 s). */
+function it_rl_purga(PDO $db, int $windowSecs = 60): int
+{
+    $st = $db->prepare('DELETE FROM ' . IT_RL_PROBE . '
+                        WHERE window_start < DATE_SUB(NOW(), INTERVAL ? SECOND)');
+    $st->execute([$windowSecs * 2]);
+    return $st->rowCount();
+}
+
+function test_la_purga_de_ips_no_depende_de_un_sorteo(): void
+{
+    $db = it_db_or_skip(__FUNCTION__);
+    if ($db === null) return;
+
+    // La forma real de la tabla (migration_005).
+    $db->exec('DROP TABLE IF EXISTS ' . IT_RL_PROBE);
+    $db->exec('CREATE TABLE ' . IT_RL_PROBE . ' (
+        ip           VARCHAR(45) NOT NULL,
+        endpoint     VARCHAR(80) NOT NULL,
+        requests     INT NOT NULL DEFAULT 1,
+        window_start DATETIME NOT NULL,
+        PRIMARY KEY (ip, endpoint),
+        INDEX idx_window (window_start)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci');
+
+    $db->exec('INSERT INTO ' . IT_RL_PROBE . ' (ip, endpoint, window_start) VALUES
+        ("203.0.113.9",  "track",         DATE_SUB(NOW(), INTERVAL 30 DAY)),
+        ("203.0.113.10", "resources_get", DATE_SUB(NOW(), INTERVAL 2 HOUR)),
+        ("203.0.113.11", "feedback",      DATE_SUB(NOW(), INTERVAL 5 MINUTE)),
+        ("203.0.113.12", "track",         NOW())');
+
+    $borradas = it_rl_purga($db);
+
+    it_eq(3, $borradas,
+        'una sola llamada borra TODAS las caducadas, por viejas que sean. Con el '
+        . 'sorteo del 1%, una IP de hace 30 días podía seguir ahí indefinidamente '
+        . 'si el tráfico era bajo.');
+
+    $quedan = (int) $db->query('SELECT COUNT(*) FROM ' . IT_RL_PROBE)->fetchColumn();
+    it_eq(1, $quedan,
+        'y sobrevive sólo la ventana activa — que es la que el limitador NECESITA '
+        . 'para hacer su trabajo. Purgarla rompería el control de abuso.');
+
+    $viva = (string) $db->query('SELECT ip FROM ' . IT_RL_PROBE)->fetchColumn();
+    it_eq('203.0.113.12', $viva, 'la superviviente es la más reciente');
+
+    $db->exec('DROP TABLE IF EXISTS ' . IT_RL_PROBE);
+}
+
+function test_el_limitador_ya_no_juega_a_los_dados(): void
+{
+    // Guard de texto: si alguien repone el sorteo, la promesa de §10.3 vuelve a
+    // depender del volumen de tráfico y nada se pondría rojo.
+    $src = iarepo_php_code_only(
+        (string) file_get_contents(dirname(__DIR__, 2) . '/shared/helpers.php')
+    );
+
+    it_true(
+        !preg_match('/random_int\([^)]*\)\s*===?\s*1/', $src),
+        'shared/helpers.php no purga por sorteo: legal/terms.php §10.3 promete que '
+        . 'los registros con IP se borran automáticamente, y eso no puede depender '
+        . 'de un dado'
+    );
+    it_true(
+        str_contains($src, 'DELETE FROM api_rate_limits'),
+        'pero la purga SIGUE existiendo — quitarla dejaría las IPs para siempre'
+    );
+}

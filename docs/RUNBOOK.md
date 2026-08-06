@@ -221,6 +221,49 @@ Si el hook aborta el push, **lee lo que dice antes de pensar en `--no-verify`**.
 barrera. Único uso legítimo: el propio gate está roto y estás empujando su arreglo, o
 estás revirtiendo un deploy malo con el árbol ya en mal estado.
 
+### 4.1 ⛔ Antes de tocar NADA por SSH: ¿estás en iarepo o en Campus?
+
+**La cuenta de hosting sirve cuatro aplicaciones distintas** bajo el mismo
+`public_html` [V 2026-08-06]:
+
+| App | Qué es | Señas |
+|---|---|---|
+| `edu/` | **Campus** (claseprivada.com), en producción | `includes/services/`, páginas `401.php`–`503.php`, su propio `AGENTS.md` |
+| `staging/` | **staging de Campus** — no de iarepo | copia casi idéntica de `edu/` |
+| (un tercero, pequeño) | otro sitio | ~8 ficheros, `papers/` |
+| **`resources/`** | **iarepo** | **`deploy_version.txt`**, `admin/`, `AGENTS.md` que empieza por «Relación con los otros dos documentos» |
+
+⚠️ **Las cuatro tienen su propio `.env.php`, es decir su propia base de datos.**
+
+**El fallo que esto evita** es silencioso y caro: correr una migración de iarepo estando
+en el directorio de Campus. No da error de permisos ni de conexión — conecta
+perfectamente **a la base de datos equivocada**. Estuvo a punto de ocurrir el 2026-08-06
+porque el reflejo natural falla:
+
+```bash
+find ~ -name .env.php | head -1     # ⛔ DEVUELVE CAMPUS, NO IAREPO
+```
+
+**Usa siempre esto**, que se apoya en el único fichero que sólo existe en iarepo (lo
+escribe su hook `post-receive`):
+
+```bash
+cd "$(dirname "$(find ~ -maxdepth 6 -name deploy_version.txt 2>/dev/null | head -1)")"
+pwd
+cat deploy_version.txt          # commit=, deployed_at=, branch=main, subject=
+```
+
+Si `deploy_version.txt` no aparece, **para**: o el hook no está instalado (`§10.3`) o no
+estás en la cuenta correcta. No sigas a ojo.
+
+**Comprobación de una línea antes de cualquier migración:**
+
+```bash
+[ -f deploy_version.txt ] && [ -f setup/run_migration.php ] \
+  && echo "✓ iarepo — puedes continuar" \
+  || echo "⛔ PARA: esto no es el doc root de iarepo"
+```
+
 ### Empujar solo a GitHub (sin desplegar)
 
 ```bash
@@ -321,8 +364,15 @@ git add setup/migration_0NN_*.sql && git commit -m "migration NNN: ..." && git p
 
 # 4. Ejecutarla en el servidor, desde el doc root (donde vive .env.php)
 ssh -p <SSH_PORT> <SSH_USER>@<SSH_HOST>
-cd <DOC_ROOT>
-php setup/run_migration.php setup/migration_0NN_....sql
+
+# ⛔ Sitúate por deploy_version.txt, NO por `find -name .env.php`, que devuelve
+#    Campus. Ver §4.1: aplicar esto en Campus toca la BD equivocada sin avisar.
+cd "$(dirname "$(find ~ -maxdepth 6 -name deploy_version.txt 2>/dev/null | head -1)")"
+if [ ! -f deploy_version.txt ] || [ ! -f setup/run_migration.php ]; then
+  echo "⛔ PARA: esto no es el doc root de iarepo. No se ha ejecutado nada."
+else
+  php setup/run_migration.php setup/migration_0NN_....sql
+fi
 
 # 5. Verificar
 curl -s https://iarepo.com/api/health.php
@@ -447,7 +497,19 @@ git rev-parse --short HEAD
 Ordenadas por lo que más duele. Ninguna la puede hacer un agente: requieren SSH, DNS o
 decisiones del mantenedor.
 
-### 8.1 [P0] Backup de la BD — **script HECHO, falta instalar el cron**
+### 8.1 ~~[P0] Backup de la BD~~ — **HECHO** [V 2026-08-06]
+
+✅ **El cron está instalado y corriendo.** Verificado en el servidor: existe
+`~/iarepo-backups/db/<fecha>/resources.sql.gz`, con `mtime` a las **04:15** —la hora
+programada, no una corrida manual—, gzip íntegro y cerrado con `-- Dump completed`.
+
+⚠️ **Un backup sólo cubre el esquema que existía cuando corrió.** El del 2026-08-06 se
+hizo a las 04:15 y las migraciones 011-014 se aplicaron a las ~13:00, así que ese dump
+trae 19 tablas y **no** `resource_views`, `view_salts` ni `resource_comprehension`.
+Restaurar desde él obliga a **volver a aplicar las migraciones** (son idempotentes, así
+que es seguro). A partir del día siguiente a una migración, el dump ya la incluye.
+
+El texto original de esta sección, ya cumplido:
 
 `setup/tools/backup_db.sh` (755) existe, está parametrizado y **se ensayó con una
 restauración real**: 18/18 tablas, filas idénticas, FULLTEXT preservado [V 2026-08-04].
@@ -582,6 +644,12 @@ Lo que queda es **instalarlo en el servidor** (§10.3). Dos cosas que no se pued
   anterior estuvo muerto un mes (§11.1).
 
 ### 8.6 [P2] Staging
+
+⚠️ **iarepo NO tiene staging. Campus SÍ** [V 2026-08-06]. En el servidor hay un
+directorio `staging/`, y es **de Campus**: misma estructura que su producción
+(`includes/services/`, páginas `401.php`–`503.php`), no de iarepo. Cuando `CLAUDE.md`
+dice «no hay staging» se refiere a este repo, y es cierto. No lo reutilices sin hablarlo:
+tiene su propio `.env.php`, es decir su propia base de datos. Ver `§4.1` y `AGENTS.md §1.1`.
 
 **Vale la pena, pero después de §8.1 y §8.2.** Su argumento decisivo es único:
 `.htaccess` bajo LiteSpeed (rewrites de `/view/`, `/resource/`, `/profile/`, bloqueos de
@@ -817,8 +885,15 @@ make integration
 
 # 2. En el servidor, desde el doc root (donde vive .env.php)
 ssh -p <SSH_PORT> <SSH_USER>@<SSH_HOST>
-cd <DOC_ROOT>
-php setup/run_migration.php setup/migration_010_cron_heartbeats.sql
+
+# ⛔ Sitúate por deploy_version.txt, NO por `find -name .env.php`, que devuelve
+#    Campus. Ver §4.1: aplicar esto en Campus toca la BD equivocada sin avisar.
+cd "$(dirname "$(find ~ -maxdepth 6 -name deploy_version.txt 2>/dev/null | head -1)")"
+if [ ! -f deploy_version.txt ] || [ ! -f setup/run_migration.php ]; then
+  echo "⛔ PARA: esto no es el doc root de iarepo. No se ha ejecutado nada."
+else
+  php setup/run_migration.php setup/migration_010_cron_heartbeats.sql
+fi
 
 # 3. Verificar desde fuera: 'crons' deja de ser null
 curl -s https://iarepo.com/api/health.php
@@ -855,12 +930,20 @@ make integration        # tests/integration/usage_signal_db_test.php
 
 # 2. En el servidor, desde el doc root
 ssh -p <SSH_PORT> <SSH_USER>@<SSH_HOST>
-cd <DOC_ROOT>
-php setup/run_migration.php setup/migration_011_usage_signal.sql
 
-# 3. Verificar el esquema resultante (sin exponer credenciales: el script las lee de .env.php)
-php -r '$e=require ".env.php"; $d=new PDO("mysql:host={$e["DB_HOST"]};dbname={$e["DB_NAME"]}",$e["DB_USER"],$e["DB_PASS"]);
-foreach($d->query("SHOW COLUMNS FROM resource_usage LIKE \"usage_day\"") as $r) print_r($r);'
+# ⛔ Sitúate por deploy_version.txt, NO por `find -name .env.php`, que devuelve
+#    Campus. Ver §4.1: aplicar esto en Campus toca la BD equivocada sin avisar.
+cd "$(dirname "$(find ~ -maxdepth 6 -name deploy_version.txt 2>/dev/null | head -1)")"
+if [ ! -f deploy_version.txt ] || [ ! -f setup/run_migration.php ]; then
+  echo "⛔ PARA: esto no es el doc root de iarepo. No se ha ejecutado nada."
+else
+  php setup/run_migration.php setup/migration_011_usage_signal.sql
+fi
+
+# 3. Verificar el esquema. Usa shared/db.php, que lee .env.php por dentro: así
+#    las credenciales NO acaban en la línea de comandos ni en el historial.
+php -r 'require "shared/db.php"; $d = getResourcesDB();
+foreach ($d->query("SHOW COLUMNS FROM resource_usage LIKE \"usage_day\"") as $r) { echo $r["Field"], " ", $r["Type"], PHP_EOL; }'
 ```
 
 **Verificar después del deploy**, ya con el código arriba: entra en cualquier recurso
@@ -887,8 +970,15 @@ make integration        # tests/integration/tracking_db_test.php
 
 # 2. En el servidor, desde el doc root
 ssh -p <SSH_PORT> <SSH_USER>@<SSH_HOST>
-cd <DOC_ROOT>
-php setup/run_migration.php setup/migration_012_engagement.sql
+
+# ⛔ Sitúate por deploy_version.txt, NO por `find -name .env.php`, que devuelve
+#    Campus. Ver §4.1: aplicar esto en Campus toca la BD equivocada sin avisar.
+cd "$(dirname "$(find ~ -maxdepth 6 -name deploy_version.txt 2>/dev/null | head -1)")"
+if [ ! -f deploy_version.txt ] || [ ! -f setup/run_migration.php ]; then
+  echo "⛔ PARA: esto no es el doc root de iarepo. No se ha ejecutado nada."
+else
+  php setup/run_migration.php setup/migration_012_engagement.sql
+fi
 ```
 
 **Verificar después del deploy**, con el código arriba:
@@ -934,8 +1024,15 @@ make integration        # tests/integration/fork_lineage_db_test.php
 
 # 2. En el servidor
 ssh -p <SSH_PORT> <SSH_USER>@<SSH_HOST>
-cd <DOC_ROOT>
-php setup/run_migration.php setup/migration_013_fork_lineage.sql
+
+# ⛔ Sitúate por deploy_version.txt, NO por `find -name .env.php`, que devuelve
+#    Campus. Ver §4.1: aplicar esto en Campus toca la BD equivocada sin avisar.
+cd "$(dirname "$(find ~ -maxdepth 6 -name deploy_version.txt 2>/dev/null | head -1)")"
+if [ ! -f deploy_version.txt ] || [ ! -f setup/run_migration.php ]; then
+  echo "⛔ PARA: esto no es el doc root de iarepo. No se ha ejecutado nada."
+else
+  php setup/run_migration.php setup/migration_013_fork_lineage.sql
+fi
 ```
 
 **Verificar el backfill** — ninguna de estas dos consultas debe devolver filas:
@@ -990,8 +1087,15 @@ muestra el bloque «¿Les quedó claro?» (hay `try/catch` que degrada) y el pro
 make integration        # tests/integration/comprehension_db_test.php
 
 ssh -p <SSH_PORT> <SSH_USER>@<SSH_HOST>
-cd <DOC_ROOT>
-php setup/run_migration.php setup/migration_014_comprehension.sql
+
+# ⛔ Sitúate por deploy_version.txt, NO por `find -name .env.php`, que devuelve
+#    Campus. Ver §4.1: aplicar esto en Campus toca la BD equivocada sin avisar.
+cd "$(dirname "$(find ~ -maxdepth 6 -name deploy_version.txt 2>/dev/null | head -1)")"
+if [ ! -f deploy_version.txt ] || [ ! -f setup/run_migration.php ]; then
+  echo "⛔ PARA: esto no es el doc root de iarepo. No se ha ejecutado nada."
+else
+  php setup/run_migration.php setup/migration_014_comprehension.sql
+fi
 ```
 
 **Verificar la puerta**, que es lo único que impide envenenar el dato. Sin haber usado el
@@ -1043,7 +1147,15 @@ curl -s 'https://iarepo.com/cron/run.php?job=link_check&token=<CRON_SECRET>'
 curl -s https://iarepo.com/api/health.php     # crons.link_check.age_seconds ya no es null
 ```
 
-### 10.7 Instalar el cron del backup
+### 10.7 ~~Instalar el cron del backup~~ — **HECHO** [V 2026-08-06]
+
+✅ Ya está instalado y ha corrido (ver §8.1). Lo que sigue se conserva como referencia
+para reinstalarlo o para montarlo en otro servidor.
+
+⚠️ **Lo que sigue pendiente es la PRUEBA DE RESTAURACIÓN periódica** (final de esta
+sección): un backup que nunca se ha restaurado es una hipótesis, no un backup.
+
+#### Procedimiento original
 
 ⚠️ **En este hosting NO existe el comando `crontab`.** Se hace por hPanel → Cron Jobs.
 
@@ -1157,9 +1269,16 @@ restaurar un backup:
 
 ```bash
 ssh -p <SSH_PORT> <SSH_USER>@<SSH_HOST>
-cd <DOC_ROOT>
-php setup/run_migration.php setup/migration_000_prod_baseline.sql
-php setup/run_migration.php setup/migration_002_moderation.sql
+
+# ⛔ Sitúate por deploy_version.txt, NO por `find -name .env.php`, que devuelve
+#    Campus. Ver §4.1: aplicar esto en Campus toca la BD equivocada sin avisar.
+cd "$(dirname "$(find ~ -maxdepth 6 -name deploy_version.txt 2>/dev/null | head -1)")"
+if [ ! -f deploy_version.txt ] || [ ! -f setup/run_migration.php ]; then
+  echo "⛔ PARA: esto no es el doc root de iarepo. No se ha ejecutado nada."
+else
+  php setup/run_migration.php setup/migration_000_prod_baseline.sql
+  php setup/run_migration.php setup/migration_002_moderation.sql
+fi
 ```
 
 **Verificar después:** `curl -s https://iarepo.com/api/health.php` sigue dando
