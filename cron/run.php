@@ -170,13 +170,25 @@ function _heartbeat(?PDO $db, string $job, float $start, int $items, string $sta
         // Una fila por job (PRIMARY KEY (job)): la tabla no crece nunca y no
         // necesita purga — una purga sería otro cron capaz de morir en
         // silencio, que es el problema que se está arreglando.
+        // ⚠️ NINGUNA comparación de texto dentro del SQL. La versión anterior
+        // usaba IF(? = 'ok', NOW(), NULL) y en producción fallaba SIEMPRE con
+        //   1267 Illegal mix of collations (utf8mb4_general_ci,COERCIBLE)
+        //        and (utf8mb4_unicode_ci,COERCIBLE) for operation '='
+        // porque el parámetro llega con la collation de la conexión y la tabla
+        // es utf8mb4_unicode_ci. El try/catch mudo se lo tragaba, así que la
+        // función entera no escribía nada y NADIE se enteraba — el mismo modo
+        // de fallo que estos latidos existen para detectar.
+        // Los banderines van como ENTEROS: los enteros no tienen collation.
+        $isOk  = ($st === 'ok') ? 1 : 0;
+        $isErr = 1 - $isOk;
+
         $sql = "INSERT INTO cron_heartbeats
                     (job, last_run_at, duration_ms, items_processed, status, message,
                      last_ok_at, last_error_at, run_count, error_count, period_seconds)
                 VALUES
                     (?, NOW(), ?, ?, ?, ?,
-                     IF(? = 'ok', NOW(), NULL), IF(? = 'error', NOW(), NULL),
-                     1, IF(? = 'error', 1, 0), ?)
+                     IF(? = 1, NOW(), NULL), IF(? = 1, NOW(), NULL),
+                     1, ?, ?)
                 ON DUPLICATE KEY UPDATE
                     last_run_at     = VALUES(last_run_at),
                     duration_ms     = VALUES(duration_ms),
@@ -189,7 +201,7 @@ function _heartbeat(?PDO $db, string $job, float $start, int $items, string $sta
                     error_count     = error_count + VALUES(error_count),
                     period_seconds  = VALUES(period_seconds)";
 
-        $db->prepare($sql)->execute([$job, $ms, max(0, $items), $st, $msg, $st, $st, $st, $period]);
+        $db->prepare($sql)->execute([$job, $ms, max(0, $items), $st, $msg, $isOk, $isErr, $isErr, $period]);
     } catch (\Throwable $e) {
         // Mudo A PROPÓSITO. El latido es telemetría: que falte es un problema
         // menor; que su fallo tumbe el link checker sería un problema mayor.

@@ -48,3 +48,4 @@ quality/lib/analyze.php
 quality/baseline_html_helpers.txt
 quality/allowed_hosts.txt
 .githooks/pre-push
+tests/integration/cron_heartbeat_test.php
