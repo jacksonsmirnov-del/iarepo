@@ -177,6 +177,33 @@ if ($method === 'GET') {
     $resourceId = (int)($_GET['resource_id'] ?? 0);
     if (!$resourceId) json_error('resource_id required');
 
+    // Los nombres de quién usó un recurso —profesor, colegio y aula— solo los
+    // ve su autor (o un superadmin). Antes los veía cualquier cuenta, alumnos
+    // incluidos, y de cualquier centro. Al resto se le da el recuento por
+    // tipo, que es lo único que necesita para saber si un recurso se usa.
+    $own = $db->prepare("SELECT author_user_id, author_tenant_id FROM resources WHERE id = ? AND is_active = 1");
+    $own->execute([$resourceId]);
+    $res = $own->fetch();
+    if (!$res) json_error('Resource not found', 404);
+
+    $isAuthor = (int)$res['author_user_id'] === (int)($user['user_id'] ?? 0)
+             && (int)$res['author_tenant_id'] === (int)($user['tenant_id'] ?? 0);
+    $isSuper  = ($user['role'] ?? '') === 'superadmin';
+
+    $sum = $db->prepare("
+        SELECT usage_type, COUNT(*) AS n
+        FROM resource_usage
+        WHERE resource_id = ?
+        GROUP BY usage_type
+    ");
+    $sum->execute([$resourceId]);
+    $summary = [];
+    foreach ($sum->fetchAll() as $row)
+        $summary[$row['usage_type']] = (int)$row['n'];
+
+    if (!$isAuthor && !$isSuper)
+        json_ok(['usage' => [], 'summary' => $summary]);
+
     $stmt = $db->prepare("
         SELECT usage_type, user_display_name, tenant_name, classroom_name, created_at
         FROM resource_usage 
@@ -185,7 +212,7 @@ if ($method === 'GET') {
         LIMIT 50
     ");
     $stmt->execute([$resourceId]);
-    json_ok(['usage' => $stmt->fetchAll()]);
+    json_ok(['usage' => $stmt->fetchAll(), 'summary' => $summary]);
 }
 
 json_error('Method not allowed', 405);

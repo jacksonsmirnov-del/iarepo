@@ -23,6 +23,7 @@ require_once __DIR__ . '/../shared/helpers.php';
 require_once __DIR__ . '/../shared/moderation.php';
 require_once __DIR__ . '/../shared/notify.php';
 require_once __DIR__ . '/../shared/search.php';
+require_once __DIR__ . '/../shared/access.php';
 
 cors();
 
@@ -691,28 +692,4 @@ function iarepo_get_str(string $key): string
 {
     $v = $_GET[$key] ?? '';
     return is_scalar($v) ? (string) $v : '';
-}
-
-// ══════════════════════════════════════════════════════════════
-// HELPER: Visibility check
-// ══════════════════════════════════════════════════════════════
-function canView(array $resource, ?array $user): bool
-{
-    $vis = $resource['visibility'];
-
-    if ($vis === 'community')
-        return true;
-    if (!$user)
-        return false;
-
-    $authorTenant = $resource['author_tenant_id'];
-    $userTenant = $user['tenant_id'] ?? 0;
-    $userId = $user['user_id'] ?? 0;
-
-    return match ($vis) {
-        'school' => $userTenant === $authorTenant,
-        'area' => $userTenant === $authorTenant, // All teachers in tenant can see — promotes collaboration
-        'draft' => $userTenant === $authorTenant && $userId == $resource['author_user_id'],
-        default => false,
-    };
 }

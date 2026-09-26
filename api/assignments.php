@@ -6,7 +6,7 @@
 //
 // POST   /api/assignments.php            Assign resource to classroom
 // GET    /api/assignments.php?resource_id=X   Assignments for a resource
-// GET    /api/assignments.php?classroom=X&tenant_id=X  Assignments for a classroom
+// GET    /api/assignments.php?classroom_id=X  Assignments for a classroom (tenant del token)
 // DELETE /api/assignments.php?id=X       Remove assignment
 //
 // Auth: JWT required (teacher, admin)
@@ -67,21 +67,32 @@ if ($method === 'POST') {
         !empty($data['available_until']) ? $data['available_until'] : null,
     ]);
 
-    // Record usage
-    $db->prepare("
-        INSERT INTO resource_usage (resource_id, user_id, tenant_id, user_display_name, tenant_name, usage_type, classroom_name)
-        VALUES (?, ?, ?, ?, ?, 'sent', ?)
-    ")->execute([
-        $resourceId,
-        $user['user_id'],
-        $user['tenant_id'],
-        $user['name'],
-        $user['tenant_name'],
-        $classroomName,
-    ]);
+    // Record usage. 'sent' deduplica por profesor, recurso y DÍA con
+    // usage_day = CURDATE() (AGENTS.md §5.4): mandar el mismo recurso a dos
+    // aulas el mismo día es UN uso docente, no dos. El choque con el índice
+    // uniq_usage_signal es la dedup haciendo su trabajo: la asignación ya se
+    // guardó arriba y no se deshace; solo no se vuelve a contar.
+    $counted = true;
+    try {
+        $db->prepare("
+            INSERT INTO resource_usage (resource_id, user_id, tenant_id, user_display_name, tenant_name, usage_type, classroom_name, usage_day)
+            VALUES (?, ?, ?, ?, ?, 'sent', ?, CURDATE())
+        ")->execute([
+            $resourceId,
+            $user['user_id'],
+            $user['tenant_id'],
+            $user['name'],
+            $user['tenant_name'],
+            $classroomName,
+        ]);
+    } catch (PDOException $e) {
+        if ((int)($e->errorInfo[1] ?? 0) !== 1062) throw $e;
+        $counted = false;
+    }
 
     // Update use_count
-    $db->prepare("UPDATE resources SET use_count = use_count + 1 WHERE id = ?")->execute([$resourceId]);
+    if ($counted)
+        $db->prepare("UPDATE resources SET use_count = use_count + 1 WHERE id = ?")->execute([$resourceId]);
 
     json_ok(['id' => (int)$db->lastInsertId(), 'message' => 'Resource assigned to classroom']);
 }
@@ -92,17 +103,23 @@ if ($method === 'GET') {
 
     $resourceId = (int)($_GET['resource_id'] ?? 0);
     $classroomId = (int)($_GET['classroom_id'] ?? 0);
-    $tenantId = (int)($_GET['tenant_id'] ?? $user['tenant_id'] ?? 0);
+    // El tenant sale del TOKEN, nunca de la URL: con ?tenant_id= cualquiera
+    // listaba las aulas y los docentes de otro colegio. Solo un superadmin
+    // puede pedir otro tenant a propósito.
+    $tenantId = (int)($user['tenant_id'] ?? 0);
+    if (($user['role'] ?? '') === 'superadmin' && isset($_GET['tenant_id']))
+        $tenantId = (int)$_GET['tenant_id'];
 
     if ($resourceId) {
-        // All assignments for a resource
+        // Assignments for a resource — solo las de MI centro. Antes salían
+        // las aulas y los profesores de todos los centros que lo asignaron.
         $stmt = $db->prepare("
             SELECT id, classroom_name, assigned_by_name, available_from, available_until, created_at
             FROM resource_assignments
-            WHERE resource_id = ? AND is_active = 1
+            WHERE resource_id = ? AND tenant_id = ? AND is_active = 1
             ORDER BY created_at DESC
         ");
-        $stmt->execute([$resourceId]);
+        $stmt->execute([$resourceId, $tenantId]);
         json_ok(['assignments' => $stmt->fetchAll()]);
     }
 

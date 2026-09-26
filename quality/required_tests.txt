@@ -100,3 +100,9 @@ tests/integration/cron_heartbeat_test.php
 # septiembre de 2026) con todo el gate en verde: ninguna capa renderizaba la
 # página con sesión. Es la red que falta antes de cualquier cambio visual.
 tests/integration/render_pages_test.php
+tests/integration/site_server.php
+
+# authorization_test.php entra como otro profesor, como alumno y como anónimo y
+# pide lo que no es suyo a api/versions.php, usage.php, assignments.php y
+# comments.php. Hasta 2026-09-26 el gate no tenía ni una regla de autorización.
+tests/integration/authorization_test.php

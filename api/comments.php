@@ -6,7 +6,10 @@
 // POST   /api/comments.php                 Create comment
 // DELETE /api/comments.php?id=X            Delete own comment
 //
-// Auth: GET is public for community resources. POST/DELETE require auth.
+// Auth: GET sigue la visibilidad del recurso (shared/access.php): antes
+// devolvía los comentarios de cualquier recurso, borradores incluidos.
+// POST exige rol docente: los alumnos —menores— no publican con su nombre y
+// su foto en una web pública sin moderación. DELETE, su autor.
 // ================================================================
 
 require_once __DIR__ . '/../shared/db.php';
@@ -14,6 +17,7 @@ require_once __DIR__ . '/../shared/auth.php';
 require_once __DIR__ . '/../shared/cors.php';
 require_once __DIR__ . '/../shared/helpers.php';
 require_once __DIR__ . '/../shared/notify.php';
+require_once __DIR__ . '/../shared/access.php';
 
 cors();
 
@@ -30,10 +34,10 @@ if ($method === 'GET') {
         json_error('resource_id required', 400, 'MISSING_RESOURCE_ID');
 
     // Verify resource exists and is accessible
-    $res = $db->prepare("SELECT visibility FROM resources WHERE id = ? AND is_active = 1");
+    $res = $db->prepare("SELECT visibility, author_tenant_id, author_user_id FROM resources WHERE id = ? AND is_active = 1");
     $res->execute([$resourceId]);
     $resource = $res->fetch();
-    if (!$resource)
+    if (!$resource || !canView($resource, authenticate()))
         json_error('Resource not found', 404, 'RESOURCE_NOT_FOUND');
 
     // Fetch top-level comments
@@ -76,6 +80,7 @@ if ($method === 'GET') {
 // ── POST: Create comment ──────────────────────────────────────
 if ($method === 'POST') {
     $user = requireAuth();
+    requireRole($user, ['teacher', 'admin', 'superadmin']);
 
     $data = json_body();
     $resourceId = (int) ($data['resource_id'] ?? 0);
@@ -89,10 +94,11 @@ if ($method === 'POST') {
     if (mb_strlen($body) > 2000)
         json_error('Comment too long (max 2000 characters)', 400, 'COMMENT_TOO_LONG');
 
-    // Verify resource exists
-    $exists = $db->prepare("SELECT id FROM resources WHERE id = ? AND is_active = 1");
+    // Verify resource exists and the user can see it
+    $exists = $db->prepare("SELECT id, visibility, author_tenant_id, author_user_id FROM resources WHERE id = ? AND is_active = 1");
     $exists->execute([$resourceId]);
-    if (!$exists->fetch())
+    $target = $exists->fetch();
+    if (!$target || !canView($target, $user))
         json_error('Resource not found', 404, 'RESOURCE_NOT_FOUND');
 
     // Verify parent comment exists (if replying)
