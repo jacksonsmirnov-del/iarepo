@@ -9,7 +9,13 @@
 session_start();
 require_once __DIR__ . '/../shared/auth.php';
 require_once __DIR__ . '/../shared/db.php';
-require_once __DIR__ . '/../shared/helpers.php';
+// h() local — NO se carga shared/helpers.php: su error_handler vuelca JSON y
+// corta la página a medias ante cualquier error (CLAUDE.md §2.1).
+if (!function_exists('h')) {
+    function h(string $s): string {
+        return htmlspecialchars($s, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+    }
+}
 require_once __DIR__ . '/../shared/i18n.php';
 lang();
 
@@ -78,12 +84,10 @@ $isStudent = ($sessionUser['role'] ?? '') === 'student'
 // UNIQUE uniq_usage_signal (migration_011), no esta consulta.
 //
 // ── POR QUÉ VA ENVUELTA EN try/catch ───────────────────────────
-// Esta página es una de las 7 de quality/baseline_html_helpers.txt: carga
-// shared/helpers.php y con él shared/error_handler.php, cuyos handlers hacen
-// echo json_encode(...) + exit(1). Si el despliegue llega ANTES que la
-// migración —que se aplica a mano, RUNBOOK §4— la columna usage_day no
-// existe, el driver lanza ERROR 1054 y la página saldría a medio renderizar
-// con un JSON incrustado: exactamente la trampa nº1 del CLAUDE.md.
+// Si el despliegue llega ANTES que la migración —que se aplica a mano,
+// RUNBOOK §4— la columna usage_day no existe y el driver lanza ERROR 1054.
+// Sin capturarlo, la página se cortaría a medio renderizar (hasta 2026-09-26
+// además con un JSON incrustado, cuando esta página cargaba helpers.php).
 // Degradando a false, la única consecuencia de ese orden de despliegue es que
 // el botón aparece sin marcar. La página nunca se rompe.
 $usedInClassToday = false;

@@ -9,9 +9,15 @@
 # eso es lo correcto. En una página HTML produce un documento a medio renderizar
 # con un blob JSON incrustado: el fallo silencioso que ya rompió el proyecto.
 #
-# Estas 7 páginas YA lo hacían antes de existir el guard. No se bloquean para que
-# quality/guards.sh no nazca en rojo permanente (24 violaciones preexistentes en
-# total harían que se desactivara el gate en una semana). Pero:
+# Estas 7 páginas YA lo hacían antes de existir el guard. No se bloquearon para
+# que quality/guards.sh no naciera en rojo permanente (24 violaciones
+# preexistentes en total harían que se desactivara el gate en una semana).
+#
+# [2026-09-26] La lista quedó VACÍA: las 7 (admin/create.php, collection/,
+# dashboard/index.php y editor.php, profile/, resource/ y viewer/) solo usaban
+# h() de helpers.php y ahora la definen en local. Fue una de ellas,
+# dashboard/index.php, la que estuvo tres meses rota con un JSON incrustado.
+# Que siga vacía. Aun así:
 #
 #   * Añadir una ruta nueva a este fichero es EXACTAMENTE lo que el guard existe
 #     para impedir. Si has llegado aquí para añadir una línea, para: define h()
@@ -25,10 +31,3 @@
 #
 # Formato: una ruta relativa a la raíz del repo por línea. '#' = comentario.
 
-admin/create.php
-collection/index.php
-dashboard/editor.php
-dashboard/index.php
-profile/index.php
-resource/index.php
-viewer/index.php

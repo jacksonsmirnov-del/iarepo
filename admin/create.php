@@ -7,7 +7,13 @@
 // ================================================================
 
 require_once __DIR__ . '/../shared/db.php';
-require_once __DIR__ . '/../shared/helpers.php';
+// h() local — NO se carga shared/helpers.php: su error_handler vuelca JSON y
+// corta la página a medias ante cualquier error (CLAUDE.md §2.1).
+if (!function_exists('h')) {
+    function h(string $s): string {
+        return htmlspecialchars($s, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+    }
+}
 require_once __DIR__ . '/../shared/moderation.php';
 
 // Admin password — must be set in .env.php (no public fallback)

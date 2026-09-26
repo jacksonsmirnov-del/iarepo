@@ -14,11 +14,10 @@
 // alumnos trabajando, 8 visitas registradas.
 //
 // ── POR QUÉ UN ENDPOINT Y NO UN UPDATE EN LA PÁGINA ───────────
-//   1. resource/index.php emite HTML y está en quality/baseline_html_helpers.txt:
-//      carga helpers.php y con él error_handler.php, cuyos handlers hacen
-//      echo json_encode(...) + exit(1). Cualquier fallo escribiendo la visita
-//      sacaría la página a medio renderizar con un JSON incrustado — la trampa
-//      nº1 del CLAUDE.md. Con un beacon, la página no toca la BD para esto.
+//   1. resource/index.php emite HTML: cualquier fallo escribiendo la visita
+//      sacaría la página a medio renderizar (hasta 2026-09-26, cuando cargaba
+//      helpers.php, además con un JSON incrustado — la trampa nº1 del
+//      CLAUDE.md). Con un beacon, la página no toca la BD para esto.
 //   2. Contar por beacon FILTRA LOS BOTS, que no ejecutan JavaScript. Parte de
 //      las visitas históricas son crawlers; la métrica nueva nace limpia.
 //   3. Permite enriquecer la MISMA fila con el tiempo activo sin una segunda

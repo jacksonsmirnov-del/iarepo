@@ -170,3 +170,57 @@ function test_lang_no_imprime_aunque_intente_poner_la_cookie(): void
     assert_eq(0, $r['code'], 'no puede fallar: ' . trim($r['err']));
     assert_eq('FIN', $r['out'], 'lang() ha impreso algo antes de la página');
 }
+
+/**
+ * t() solo acepta un texto literal en PHP.
+ *
+ * El 2026-06-13 un reemplazo en bloque dejó `t(T.creating)` —la sintaxis del
+ * objeto T de JavaScript— dentro de un `<?= ?>` de dashboard/index.php. En PHP
+ * eso es la constante T concatenada con la constante creating: "Undefined
+ * constant T", error fatal, y el panel del autor murió tres meses sin que
+ * `php -l` ni ningún test lo notaran.
+ *
+ * Además, con un argumento que no es literal, la clave no se puede buscar en
+ * shared/i18n_en.php: se queda sin traducir en silencio. Se recorre con el
+ * tokenizador de PHP (no con regex) para no confundir `t(` con `->t(` o con
+ * texto dentro de cadenas y comentarios.
+ */
+function test_t_solo_acepta_literales_en_php(): void
+{
+    $out = [];
+    exec('git -C ' . escapeshellarg(IAREPO_ROOT) . ' ls-files "*.php"', $out, $rc);
+    assert_eq(0, $rc, 'git ls-files debe funcionar');
+
+    $malos = [];
+    foreach ($out as $rel) {
+        if (str_starts_with($rel, 'tests/'))
+            continue;   // los tests llaman a t($var) a propósito
+        $toks = token_get_all((string) file_get_contents(IAREPO_ROOT . '/' . $rel));
+        $n    = count($toks);
+        $sig  = static function (int $i, int $dir) use ($toks, $n): int {
+            for ($i += $dir; $i >= 0 && $i < $n; $i += $dir)
+                if (!is_array($toks[$i]) || !in_array($toks[$i][0], [T_WHITESPACE, T_COMMENT, T_DOC_COMMENT], true))
+                    return $i;
+            return -1;
+        };
+        for ($i = 0; $i < $n; $i++) {
+            $tk = $toks[$i];
+            if (!is_array($tk) || $tk[0] !== T_STRING || $tk[1] !== 't')
+                continue;
+            $prev = $sig($i, -1);
+            if ($prev >= 0 && is_array($toks[$prev])
+                && in_array($toks[$prev][0], [T_OBJECT_OPERATOR, T_NULLSAFE_OBJECT_OPERATOR, T_DOUBLE_COLON, T_FUNCTION], true))
+                continue;
+            $open = $sig($i, 1);
+            if ($open < 0 || $toks[$open] !== '(')
+                continue;
+            $arg  = $sig($open, 1);
+            $next = $arg >= 0 ? $sig($arg, 1) : -1;
+            $ok   = $arg >= 0 && is_array($toks[$arg]) && $toks[$arg][0] === T_CONSTANT_ENCAPSED_STRING
+                 && $next >= 0 && $toks[$next] === ')';
+            if (!$ok)
+                $malos[] = "$rel:{$tk[2]}";
+        }
+    }
+    assert_eq([], $malos, 't() con un argumento que no es un texto literal');
+}

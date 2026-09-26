@@ -313,4 +313,8 @@ return [
     'Uso iarepo como:' => 'I use iarepo as:',
     'Profesor' => 'Teacher',
     'Estudiante' => 'Student',
+
+    // Dashboard: estados de los botones de colección
+    '⏳ Creando...' => '⏳ Creating...',
+    '⏳ Guardando...' => '⏳ Saving...',
 ];

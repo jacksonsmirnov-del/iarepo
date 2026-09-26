@@ -6,7 +6,13 @@
 session_start();
 require_once __DIR__ . '/../shared/auth.php';
 require_once __DIR__ . '/../shared/db.php';
-require_once __DIR__ . '/../shared/helpers.php';
+// h() local — NO se carga shared/helpers.php: su error_handler vuelca JSON y
+// corta la página a medias ante cualquier error (CLAUDE.md §2.1).
+if (!function_exists('h')) {
+    function h(string $s): string {
+        return htmlspecialchars($s, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+    }
+}
 require_once __DIR__ . '/../shared/i18n.php';
 lang();
 
@@ -36,10 +42,9 @@ $resources = $stmt->fetchAll(PDO::FETCH_ASSOC);
 // fork_count. Una consulta de un milisegundo es mejor que un contador que
 // puede mentir.
 //
-// try/catch por lo de siempre: esta página está en
-// quality/baseline_html_helpers.txt, así que un ERROR 1054 sin capturar
-// —despliegue antes que migration_014— la sacaría a medio renderizar con un
-// JSON incrustado. Degradando a vacío, la sección simplemente no aparece.
+// try/catch por lo de siempre: un ERROR 1054 sin capturar —despliegue antes
+// que migration_014— sacaría la página a medio renderizar. Degradando a
+// vacío, la sección simplemente no aparece.
 $comprehension = [];
 try {
     if ($resources) {
@@ -434,9 +439,9 @@ a{color:var(--accent2);text-decoration:none}
 <script>
 const T = {
   nameRequired: <?= json_encode(t('El nombre es obligatorio')) ?>,
-  creating: <?= json_encode(t(T.creating)) ?>,
+  creating: <?= json_encode(t('⏳ Creando...')) ?>,
   createColl: <?= json_encode(t('Crear Colección')) ?>,
-  saving: <?= json_encode(t(T.saving)) ?>,
+  saving: <?= json_encode(t('⏳ Guardando...')) ?>,
   saveChanges: <?= json_encode(t('Guardar Cambios')) ?>,
   confirmDelColl: <?= json_encode(t('¿Eliminar la colección "%s"? Los recursos no se borrarán.')) ?>,
   confirmDelRes: <?= json_encode(t('¿Eliminar el recurso "%s"? Esta acción no se puede deshacer.')) ?>,
