@@ -573,4 +573,10 @@ return [
     'Siguiente paso de la lista' => 'Next step in the list',
     'Último paso de la lista' => 'Last step in the list',
     'Este enlace para darte de baja no es válido o ya caducó. Usa el del último correo que te hayamos enviado: cada correo trae el suyo.' => 'This unsubscribe link is not valid or has expired. Use the one in the latest email we sent you: every email has its own.',
+
+    // QR con logo e imagen para compartir (shared/ui.php, assets/js/ui.js)
+    'Escanéalo con la cámara: se abre sin registrarse.' => 'Scan it with your camera: it opens with no sign-up.',
+    'Simulaciones gratis de ciencias y matemáticas' => 'Free science and maths simulations',
+    'Imagen guardada: compártela donde quieras.' => 'Image saved: share it wherever you like.',
+    'Imagen para compartir' => 'Image to share',
 ];

@@ -231,7 +231,10 @@ function iarepo_cover(array $r, ?string $topic = null): string
 function iarepo_send_dialog(): void
 {
     ?>
-<dialog class="ia-dialog" id="ia-send" aria-labelledby="ia-send-title">
+<dialog class="ia-dialog" id="ia-send" aria-labelledby="ia-send-title"
+        data-img-scan="<?= iarepo_e(t('Escanéalo con la cámara: se abre sin registrarse.')) ?>"
+        data-img-footer="<?= iarepo_e(t('Simulaciones gratis de ciencias y matemáticas')) ?>"
+        data-img-saved="<?= iarepo_e(t('Imagen guardada: compártela donde quieras.')) ?>">
   <div class="ia-dialog-inner">
     <div class="ia-dialog-head">
       <div><h2 id="ia-send-title"><?= iarepo_e(t('Mandar a mis alumnos')) ?></h2><p class="ia-muted ia-small" data-send-name></p></div>
@@ -247,6 +250,7 @@ function iarepo_send_dialog(): void
     <div class="ia-dialog-actions">
       <button type="button" class="ia-btn ia-btn-primary" data-send-project><i data-lucide="presentation"></i><?= iarepo_e(t('Proyectar el código')) ?></button>
       <button type="button" class="ia-btn ia-btn-secondary" data-send-copy><i data-lucide="copy"></i><?= iarepo_e(t('Copiar enlace')) ?></button>
+      <button type="button" class="ia-btn ia-btn-secondary" data-send-image><i data-lucide="image-down"></i><?= iarepo_e(t('Imagen para compartir')) ?></button>
       <a class="ia-btn ia-btn-secondary" data-send-classroom target="_blank" rel="noopener"><i data-lucide="school"></i>Google Classroom</a>
     </div>
     <p class="ia-note"><i data-lucide="shield-check" style="width:16px;height:16px;vertical-align:-3px"></i> <?= iarepo_e(t('Tus alumnos no necesitan cuenta ni correo para abrirlo.')) ?></p>

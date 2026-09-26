@@ -251,3 +251,55 @@ function test_la_captura_real_se_usa_si_existe_y_si_no_la_portada_generativa(): 
         . ']));';
     assert_eq('[true,false,false,false]', trim((string) shell_exec('node -e ' . escapeshellarg($js) . ' 2>&1')));
 }
+
+/**
+ * QR con el logo de iarepo en el centro [2026-09].
+ *
+ * El logo tapa módulos del código: se puede porque el QR se genera con el
+ * nivel de corrección H (se recupera hasta ~30 % de los datos). Si alguien
+ * baja el nivel o agranda el logo, el QR deja de leerse en los móviles de los
+ * alumnos sin que nada falle en el servidor. Se comprobó con un lector real
+ * (jsQR) sobre capturas y sobre la imagen para compartir; aquí se fija lo que
+ * lo hace posible: nivel H, hueco centrado y ≤ 10 % de la superficie para
+ * direcciones cortas y largas, y el logo con los colores del fichero real.
+ */
+function test_el_qr_lleva_el_logo_sin_dejar_de_leerse(): void
+{
+    $js = (string) file_get_contents(IAREPO_ROOT . '/assets/js/ui.js');
+    assert_contains("window.qrcode(0, 'H')", $js, 'el QR con logo necesita el nivel de corrección H');
+
+    $svg = (string) file_get_contents(IAREPO_ROOT . '/assets/img/logo-icon.svg');
+    preg_match_all('/stop-color="(#[0-9a-f]{6})"/i', $svg, $m);
+    foreach ($m[1] as $color)
+        assert_contains(strtolower($color), strtolower($js), "el logo del QR usa el color $color de assets/img/logo-icon.svg");
+
+    $ui = (string) file_get_contents(IAREPO_ROOT . '/shared/ui.php');
+    assert_contains('data-send-image', $ui, 'el diálogo ofrece la imagen para compartir');
+    assert_contains('data-img-footer', $ui, 'con sus textos puestos por la página (t())');
+
+    exec('command -v node 2>/dev/null', $o, $rc);
+    if ($rc !== 0) {
+        echo "    SKIP node no está instalado\n";
+        return;
+    }
+    $urls = ['https://iarepo.com/view/7', 'https://iarepo.com/view/12345',
+             'https://iarepo.com/collection/?id=12345',
+             'https://resources.claseprivada.com/collection/?id=99999&list=1'];
+    $code = 'global.window = {}; global.document = { readyState: "complete", addEventListener(){} };'
+          . 'window.qrcode = require(' . json_encode(IAREPO_ROOT . '/assets/js/qrcode.js') . ');'
+          . 'require(' . json_encode(IAREPO_ROOT . '/assets/js/ui.js') . ');'
+          . 'const out = ' . json_encode($urls) . '.map(u => {'
+          . '  const svg = window.IA._qr.svg(u); const [box, n] = svg.match(/data-qr-hole="(\d+)\/(\d+)"/).slice(1).map(Number);'
+          . '  return {u, box, n, logo: svg.includes("linearGradient")}; });'
+          . 'process.stdout.write(JSON.stringify(out));';
+    $res = json_decode((string) shell_exec('node -e ' . escapeshellarg($code) . ' 2>&1'), true);
+    assert_true(is_array($res) && count($res) === count($urls), 'el QR se genera en node para todas las direcciones');
+    foreach ($res as $r) {
+        subtest($r['u'], static function () use ($r): void {
+            assert_true($r['logo'], 'lleva el logo');
+            assert_eq($r['n'] % 2, $r['box'] % 2, 'el hueco queda centrado en la rejilla de módulos');
+            assert_true(($r['box'] * $r['box']) / ($r['n'] * $r['n']) <= 0.10,
+                "el logo tapa {$r['box']}×{$r['box']} de {$r['n']}×{$r['n']} módulos: más del 10 % pone en riesgo la lectura");
+        });
+    }
+}

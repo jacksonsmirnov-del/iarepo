@@ -962,7 +962,7 @@ implementación de cada cosa:
 | Estilos | `assets/css/app.css` | tokens `--ia-*` (contraste AA medido), modo oscuro, color por materia (`.s-<slug>`), componentes `.ia-*` |
 | Tema | `assets/js/theme.js` (en el `<head>`) | aplica el tema antes de pintar; `[data-theme-toggle]` lo cambia |
 | Comportamiento | `assets/js/ui.js` (`window.IA`) | `IA.esc` (escapa también `'`), `IA.toast`, `IA.cover`, `IA.openSend`, menú móvil |
-| QR | `assets/js/qrcode.js` | qrcode-generator 1.4.4 (MIT), auto-alojado; el QR se genera en el navegador |
+| QR | `assets/js/qrcode.js` + `IA.openSend` | qrcode-generator 1.4.4 (MIT), auto-alojado; el QR se genera en el navegador. **Lleva el logo de iarepo en el centro** (nivel de corrección H; el hueco tapa ≤ 10 % de los módulos, fijado por `tests/unit/labels_test.php` y verificado con un lector real) y el diálogo ofrece una **imagen para compartir** (1080×1350: marca, título, QR y dominio) que en el móvil abre la hoja de compartir del sistema y en el ordenador se descarga |
 | Componentes PHP | `shared/ui.php` | `iarepo_head_assets()`, `iarepo_pwa_script()` (§6.3), `iarepo_header()`, `iarepo_footer()`, `iarepo_cover()`, `iarepo_card_meta()` (línea «fuente · curso · idioma» de perfil, lista y Guardados, dentro de `.ia-cards-meta`), `iarepo_send_dialog()`, `iarepo_body_assets()` |
 | Etiquetas | `shared/labels.php` | categoría, nivel con edades, fuente (deducida del dominio si falta y, en un `url` sin `source_url`, de su propia dirección), cómo se abre, idioma, tema (`topic_label`: el primero de `topic_tag`), `iarepo_num()` (miles según el idioma) y los umbrales públicos `IAREPO_PROOF_MIN_*` — con `t()` |
 | Versión de assets | `shared/asset.php` | `iarepo_asset()` → `?v=<hash>` (§6.3) |
