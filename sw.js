@@ -7,7 +7,10 @@
 // - Never caches /api/ (always fresh data) or non-GET requests.
 // ================================================================
 
-const CACHE = 'iarepo-v1';
+// v2 (2026-09-26): los assets propios van ya versionados (?v=hash, shared/asset.php).
+// Subir la versión tira la caché vieja, con copias sin versión que nunca se
+// habrían vuelto a pedir.
+const CACHE = 'iarepo-v2';
 const SHELL = [
   '/',
   '/favicon.svg',

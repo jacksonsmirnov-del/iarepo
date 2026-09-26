@@ -24,6 +24,7 @@ require_once __DIR__ . '/../shared/moderation.php';
 require_once __DIR__ . '/../shared/notify.php';
 require_once __DIR__ . '/../shared/search.php';
 require_once __DIR__ . '/../shared/access.php';
+require_once __DIR__ . '/../shared/labels.php';
 
 cors();
 
@@ -76,7 +77,7 @@ if ($method === 'GET') {
         $tags->execute([$id]);
         $resource['tags'] = $tags->fetchAll(PDO::FETCH_COLUMN);
 
-        json_ok(['resource' => $resource]);
+        json_ok(['resource' => iarepo_with_labels($resource)]);
     }
 
     // List resources with filters
@@ -243,18 +244,29 @@ if ($method === 'GET') {
         $res['tags'] = $res['tags_csv'] ? explode(',', $res['tags_csv']) : [];
         unset($res['tags_csv']);
         unset($res['_relevance']); // detalle interno: no ensucia el JSON
+        // Etiquetas ya calculadas y traducidas (shared/labels.php): campos
+        // NUEVOS, así que Campus no nota nada; la portada no duplica lógica.
+        $res = iarepo_with_labels($res);
     }
     unset($res);
 
-    // Get categories for filter UI
+    // Get categories for filter UI.
+    // El recuento excluye los enlaces rotos, igual que el listado: antes la
+    // píldora prometía más recursos de los que luego aparecían.
     $categories = $db->query("
         SELECT c.id, c.name, c.slug, c.icon, COUNT(r.id) AS resource_count
         FROM categories c
         LEFT JOIN resources r ON r.category_id = c.id AND r.is_active = 1 AND r.visibility = 'community'
+             AND (r.link_status IS NULL OR r.link_status != 'broken')
         WHERE c.is_active = 1
         GROUP BY c.id
         ORDER BY c.display_order
     ")->fetchAll();
+    foreach ($categories as &$cat) {
+        $cat['label']         = iarepo_category_label($cat['slug'], $cat['name']);
+        $cat['subject_class'] = iarepo_subject_class($cat['slug']);
+    }
+    unset($cat);
 
     json_ok([
         'resources' => $resources,

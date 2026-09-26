@@ -1,0 +1,434 @@
+/* ================================================================
+   assets/css/app.css — Sistema de diseño compartido de iarepo
+   ================================================================
+
+   UNA sola hoja para todas las páginas. Antes, 13 páginas llevaban su propio
+   <style> con 10 copias casi iguales de :root: cambiar un color era tocar 13
+   ficheros, y cada copia se desviaba un poco.
+
+   CONVENCIONES
+   · Tokens con prefijo --ia-* y clases con prefijo .ia-*: conviven sin
+     pisarse con el CSS que aún quede inline en alguna página.
+   · Se carga con iarepo_asset() (shared/asset.php), que añade ?v=<hash>:
+     el service worker cachea los assets por URL, así que sin versión un
+     cambio aquí no le llegaría a quien ya visitó la web.
+   · Contraste medido (WCAG 2.1 AA, 4,5:1 para texto normal). Si cambias un
+     color, vuelve a medirlo: el gris anterior de metadatos daba 2,45:1.
+   · Pensado para proyector: bordes de 2 px en los controles, foco con halo
+     visible, objetivos táctiles de 44–48 px y ningún texto por debajo de 13 px.
+   · Modo oscuro: [data-theme="dark"] (elección de la persona, la guarda
+     assets/js/theme.js) o, si no eligió, el del sistema.
+
+   ÍNDICE
+     1. Tokens (claro, oscuro, materias)      6. Tarjetas y portadas
+     2. Base                                  7. Diálogo y aviso (toast)
+     3. Disposición                           8. Cabecera y pie
+     4. Botones                               9. Utilidades
+     5. Chips, etiquetas y filtros
+   ================================================================ */
+
+/* ── 1. Tokens ─────────────────────────────────────────────────── */
+:root {
+  color-scheme: light;
+  --ia-bg: #F6F7F9;
+  --ia-surface: #FFFFFF;
+  --ia-surface-2: #EEF0F3;
+  --ia-line: #E1E4EA;
+  --ia-line-strong: #CBD0D8;
+  --ia-ink: #11141A;          /* 17,6:1 sobre --ia-bg */
+  --ia-ink-2: #444C5A;        /*  8,1:1 */
+  --ia-ink-3: #5F6776;        /*  5,3:1 — el mínimo para metadatos */
+  --ia-accent: #6D28D9;       /*  6,6:1 — violeta del logo: acciones y enlaces */
+  --ia-accent-hover: #5B21B6;
+  --ia-accent-soft: #F0EAFE;
+  --ia-on-accent: #FFFFFF;
+  --ia-ok: #15803D;           /*  5,0:1 */
+  --ia-ok-soft: #E7F6EC;
+  --ia-warn-soft: #FFF3D1;
+  --ia-warn-ink: #7A5200;
+  --ia-danger: #B91C1C;
+  --ia-halo: #FFD400;         /* solo halo de foco, nunca texto (1,4:1) */
+
+  --ia-font: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", "Helvetica Neue", Arial, sans-serif;
+  --ia-mono: ui-monospace, "Cascadia Mono", Menlo, Consolas, monospace;
+
+  --ia-radius-sm: 8px;
+  --ia-radius: 12px;
+  --ia-radius-lg: 18px;
+  --ia-shadow: 0 1px 2px rgba(17, 20, 26, .06), 0 1px 3px rgba(17, 20, 26, .05);
+  --ia-shadow-lg: 0 12px 32px rgba(17, 20, 26, .14);
+  --ia-gutter: 16px;
+  --ia-max: 1200px;
+  --ia-tap: 44px;
+
+  /* Materia por defecto (la sobreescribe .s-<slug>) */
+  --subj: #52525B;
+  --subj-soft: #EFEFF1;
+  --subj-ink: #3F3F46;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --ia-bg: #0D1015;
+  --ia-surface: #151922;
+  --ia-surface-2: #1C212B;
+  --ia-line: #262C37;
+  --ia-line-strong: #353D4B;
+  --ia-ink: #ECEFF4;
+  --ia-ink-2: #B7BECA;
+  --ia-ink-3: #8B94A4;        /* 6,2:1 sobre --ia-bg oscuro */
+  --ia-accent: #A78BFA;       /* 7,0:1 */
+  --ia-accent-hover: #C4B5FD;
+  --ia-accent-soft: #231A3D;
+  --ia-on-accent: #160E2E;
+  --ia-ok: #4ADE80;
+  --ia-ok-soft: #10281A;
+  --ia-warn-soft: #2E2408;
+  --ia-warn-ink: #FCD34D;
+  --ia-danger: #F87171;
+  --ia-shadow: 0 1px 2px rgba(0, 0, 0, .4);
+  --ia-shadow-lg: 0 12px 32px rgba(0, 0, 0, .5);
+  --subj-soft: #23232A;
+  --subj-ink: #D4D4D8;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    color-scheme: dark;
+    --ia-bg: #0D1015; --ia-surface: #151922; --ia-surface-2: #1C212B;
+    --ia-line: #262C37; --ia-line-strong: #353D4B;
+    --ia-ink: #ECEFF4; --ia-ink-2: #B7BECA; --ia-ink-3: #8B94A4;
+    --ia-accent: #A78BFA; --ia-accent-hover: #C4B5FD; --ia-accent-soft: #231A3D; --ia-on-accent: #160E2E;
+    --ia-ok: #4ADE80; --ia-ok-soft: #10281A; --ia-warn-soft: #2E2408; --ia-warn-ink: #FCD34D; --ia-danger: #F87171;
+    --ia-shadow: 0 1px 2px rgba(0, 0, 0, .4); --ia-shadow-lg: 0 12px 32px rgba(0, 0, 0, .5);
+    --subj-soft: #23232A; --subj-ink: #D4D4D8;
+  }
+}
+
+/* Materias. Texto blanco sobre --subj ≥ 5:1 en todas (medido).
+   El slug es el de la tabla categories; shared/labels.php y assets/js/ui.js
+   hacen el mismo mapeo. Añadir una materia = añadir una línea aquí. */
+.s-physics          { --subj: #1D4ED8; --subj-soft: #E6EEFE; --subj-ink: #1E40AF; }
+.s-mathematics      { --subj: #C2410C; --subj-soft: #FDEEE6; --subj-ink: #9A3412; }
+.s-chemistry        { --subj: #0F766E; --subj-soft: #E2F4F2; --subj-ink: #115E59; }
+.s-biology          { --subj: #4D7C0F; --subj-soft: #EEF6E3; --subj-ink: #3F6212; }
+.s-space-astronomy  { --subj: #312E81; --subj-soft: #EAE9F8; --subj-ink: #312E81; }
+.s-social-studies   { --subj: #92400E; --subj-soft: #FBF0E6; --subj-ink: #92400E; }
+.s-computer-science { --subj: #334155; --subj-soft: #EDF0F4; --subj-ink: #334155; }
+.s-languages        { --subj: #BE185D; --subj-soft: #FCE8F1; --subj-ink: #9D174D; }
+.s-art-music        { --subj: #A21CAF; --subj-soft: #F8E8FA; --subj-ink: #86198F; }
+.s-health-pe        { --subj: #B91C1C; --subj-soft: #FCE9E9; --subj-ink: #991B1B; }
+.s-ai-prompts       { --subj: #6D28D9; --subj-soft: #F0EAFE; --subj-ink: #5B21B6; }
+.s-general          { --subj: #52525B; --subj-soft: #EFEFF1; --subj-ink: #3F3F46; }
+:root[data-theme="dark"] [class*=" s-"], :root[data-theme="dark"] [class^="s-"] { --subj-soft: #1C212B; --subj-ink: #D4D8E0; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) [class*=" s-"], :root:not([data-theme]) [class^="s-"] { --subj-soft: #1C212B; --subj-ink: #D4D8E0; }
+}
+
+/* ── 2. Base ───────────────────────────────────────────────────── */
+.ia-page, .ia-page *, .ia-page *::before, .ia-page *::after { box-sizing: border-box; }
+.ia-page {
+  margin: 0;
+  font-family: var(--ia-font);
+  font-size: 1rem;
+  line-height: 1.55;
+  color: var(--ia-ink);
+  background: var(--ia-bg);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+.ia-page a { color: var(--ia-accent); text-underline-offset: 2px; }
+.ia-page a:hover { color: var(--ia-accent-hover); }
+.ia-page h1, .ia-page h2, .ia-page h3 { line-height: 1.15; letter-spacing: -.015em; margin: 0 0 .4em; color: var(--ia-ink); }
+.ia-page h1 { font-size: clamp(2rem, 1.4rem + 2.6vw, 3.1rem); font-weight: 800; letter-spacing: -.025em; }
+.ia-page h2 { font-size: clamp(1.3rem, 1.1rem + .8vw, 1.75rem); font-weight: 750; }
+.ia-page h3 { font-size: 1.1rem; font-weight: 700; }
+.ia-page p { margin: 0 0 1em; }
+.ia-page img, .ia-page svg { max-width: 100%; }
+
+/* Foco visible y gordo: se ve en un proyector y con teclado. */
+.ia-page :focus-visible {
+  outline: 3px solid var(--ia-accent);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 6px color-mix(in srgb, var(--ia-halo) 70%, transparent);
+  border-radius: 6px;
+}
+@supports not (color: color-mix(in srgb, red 50%, blue)) {
+  .ia-page :focus-visible { box-shadow: 0 0 0 6px rgba(255, 212, 0, .7); }
+}
+
+.ia-eyebrow {
+  font-size: .8rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--ia-ink-3); margin: 0 0 .5rem;
+}
+.ia-muted { color: var(--ia-ink-3); }
+.ia-small { font-size: .875rem; }
+
+/* ── 3. Disposición ────────────────────────────────────────────── */
+.ia-container { width: 100%; max-width: var(--ia-max); margin: 0 auto; padding: 0 var(--ia-gutter); }
+.ia-section { padding: 28px 0; }
+.ia-section-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; margin-bottom: 14px; flex-wrap: wrap; }
+.ia-section-head h2 { margin: 0; }
+.ia-grid { display: grid; gap: 16px; grid-template-columns: 1fr; }
+@media (min-width: 560px) { .ia-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (min-width: 900px) { .ia-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (min-width: 1180px) { .ia-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+@media (min-width: 720px) { :root { --ia-gutter: 24px; } }
+
+/* ── 4. Botones ────────────────────────────────────────────────── */
+.ia-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  min-height: var(--ia-tap); padding: 10px 18px;
+  font: 600 .95rem/1.2 var(--ia-font);
+  border-radius: 999px; border: 2px solid transparent;
+  cursor: pointer; text-decoration: none; white-space: nowrap;
+  transition: background-color .15s, border-color .15s, color .15s, transform .15s;
+}
+.ia-page .ia-btn { text-decoration: none; }
+.ia-btn svg { width: 18px; height: 18px; flex: none; }
+.ia-btn:active { transform: translateY(1px); }
+.ia-btn[disabled], .ia-btn[aria-disabled="true"] { opacity: .55; cursor: not-allowed; }
+.ia-btn-primary { background: var(--ia-accent); color: var(--ia-on-accent); }
+.ia-page .ia-btn-primary, .ia-page .ia-btn-primary:hover { color: var(--ia-on-accent); }
+.ia-btn-primary:hover { background: var(--ia-accent-hover); }
+.ia-btn-secondary { background: var(--ia-surface); color: var(--ia-ink); border-color: var(--ia-line-strong); }
+.ia-page .ia-btn-secondary { color: var(--ia-ink); }
+.ia-btn-secondary:hover { border-color: var(--ia-ink); }
+.ia-btn-ghost { background: transparent; color: var(--ia-ink-2); }
+.ia-page .ia-btn-ghost { color: var(--ia-ink-2); }
+.ia-btn-ghost:hover { background: var(--ia-surface-2); color: var(--ia-ink); }
+.ia-btn-lg { min-height: 52px; padding: 12px 24px; font-size: 1.05rem; }
+.ia-btn-sm { min-height: 36px; padding: 6px 12px; font-size: .875rem; }
+.ia-btn-icon { width: var(--ia-tap); padding: 0; }
+.ia-btn.is-on { background: var(--ia-accent-soft); border-color: var(--ia-accent); color: var(--ia-accent); }
+
+/* ── 5. Chips, etiquetas y filtros ─────────────────────────────── */
+.ia-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.ia-chips-scroll { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: thin; padding-bottom: 4px; }
+.ia-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  min-height: 40px; padding: 6px 14px;
+  font: 600 .9rem/1.2 var(--ia-font); color: var(--ia-ink);
+  background: var(--ia-surface); border: 2px solid var(--ia-line); border-radius: 999px;
+  cursor: pointer; white-space: nowrap; text-decoration: none;
+}
+.ia-chip:hover { border-color: var(--ia-line-strong); }
+.ia-chip[aria-pressed="true"], .ia-chip.is-active { background: var(--ia-ink); border-color: var(--ia-ink); color: var(--ia-bg); }
+.ia-chip .ia-count { font-weight: 500; color: var(--ia-ink-3); font-variant-numeric: tabular-nums; }
+.ia-chip[aria-pressed="true"] .ia-count, .ia-chip.is-active .ia-count { color: inherit; opacity: .75; }
+.ia-chip .ia-dot { width: 10px; height: 10px; border-radius: 3px; background: var(--subj); flex: none; }
+
+.ia-tag {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px 8px; border-radius: 6px;
+  font-size: .8125rem; font-weight: 600; line-height: 1.5;
+  background: var(--ia-surface-2); color: var(--ia-ink-2);
+}
+.ia-tag-subject { background: var(--subj-soft); color: var(--subj-ink); }
+.ia-tag-ok { background: var(--ia-ok-soft); color: var(--ia-ok); }
+.ia-tag-new { background: var(--ia-warn-soft); color: var(--ia-warn-ink); }
+
+.ia-filters { display: grid; gap: 10px; }
+.ia-filter-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.ia-filter-label { font-size: .8125rem; font-weight: 700; color: var(--ia-ink-3); min-width: 5.5em; }
+.ia-select, .ia-input {
+  min-height: var(--ia-tap); padding: 8px 14px;
+  font: 500 .95rem/1.2 var(--ia-font); color: var(--ia-ink);
+  background: var(--ia-surface); border: 2px solid var(--ia-line-strong); border-radius: 12px;
+}
+.ia-input::placeholder { color: var(--ia-ink-3); }
+
+.ia-search {
+  display: flex; align-items: center; gap: 10px;
+  min-height: 56px; padding: 6px 6px 6px 18px;
+  background: var(--ia-surface); border: 2px solid var(--ia-line-strong); border-radius: 999px;
+  box-shadow: var(--ia-shadow);
+}
+.ia-search:focus-within { border-color: var(--ia-accent); }
+.ia-search input {
+  flex: 1; min-width: 0; border: 0; outline: 0; background: transparent;
+  font: 500 1.05rem/1.3 var(--ia-font); color: var(--ia-ink);
+}
+.ia-search input::placeholder { color: var(--ia-ink-3); }
+.ia-search svg { width: 20px; height: 20px; color: var(--ia-ink-3); flex: none; }
+
+/* ── 6. Tarjetas y portadas ────────────────────────────────────── */
+.ia-card {
+  position: relative; display: flex; flex-direction: column;
+  background: var(--ia-surface); border: 1px solid var(--ia-line); border-radius: var(--ia-radius);
+  overflow: hidden; box-shadow: var(--ia-shadow);
+  transition: border-color .15s, box-shadow .15s, transform .15s;
+}
+.ia-card:hover { border-color: var(--ia-line-strong); box-shadow: var(--ia-shadow-lg); transform: translateY(-2px); }
+.ia-card-link { position: absolute; inset: 0; z-index: 1; border-radius: inherit; }
+.ia-card-body { display: flex; flex-direction: column; gap: 6px; padding: 12px 14px 14px; flex: 1; }
+.ia-card-title { font-size: 1.02rem; font-weight: 700; line-height: 1.3; margin: 0; color: var(--ia-ink);
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.ia-card-desc { font-size: .9rem; color: var(--ia-ink-2); margin: 0;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.ia-card-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin-top: auto; padding-top: 6px;
+  font-size: .8125rem; color: var(--ia-ink-3); }
+.ia-card-meta .ia-lang-es { color: var(--ia-ok); font-weight: 600; }
+.ia-card-actions { position: relative; z-index: 2; display: flex; gap: 6px; }
+.ia-card-fav { position: absolute; top: 10px; right: 10px; z-index: 2; }
+
+/* Portada generativa: color de la materia + icono + sello de la fuente.
+   Sin capturas: se ve bien aunque el recurso no tenga miniatura, en claro,
+   en oscuro y en un proyector. Mismo marcado en PHP (shared/ui.php) y JS
+   (assets/js/ui.js → IA.cover). */
+.ia-cover {
+  position: relative; aspect-ratio: 16 / 9; overflow: hidden;
+  background:
+    radial-gradient(circle at 78% 42%, rgba(255, 255, 255, .22) 0 18%, transparent 18.5%),
+    radial-gradient(circle at 78% 42%, rgba(255, 255, 255, .10) 0 30%, transparent 30.5%),
+    linear-gradient(135deg, var(--subj), color-mix(in srgb, var(--subj) 72%, #000));
+  color: #fff;
+}
+@supports not (color: color-mix(in srgb, red 50%, blue)) {
+  .ia-cover { background: var(--subj); }
+}
+:root[data-theme="dark"] .ia-cover { box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .08); }
+.ia-cover-icon { position: absolute; right: 12%; top: 50%; transform: translate(35%, -50%); width: 30%; max-width: 88px; height: auto; opacity: .95; }
+.ia-cover-icon svg { width: 100%; height: auto; stroke-width: 1.6; }
+.ia-cover-source {
+  position: absolute; left: 10px; top: 10px;
+  display: inline-flex; align-items: center; gap: 6px; max-width: calc(100% - 64px);
+  padding: 3px 10px 3px 4px; border-radius: 999px;
+  background: rgba(255, 255, 255, .94); color: #11141A;
+  font-size: .78rem; font-weight: 700; line-height: 1.4; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ia-cover-mono {
+  display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%;
+  background: var(--subj); color: #fff; font-size: .65rem; font-weight: 800; letter-spacing: -.02em; flex: none;
+}
+.ia-cover-topic {
+  position: absolute; left: 12px; bottom: 10px; right: 40%;
+  font-size: .8rem; font-weight: 800; letter-spacing: .06em; text-transform: uppercase;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, .25);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ia-cover-badge {
+  position: absolute; right: 10px; bottom: 10px;
+  padding: 2px 8px; border-radius: 999px; font-size: .75rem; font-weight: 700;
+  background: rgba(17, 20, 26, .72); color: #fff;
+}
+
+/* Tarjeta en fila (lista compacta): miniatura cuadrada + texto. En móvil
+   multiplica por 2,5 lo que cabe en pantalla frente a la tarjeta alta. */
+.ia-row { display: flex; align-items: center; gap: 12px; padding: 10px; position: relative;
+  background: var(--ia-surface); border: 1px solid var(--ia-line); border-radius: var(--ia-radius); }
+.ia-row .ia-cover { aspect-ratio: 1; width: 64px; flex: none; border-radius: 10px; }
+.ia-row .ia-cover-icon { right: 50%; transform: translate(50%, -50%); width: 55%; }
+.ia-row .ia-cover-source, .ia-row .ia-cover-topic, .ia-row .ia-cover-badge { display: none; }
+.ia-row-body { min-width: 0; flex: 1; }
+.ia-row-title { margin: 0; font-size: .98rem; font-weight: 700; line-height: 1.3; color: var(--ia-ink);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ia-row-meta { font-size: .8125rem; color: var(--ia-ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+@media (max-width: 559px) {
+  .ia-grid-rows-mobile { gap: 10px; }
+  .ia-grid-rows-mobile .ia-card { flex-direction: row; align-items: stretch; }
+  .ia-grid-rows-mobile .ia-card .ia-cover { aspect-ratio: auto; width: 104px; min-height: 104px; flex: none; }
+  .ia-grid-rows-mobile .ia-card .ia-cover-icon { right: 50%; transform: translate(50%, -50%); width: 52%; }
+  .ia-grid-rows-mobile .ia-card .ia-cover-source, .ia-grid-rows-mobile .ia-card .ia-cover-topic { display: none; }
+  .ia-grid-rows-mobile .ia-card .ia-card-desc { -webkit-line-clamp: 2; }
+  .ia-grid-rows-mobile .ia-card:hover { transform: none; }
+}
+
+/* Estado vacío honesto: dice qué pasa y qué puedes hacer. */
+.ia-empty { text-align: center; padding: 40px 16px; color: var(--ia-ink-2); }
+.ia-empty h3 { font-size: 1.15rem; }
+
+/* ── 7. Diálogo y aviso (toast) ────────────────────────────────── */
+.ia-dialog {
+  width: min(560px, calc(100vw - 24px)); max-height: calc(100vh - 32px);
+  padding: 0; border: 0; border-radius: var(--ia-radius-lg);
+  background: var(--ia-surface); color: var(--ia-ink); box-shadow: var(--ia-shadow-lg);
+}
+.ia-dialog::backdrop { background: rgba(13, 16, 21, .55); }
+.ia-dialog-inner { padding: 22px; }
+.ia-dialog-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.ia-dialog-head h2 { margin: 0; font-size: 1.35rem; }
+.ia-dialog-close { flex: none; }
+.ia-qr { display: grid; gap: 18px; grid-template-columns: 1fr; align-items: center; }
+@media (min-width: 520px) { .ia-qr { grid-template-columns: 200px 1fr; } }
+.ia-qr-code { background: #fff; border: 2px solid #11141A; border-radius: 14px; padding: 10px; width: 200px; max-width: 100%; margin: 0 auto; }
+.ia-qr-code svg { display: block; width: 100%; height: auto; }
+.ia-steps { margin: 0; padding: 0; list-style: none; display: grid; gap: 12px; }
+.ia-steps li { display: grid; grid-template-columns: 28px 1fr; gap: 10px; align-items: start; }
+.ia-step-n { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%;
+  background: var(--ia-ink); color: var(--ia-bg); font-weight: 800; font-size: .85rem; }
+.ia-shorturl { font-family: var(--ia-mono); font-size: 1.05rem; font-weight: 600; background: var(--ia-surface-2);
+  padding: 8px 12px; border-radius: 10px; word-break: break-all; }
+.ia-dialog-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 18px; }
+.ia-note { font-size: .85rem; color: var(--ia-ink-3); margin-top: 14px; }
+
+/* QR a pantalla completa para proyectarlo. */
+.ia-qr-full { position: fixed; inset: 0; z-index: 1000; display: none; place-items: center; background: #fff; color: #11141A; padding: 24px; }
+.ia-qr-full.is-open { display: grid; }
+.ia-qr-full .ia-qr-code { width: min(70vh, 80vw); border-width: 0; }
+.ia-qr-full p { font: 700 clamp(1.2rem, 1rem + 1.5vw, 2.2rem)/1.3 var(--ia-font); text-align: center; margin: 12px 0 0; }
+
+.ia-toast {
+  position: fixed; left: 50%; bottom: 24px; z-index: 1100; transform: translate(-50%, 20px);
+  max-width: calc(100vw - 32px); padding: 12px 18px; border-radius: 12px;
+  background: var(--ia-ink); color: var(--ia-bg); font-weight: 600; box-shadow: var(--ia-shadow-lg);
+  opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s;
+}
+.ia-toast.is-on { opacity: 1; transform: translate(-50%, 0); }
+
+/* ── 8. Cabecera y pie ─────────────────────────────────────────── */
+.ia-header { position: sticky; top: 0; z-index: 50; background: color-mix(in srgb, var(--ia-bg) 92%, transparent);
+  -webkit-backdrop-filter: saturate(1.4) blur(8px); backdrop-filter: saturate(1.4) blur(8px);
+  border-bottom: 1px solid var(--ia-line); }
+@supports not (color: color-mix(in srgb, red 50%, blue)) { .ia-header { background: var(--ia-bg); } }
+.ia-header-inner { display: flex; align-items: center; gap: 12px; min-height: 64px; }
+.ia-logo { display: inline-flex; align-items: center; gap: 8px; font-weight: 800; font-size: 1.15rem; color: var(--ia-ink); text-decoration: none; }
+.ia-page .ia-logo { color: var(--ia-ink); text-decoration: none; }
+.ia-logo img { width: 30px; height: 30px; }
+.ia-nav { display: none; align-items: center; gap: 4px; margin-left: 12px; }
+.ia-nav a { padding: 8px 12px; border-radius: 10px; font-weight: 600; font-size: .95rem; color: var(--ia-ink-2); text-decoration: none; }
+.ia-page .ia-nav a { color: var(--ia-ink-2); text-decoration: none; }
+.ia-nav a:hover, .ia-nav a[aria-current="page"] { color: var(--ia-ink); background: var(--ia-surface-2); }
+.ia-header-tools { margin-left: auto; display: flex; align-items: center; gap: 6px; }
+.ia-avatar { width: 32px; height: 32px; border-radius: 50%; object-fit: cover; }
+.ia-menu-btn { display: inline-flex; }
+.ia-mobile-nav { display: none; border-top: 1px solid var(--ia-line); padding: 8px 0 12px; }
+.ia-mobile-nav.is-open { display: grid; gap: 2px; }
+.ia-mobile-nav a { padding: 12px 8px; font-weight: 600; color: var(--ia-ink); text-decoration: none; border-radius: 10px; }
+.ia-page .ia-mobile-nav a { color: var(--ia-ink); text-decoration: none; }
+.ia-mobile-nav a:hover { background: var(--ia-surface-2); }
+@media (min-width: 900px) {
+  .ia-nav { display: flex; }
+  .ia-menu-btn, .ia-mobile-nav, .ia-mobile-nav.is-open { display: none; }
+}
+@media (max-width: 480px) { .ia-hide-xs { display: none !important; } }
+
+.ia-footer { margin-top: 48px; padding: 32px 0 40px; border-top: 1px solid var(--ia-line); color: var(--ia-ink-3); font-size: .9rem; }
+.ia-footer-inner { display: grid; gap: 14px; }
+.ia-footer-links { display: flex; flex-wrap: wrap; gap: 6px 16px; }
+.ia-footer a { color: var(--ia-ink-2); }
+.ia-cta-band { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 18px; border-radius: var(--ia-radius); background: var(--ia-accent-soft); color: var(--ia-ink); }
+.ia-cta-band p { margin: 0; font-weight: 600; }
+
+/* ── 9. Utilidades ─────────────────────────────────────────────── */
+.ia-sr-only { position: absolute !important; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+.ia-stack { display: grid; gap: 12px; }
+.ia-row-gap { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.ia-hidden { display: none !important; }
+@media (prefers-reduced-motion: reduce) {
+  .ia-page *, .ia-page *::before, .ia-page *::after { transition: none !important; animation: none !important; }
+}
+@media print {
+  .ia-header, .ia-footer, .ia-toast, .ia-card-fav { display: none !important; }
+  .ia-page { background: #fff; color: #000; }
+}
+
+/* Icono del conmutador de tema: luna en claro, sol en oscuro. */
+.ia-when-dark { display: none; }
+:root[data-theme="dark"] .ia-when-dark { display: inline-block; }
+:root[data-theme="dark"] .ia-when-light { display: none; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) .ia-when-dark { display: inline-block; }
+  :root:not([data-theme]) .ia-when-light { display: none; }
+}

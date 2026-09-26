@@ -111,3 +111,8 @@ tests/integration/authorization_test.php
 # (se sirve un 500 limpio con código de referencia), los avisos no se enseñan
 # pero quedan en el log, y TODA página HTML carga shared/page_errors.php.
 tests/unit/page_errors_test.php
+
+# labels_test.php: etiquetas visibles (categorías en español, niveles con edad,
+# fuente deducida del dominio, ningún tipo en crudo), versionado de assets y
+# IA.esc escapando la comilla simple.
+tests/unit/labels_test.php
