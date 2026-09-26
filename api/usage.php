@@ -201,8 +201,26 @@ if ($method === 'GET') {
     foreach ($sum->fetchAll() as $row)
         $summary[$row['usage_type']] = (int)$row['n'];
 
-    if (!$isAuthor && !$isSuper)
-        json_ok(['usage' => [], 'summary' => $summary]);
+    // Un docente de Campus ve quién lo usó en SU centro (sus compañeros), nunca
+    // en otros: la fuga era entre centros. Con tenant 0 (cuentas de Google,
+    // que no tienen centro: tenant 0 es «cualquiera») no hay compañeros que
+    // enseñar. El autor y el superadmin lo ven todo.
+    $myTenant = (int)($user['tenant_id'] ?? 0);
+    if (!$isAuthor && !$isSuper) {
+        $rows = [];
+        if ($myTenant > 0) {
+            $mine = $db->prepare("
+                SELECT usage_type, user_display_name, tenant_name, classroom_name, created_at
+                FROM resource_usage
+                WHERE resource_id = ? AND tenant_id = ?
+                ORDER BY created_at DESC
+                LIMIT 50
+            ");
+            $mine->execute([$resourceId, $myTenant]);
+            $rows = $mine->fetchAll();
+        }
+        json_ok(['usage' => $rows, 'summary' => $summary]);
+    }
 
     $stmt = $db->prepare("
         SELECT usage_type, user_display_name, tenant_name, classroom_name, created_at

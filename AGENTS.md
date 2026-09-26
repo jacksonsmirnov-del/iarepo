@@ -1995,6 +1995,28 @@ rechaza un payload `{}` aunque la firma sea válida, y **acepta indefinidamente 
 sin claim `exp`**. `jwt_encode` siempre inyecta `iat`/`exp`, así que hoy es inalcanzable
 desde iarepo — pero Campus firma sus propios tokens.
 
+### 12.1 Qué cambió para Campus con la tanda de 2026-09 [verificar en Campus tras el deploy]
+
+El código de Campus no está en este repositorio, así que nada de esto se ha probado
+desde Campus. Todo lo que devuelve la API se **añade** (campos nuevos), salvo lo marcado
+con ⚠️, que cambia un comportamiento. Los tests que lo fijan están en
+`tests/integration/authorization_test.php` (con JWT de verdad) y `account_api_test.php`.
+
+| Endpoint | Qué cambia | Para Campus |
+|---|---|---|
+| `GET /api/resources.php` | campos nuevos por fila (`category_label`, `level_label`, `source_label`, `opens_label`, `lang_label`, `thumb`…) y `categories[].label`; `?lang=` sigue filtrando y ya no fija la cookie de idioma | nada que hacer |
+| ⚠️ `GET /api/usage.php` | nombres, centro y aula: el autor ve todos; **un docente de Campus ve los de SU centro** (mismo `tenant_id`); nadie ve los de otros centros. Nuevo `summary` con el recuento por tipo | si Campus enseñaba usos de otros colegios, ya no llegan |
+| ⚠️ `GET /api/assignments.php` | solo las aulas del centro del token; `?tenant_id=` se ignora salvo superadmin | si Campus pasaba el mismo tenant que el token, igual que antes |
+| `POST /api/assignments.php` | `'sent'` cuenta un uso por docente, recurso y día (`usage_day`) | asignar a dos aulas el mismo día suma 1 a `use_count`, no 2 |
+| ⚠️ `GET /api/versions.php` | 404 si el recurso no es visible para el token (`canView`) | antes cualquier token leía cualquier versión |
+| ⚠️ `api/comments.php` | GET sigue la visibilidad; **POST exige rol docente** (403 a `student`) | los alumnos de Campus ya no comentan |
+| ⚠️ `GET /api/collections.php?id=` | cada paso pasa por `canView`; orden **`added_at ASC`** (antes DESC) | la lista sale en orden de secuencia |
+| ⚠️ `POST/PUT /api/resources.php` | acepta `source_name`/`source_url`; un recurso `url` exige dirección http(s) (400 `INVALID_URL`); códigos nuevos `MISSING_TITLE`, `DUPLICATE_CONTENT`, `INVALID_SOURCE_*`; **el tope diario es `DAILY_LIMIT`** (antes el genérico `RATE_LIMITED`); mensajes en inglés (el contrato: la interfaz decide por el **código**) | si Campus distinguía el tope diario por `RATE_LIMITED`, ahora es `DAILY_LIMIT` (sigue siendo 429) |
+| `api/likes.php` | el «me gusta» de un `student` no guarda su nombre | el autor ve «Alguien que está aprendiendo» |
+| escrituras con cookie | una escritura con sesión que llega de otra web no se autentica (CSRF) | Campus entra por JWT: no le afecta |
+| ⚠️ `/view/N` en un iframe | con `Sec-Fetch-Dest: iframe` (o `window.top !== self`) no hay «Ver la ficha», y el título solo abre la ficha **en pestaña nueva** y solo si el recurso es público; un borrador ahora exige también el mismo `tenant_id` | nada navega dentro del iframe de Campus ni pierde el `?token=` |
+| `GET /api/health.php` | nuevo `errors_24h` | nada que hacer |
+
 ---
 
 ## 13. Deuda técnica abierta

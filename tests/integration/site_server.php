@@ -23,7 +23,7 @@ const IT_RENDER_RES     = 1098;   // recurso privado del profesor de pruebas
 function &it_render_state(): array
 {
     static $s = ['tried' => false, 'base' => null, 'dir' => null, 'proc' => null,
-                 'login' => null, 'skip' => null, 'error' => null, 'coll' => 0];
+                 'login' => null, 'skip' => null, 'error' => null, 'coll' => 0, 'jwt_secret' => null];
     return $s;
 }
 
@@ -169,7 +169,7 @@ function it_render_boot(): ?string
     $env  = [
         'DB_HOST' => "127.0.0.1;port=$port", 'DB_NAME' => $name,
         'DB_USER' => 'root', 'DB_PASS' => IAREPO_IT_PASS,
-        'JWT_SECRET' => bin2hex(random_bytes(32)), 'GOOGLE_CLIENT_ID' => 'it-render',
+        'JWT_SECRET' => ($s['jwt_secret'] = bin2hex(random_bytes(32))), 'GOOGLE_CLIENT_ID' => 'it-render',
         'ADMIN_PASS' => bin2hex(random_bytes(16)), 'CRON_SECRET' => bin2hex(random_bytes(16)),
         'OPEN_REGISTRATION' => false, 'DEBUG' => false, 'ALLOWED_ORIGINS' => [],
     ];
@@ -240,12 +240,14 @@ function it_render_get(string $url, ?string $cookie = null): array
  * $json != null → cuerpo JSON (POST/PUT/DELETE a api/*.php).
  * Devuelve [estado, cabeceras, cuerpo].
  */
-function it_render_request(string $method, string $url, ?string $cookie = null, ?array $json = null): array
+function it_render_request(string $method, string $url, ?string $cookie = null, ?array $json = null, array $extra = []): array
 {
     $headers = ($json === null ? "Accept: text/html,application/xhtml+xml\r\n" : "Accept: application/json\r\nContent-Type: application/json\r\n")
              . "Accept-Language: es-ES,es;q=0.9\r\n";
     if ($cookie)
         $headers .= "Cookie: $cookie\r\n";
+    foreach ($extra as $name => $value)   // p. ej. Sec-Fetch-Dest, Authorization
+        $headers .= "$name: $value\r\n";
     $opts = ['method' => $method, 'header' => $headers, 'ignore_errors' => true,
              'follow_location' => 0, 'timeout' => 20];
     if ($json !== null)

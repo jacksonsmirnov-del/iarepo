@@ -104,6 +104,15 @@ $isPresent = ($mode === 'present');
 // Para capturas automáticas: setup/tools/generate-thumbnails.sh hace una foto
 // con Chrome headless de ?mode=present, y el botón saldría en cada miniatura.
 $noUi = ($_GET['ui'] ?? '') === '0';
+// Incrustado en un iframe (Campus lo incrusta con ?token=; también Moodle o
+// Google Sites con el código de «Insertar»). Ahí un enlace normal navega
+// DENTRO del iframe: metía la web entera de iarepo dentro de Campus y, sin el
+// ?token=, un recurso de centro acababa en «acceso restringido». Se detecta
+// con Sec-Fetch-Dest (lo pone el navegador) y, si no llega, en el cliente
+// (window.top !== window.self): la ficha solo se ofrece en PESTAÑA NUEVA y
+// solo si el recurso es público; si no, el título es texto plano.
+$embedded = ($_SERVER['HTTP_SEC_FETCH_DEST'] ?? '') === 'iframe';
+$isPublic = ($resource['visibility'] ?? '') === 'community';
 
 // Etiquetas visibles (nada de claves en crudo). Un recurso 'url' sin
 // source_url tiene la fuente en su propia dirección.
@@ -227,7 +236,11 @@ $openName  = $sourceLabel ?: t('su web');
         <div class="who">
             <!-- El título lleva a la ficha: quien llega por un QR encuentra ahí
                  «¿te quedó claro?» y el siguiente paso. -->
-            <a class="title" href="/resource/<?= $id ?>"><?= h($resource['title']) ?></a>
+            <?php if ($embedded && !$isPublic): ?>
+            <span class="title"><?= h($resource['title']) ?></span>
+            <?php else: ?>
+            <a class="title" href="/resource/<?= $id ?>" data-public="<?= $isPublic ? '1' : '0' ?>"<?= $embedded ? ' target="_blank" rel="noopener"' : '' ?>><?= h($resource['title']) ?></a>
+            <?php endif; ?>
             <span class="meta"> — <?= h($categoryLabel) ?><?php if ($sourceLabel): ?> · <?= h(t('Creado por')) ?> <?php if ($sourceUrl !== ''): ?><a href="<?= h($sourceUrl) ?>" target="_blank" rel="noopener"><?= h($sourceLabel) ?></a><?php else: ?><?= h($sourceLabel) ?><?php endif; ?><?php endif; ?></span>
         </div>
         <div class="actions">
@@ -239,7 +252,9 @@ $openName  = $sourceLabel ?: t('su web');
                      un script y el navegador no deja cerrarla. Ahora es un enlace
                      a la ficha («¿te quedó claro?», siguiente paso); solo si otra
                      página abrió esta pestaña, cierra [revisión 2026-09]. */ ?>
+            <?php if (!$embedded): ?>
             <a class="btn btn-close" id="btnClose" href="/resource/<?= $id ?>" data-close="<?= h(t('Cerrar')) ?>"><?= h(t('Ver la ficha')) ?></a>
+            <?php endif; ?>
         </div>
     </div>
 
@@ -359,7 +374,17 @@ $openName  = $sourceLabel ?: t('su web');
         // «Cerrar» solo cuando otra página abrió esta pestaña (entonces el
         // navegador sí deja cerrarla); si no, el enlace lleva a la ficha.
         const btnClose = document.getElementById('btnClose');
-        if (window.opener) {
+        // Respaldo de Sec-Fetch-Dest (navegadores antiguos): dentro de un
+        // iframe, nada navega dentro de él (ver $embedded arriba).
+        let inFrame = false;
+        try { inFrame = window.top !== window.self; } catch (e) { inFrame = true; }
+        if (inFrame) {
+            if (btnClose) btnClose.remove();
+            const ttl = document.querySelector('.viewer-bar a.title');
+            if (ttl && ttl.dataset.public === '1') { ttl.target = '_blank'; ttl.rel = 'noopener'; }
+            else if (ttl) ttl.replaceWith(Object.assign(document.createElement('span'), { className: 'title', textContent: ttl.textContent }));
+        }
+        if (btnClose && btnClose.isConnected && window.opener) {
             btnClose.textContent = btnClose.dataset.close;
             btnClose.addEventListener('click', function (e) { e.preventDefault(); window.close(); });
         }

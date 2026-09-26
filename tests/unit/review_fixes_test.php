@@ -293,7 +293,9 @@ function test_el_visor_no_tiene_un_cerrar_muerto(): void
 {
     $v = rfx_src('viewer/index.php');
     assert_contains('<a class="btn btn-close" id="btnClose" href="/resource/<?= $id ?>"', $v, '«Cerrar» es un enlace a la ficha');
-    assert_matches('/if \(window\.opener\) \{.*?window\.close\(\);/s', $v, 'y solo cierra si otra página abrió la pestaña');
+    // La condición lleva además la guarda del iframe (dentro de Campus el botón
+    // no existe): lo que se fija es que window.close() depende de window.opener.
+    assert_matches('/if \([^)]*window\.opener\) \{.*?window\.close\(\);/s', $v, 'y solo cierra si otra página abrió la pestaña');
     assert_contains('<span class="lbl-narrow"><?= h(t(\'Pantalla completa\')) ?></span>', $v, 'en el móvil, «Pantalla completa» en vez de «Proyectar»');
 }
 

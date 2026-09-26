@@ -220,3 +220,74 @@ function test_una_lista_publica_no_cuela_borradores_por_la_api(): void
         it_authz_cleanup($db);
     }
 }
+
+// ================================================================
+// Campus (claseprivada.com) — entra con JWT, no con sesión
+// ================================================================
+
+/** Token de Campus firmado con el secreto del sitio de pruebas. */
+function it_campus_jwt(int $userId, int $tenantId, string $role = 'teacher'): string
+{
+    require_once dirname(__DIR__, 2) . '/shared/jwt.php';
+    $secret = it_render_state()['jwt_secret'] ?? '';
+    it_true($secret !== '', 'el sitio de pruebas expone su JWT_SECRET');
+    return jwt_encode(['user_id' => $userId, 'name' => "Docente $userId", 'role' => $role,
+                       'tenant_id' => $tenantId, 'tenant_name' => "Centro $tenantId", 'areas' => []], $secret, 600);
+}
+
+/**
+ * Un docente de Campus ve quién usó el recurso en SU centro, no en otros.
+ * La fuga cerrada era entre centros; cerrarla del todo (nombres solo al
+ * autor) le quitaba a Campus lo que tiene sentido enseñar dentro de un colegio.
+ */
+function test_campus_ve_los_usos_de_su_centro_y_no_los_de_otros(): void
+{
+    if (!($db = it_authz_ready()))
+        return;
+    try {
+        $url = it_render_state()['base'] . '/api/usage.php?resource_id=1000';
+        [$code, , $body] = it_render_request('GET', $url, null, [], ['Authorization' => 'Bearer ' . it_campus_jwt(501, 5)]);
+        it_eq(200, $code, 'usage GET con JWT de Campus');
+        it_true(str_contains($body, 'Docente Ajena'), 'un docente del centro 5 ve a su compañera del centro 5');
+
+        [$code, , $body] = it_render_request('GET', $url, null, [], ['Authorization' => 'Bearer ' . it_campus_jwt(701, 7)]);
+        $j = it_authz_json($body);
+        it_eq([], $j['usage'] ?? null, 'un docente del centro 7 no ve nombres del centro 5');
+        it_eq(1, $j['summary']['presented'] ?? null, 'pero sí el recuento');
+    } finally {
+        it_authz_cleanup($db);
+    }
+}
+
+/**
+ * El visor dentro de un iframe (así lo incrusta Campus, con ?token=) no
+ * navega dentro del iframe: antes «Ver la ficha» y el título metían la web
+ * entera de iarepo dentro de Campus, sin el token.
+ */
+function test_el_visor_incrustado_no_navega_dentro_del_iframe(): void
+{
+    if (!($db = it_authz_ready()))
+        return;
+    try {
+        $base  = it_render_state()['base'];
+        $frame = ['Sec-Fetch-Dest' => 'iframe'];
+
+        // Recurso restringido (borrador del 9001) visto con el JWT de su autor.
+        $tok = it_campus_jwt(IT_RENDER_TEACHER, 0);
+        [$code, , $body] = it_render_request('GET', "$base/view/" . IT_RENDER_RES . "?token=$tok", null, null, $frame);
+        it_eq(200, $code, 'Campus abre el borrador con el JWT de su autor');
+        it_true(!str_contains($body, 'id="btnClose"'), 'incrustado: sin «Ver la ficha»');
+        it_true(!str_contains($body, 'href="/resource/' . IT_RENDER_RES . '"'), 'incrustado y restringido: el título no enlaza a la ficha (perdería el token)');
+
+        // Recurso público incrustado: el título abre la ficha en pestaña nueva.
+        [$code, , $body] = it_render_request('GET', "$base/view/1000", null, null, $frame);
+        it_eq(200, $code, 'visor público incrustado');
+        it_true((bool) preg_match('#<a class="title" href="/resource/1000"[^>]*target="_blank"#', $body), 'incrustado y público: la ficha, en pestaña nueva');
+
+        // Fuera de un iframe (QR, enlace directo) sigue ofreciendo la ficha.
+        [$code, , $body] = it_render_request('GET', "$base/view/1000");
+        it_true(str_contains($body, 'id="btnClose"'), 'abierto directamente: «Ver la ficha» sigue ahí');
+    } finally {
+        it_authz_cleanup($db);
+    }
+}
