@@ -370,4 +370,12 @@ return [
     'Proyectar el código' => 'Project the code',
     'Tus alumnos no necesitan cuenta ni correo para abrirlo.' => 'Your students need no account or email to open it.',
     'Código QR para los alumnos' => 'QR code for students',
+
+    // ── Rediseño 2026-09 · portada (index.php, 404.php) ──
+
+    // ── Rediseño 2026-09 · ficha (resource/, viewer/) ──
+
+    // ── Rediseño 2026-09 · cuenta (dashboard/, auth/) ──
+
+    // ── Rediseño 2026-09 · listas y perfil (profile/, collection/, favorites/, legal/, unsubscribe.php) ──
 ];

@@ -14,7 +14,9 @@
 //                      API (subject_class, source_label, source_mono…).
 //   IA.openSend(o)     diálogo «Mandar a mis alumnos» (iarepo_send_dialog()):
 //                      QR generado AQUÍ (assets/js/qrcode.js), dirección
-//                      corta /view/N, copiar y Google Classroom.
+//                      corta, copiar y Google Classroom. o = {id, title} para
+//                      un recurso (/view/N) o {path, title} para otra página
+//                      propia (una lista). o.copiedMsg: aviso al copiar.
 //   IA.copy(text)      portapapeles con respaldo para navegadores viejos.
 //   IA.icons()         lucide.createIcons() si está cargado.
 // Además: menú móvil ([data-menu-toggle]) y cierre de diálogos
@@ -88,8 +90,11 @@
 
   IA.openSend = function (o) {
     var dlg = document.getElementById('ia-send');
-    if (!dlg || !o || !o.id) return;
-    var url = location.origin + '/view/' + parseInt(o.id, 10);
+    if (!dlg || !o || (!o.id && !o.path)) return;
+    // o.id → el visor limpio de un recurso (/view/N). o.path → otra página
+    // propia (p. ej. una lista: '/collection/?id=3'). Solo rutas locales.
+    var path = o.path && /^\/[^\/\\]/.test(o.path) ? o.path : '/view/' + parseInt(o.id, 10);
+    var url = location.origin + path;
     var shortUrl = url.replace(/^https?:\/\//, '');
     var q = function (sel) { return dlg.querySelector(sel) || document.querySelector(sel); };
 
