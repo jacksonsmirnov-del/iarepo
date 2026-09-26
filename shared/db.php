@@ -46,6 +46,13 @@ function getResourcesDB(): PDO {
             error_log('[iarepo] DB connection failed: ' . $e->getMessage());
         }
 
+        // En una PÁGINA HTML (shared/page_errors.php cargado) no se responde con
+        // JSON: se lanza, y el registro de errores de la página sirve un 500
+        // limpio —o la página lo captura y degrada—. Antes, un corte de BD
+        // metía este JSON en mitad del HTML y hacía exit.
+        if (defined('IAREPO_PAGE_ERRORS'))
+            throw new RuntimeException('Database connection failed', 0, $e);
+
         // Return clean error to client
         http_response_code(503);
         header('Content-Type: application/json; charset=utf-8');

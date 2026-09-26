@@ -22,6 +22,16 @@
 //        Un objeto por job de cron/run.php con la ANTIGÜEDAD de su último
 //        latido. null si la BD no responde.
 //
+// A partir del 2026-09-26:
+//   errors_24h
+//        {server, client}: errores de las últimas 24 h en client_error_log.
+//        'server' son los de las páginas HTML (shared/page_errors.php, filas
+//        con source 'server:…'); 'client', los de JavaScript
+//        (shared/error_tracker.php). Solo recuentos: el detalle, con su
+//        código de referencia, está en admin/errors.php. null si la BD no
+//        responde. Existe porque el panel del autor estuvo roto tres meses
+//        sin que nada lo contara: un error que nadie cuenta no existe.
+//
 // ── POR QUÉ `version` NO BASTA ──────────────────────────────────
 // 'version' es la constante literal '1.1.0' escrita a mano: nunca ha cambiado
 // y no dice NADA sobre qué código está corriendo. El 2026-08-04 se descubrió
@@ -99,6 +109,7 @@ $result += $deploy;
 
 // ── Database check ───────────────────────────────────────────
 $result['crons'] = null;
+$result['errors_24h'] = null;
 
 try {
     require_once __DIR__ . '/../shared/db.php';
@@ -111,6 +122,7 @@ try {
     $result['resources'] = (int) $count;
 
     $result['crons'] = health_crons($db);
+    $result['errors_24h'] = health_errors($db);
 } catch (\Throwable $e) {
     $result['ok'] = false;
     $result['status'] = 'degraded';
@@ -251,4 +263,23 @@ function health_crons(PDO $db): ?array
     }
 
     return $out;
+}
+
+/**
+ * Errores de las últimas 24 h, separados por origen. Nunca lanza: si la
+ * tabla no existe (migration_006 sin aplicar), null.
+ */
+function health_errors(PDO $db): ?array
+{
+    try {
+        $row = $db->query("
+            SELECT SUM(source LIKE 'server:%')      AS server,
+                   SUM(source NOT LIKE 'server:%' OR source IS NULL) AS client
+            FROM client_error_log
+            WHERE created_at > NOW() - INTERVAL 1 DAY
+        ")->fetch(PDO::FETCH_ASSOC);
+        return ['server' => (int) ($row['server'] ?? 0), 'client' => (int) ($row['client'] ?? 0)];
+    } catch (\Throwable $e) {
+        return null;
+    }
 }

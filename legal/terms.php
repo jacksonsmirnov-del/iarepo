@@ -2,6 +2,10 @@
 // ================================================================
 // legal/terms.php — Términos de Servicio, Uso y Atribución
 // ================================================================
+// Primero de todo: los errores de esta página se registran y se ven (y nunca
+// dejan media página). Ver shared/page_errors.php.
+require_once __DIR__ . '/../shared/page_errors.php';
+
 $pageTitle = 'Términos de Servicio';
 $pageDesc  = 'Términos de uso, política de atribución y licencia de iarepo.com — repositorio abierto de recursos educativos.';
 ?>

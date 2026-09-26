@@ -317,4 +317,9 @@ return [
     // Dashboard: estados de los botones de colección
     '⏳ Creando...' => '⏳ Creating...',
     '⏳ Guardando...' => '⏳ Saving...',
+
+    // Página de error (shared/page_errors.php)
+    'Algo ha fallado' => 'Something went wrong',
+    'No hemos podido cargar esta página. El error ya ha quedado registrado; prueba de nuevo en unos minutos.' => 'We could not load this page. The error has been logged; please try again in a few minutes.',
+    'Volver al inicio' => 'Back to home',
 ];

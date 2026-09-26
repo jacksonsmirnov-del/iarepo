@@ -3,6 +3,10 @@
 // 404.php — Branded "not found" page (Apache ErrorDocument)
 // HTML page → no helpers.php; h() defined locally.
 // ================================================================
+// Primero de todo: los errores de esta página se registran y se ven (y nunca
+// dejan media página). Ver shared/page_errors.php.
+require_once __DIR__ . '/shared/page_errors.php';
+
 http_response_code(404);
 require_once __DIR__ . '/shared/i18n.php';
 lang();

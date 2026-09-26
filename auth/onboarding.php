@@ -11,6 +11,10 @@
 // Página HTML: NO carga shared/helpers.php (su error_handler rompe el HTML).
 // ================================================================
 
+// Primero de todo: los errores de esta página se registran y se ven (y nunca
+// dejan media página). Ver shared/page_errors.php.
+require_once __DIR__ . '/../shared/page_errors.php';
+
 session_start();
 require_once __DIR__ . '/../shared/auth.php';
 require_once __DIR__ . '/../shared/db.php';

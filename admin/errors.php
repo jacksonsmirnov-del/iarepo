@@ -1,8 +1,13 @@
 <?php
 // ================================================================
-// admin/errors.php — Visor de errores JS del cliente
+// admin/errors.php — Visor de errores: páginas HTML (source 'server:…',
+//                    shared/page_errors.php) y JavaScript del cliente
 // Protegido con ADMIN_PASS del .env.php
 // ================================================================
+
+// Primero de todo: los errores de esta página se registran y se ven (y nunca
+// dejan media página). Ver shared/page_errors.php.
+require_once __DIR__ . '/../shared/page_errors.php';
 
 require_once __DIR__ . '/../shared/db.php';
 
@@ -35,7 +40,7 @@ $total = $db->query("SELECT COUNT(*) FROM client_error_log WHERE created_at > NO
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Errores JS — iarepo admin</title>
+<title>Errores — iarepo admin</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:system-ui,sans-serif;background:#0f172a;color:#e2e8f0;padding:24px}
@@ -55,7 +60,7 @@ tr:hover td{background:#1e293b}
 </style>
 </head>
 <body>
-<h1>🐛 Errores JS — últimos 7 días</h1>
+<h1>🐛 Errores de páginas y JS — últimos 7 días</h1>
 <div class="sub"><?= (int)$total ?> eventos · <?= count($errors) ?> grupos únicos</div>
 
 <?php if (!$errors): ?>

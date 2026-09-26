@@ -6,6 +6,10 @@
 // and publish directly to iarepo. Protected by admin password.
 // ================================================================
 
+// Primero de todo: los errores de esta página se registran y se ven (y nunca
+// dejan media página). Ver shared/page_errors.php.
+require_once __DIR__ . '/../shared/page_errors.php';
+
 require_once __DIR__ . '/../shared/db.php';
 // h() local — NO se carga shared/helpers.php: su error_handler vuelca JSON y
 // corta la página a medias ante cualquier error (CLAUDE.md §2.1).

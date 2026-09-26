@@ -834,6 +834,43 @@ check_crons
 SECTION_TAG=""
 
 echo ""
+echo "── Errores registrados (24 h) ───────────"
+SECTION_TAG="[errores] "
+
+# POR QUÉ
+#   dashboard/index.php estuvo roto de junio a septiembre de 2026 y nadie lo
+#   supo: el error iba al log de PHP del hosting. Desde entonces las páginas
+#   HTML guardan sus errores en client_error_log (shared/page_errors.php) y
+#   api/health.php publica el recuento de las últimas 24 h en errors_24h.
+#
+# NO ES UN FAIL: un error de ayer puede no tener nada que ver con este
+#   despliegue, y un check que se pone rojo por algo ajeno acaba ignorado.
+#   Es un AVISO que nombra el sitio donde mirar: admin/errors.php lista cada
+#   error con el código de referencia que vio la persona.
+check_errors() {
+    local server client
+    [ -s "$CRON_SNAP" ] || return 0   # health.php ya se reportó arriba
+    server=$(jget "$CRON_SNAP" "errors_24h.server") || server=""
+    client=$(jget "$CRON_SNAP" "errors_24h.client") || client=""
+    if [ -z "$server" ] || [ "$server" = "null" ]; then
+        snote "health.php aún no publica errors_24h (commit sin desplegar, o migration_006 sin aplicar)."
+        return 0
+    fi
+    if is_num "$server" && [ "$server" -gt 0 ]; then
+        swarn "$server error(es) de SERVIDOR en páginas HTML en las últimas 24 h" \
+"Míralos en /admin/errors.php (source 'server:…', con su código de referencia).
+     Cada uno es una persona que vio «Algo ha fallado»."
+    else
+        snote "0 errores de servidor en páginas HTML en las últimas 24 h."
+    fi
+    if is_num "$client" && [ "$client" -gt 0 ]; then
+        snote "$client error(es) de JavaScript en las últimas 24 h (detalle en /admin/errors.php)."
+    fi
+}
+check_errors
+SECTION_TAG=""
+
+echo ""
 echo -e "${YELLOW}── Buscador — REGRESIÓN (requiere el fix desplegado) ──${NC}"
 echo "   Estos checks reproducen los fallos diagnosticados el 2026-08-04 en"
 echo "   api/resources.php:125-128 (input crudo → AGAINST(... IN BOOLEAN MODE))."
