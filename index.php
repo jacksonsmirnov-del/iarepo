@@ -366,7 +366,7 @@ body.searching .search-wrap{position:sticky;top:58px;z-index:90;background:var(-
   .hero{padding:48px 16px 24px}
   .grid{grid-template-columns:1fr}
   .hero-stats{gap:20px}
-  .present-btn{display:none}
+  .present-btn:not(.lang-btn){display:none}
 }
 </style>
 <?php require_once __DIR__ . '/shared/error_tracker.php'; ?>
@@ -410,7 +410,9 @@ body.searching .search-wrap{position:sticky;top:58px;z-index:90;background:var(-
 </button>
 
 <!-- Language switcher -->
-<a class="present-btn" href="<?= h(langSwitchUrl(lang()==='en'?'es':'en')) ?>" title="<?= lang()==='en'?'Cambiar a español':'Switch to English' ?>" style="text-decoration:none;font-weight:700"><?= lang()==='en'?'ES':'EN' ?></a>
+<!-- Visible también en móvil: es la única forma de cambiar de idioma. Solo
+     cambia la interfaz; el filtro de idioma del catálogo va en ?rlang=. -->
+<a class="present-btn lang-btn" id="lang-switch" href="<?= h(langSwitchUrl(lang()==='en'?'es':'en')) ?>" title="<?= lang()==='en'?'Cambiar a español':'Switch to English' ?>" style="text-decoration:none;font-weight:700"><?= lang()==='en'?'ES':'EN' ?></a>
 
 <!-- Theme toggle -->
 <button class="theme-toggle" aria-label="<?= h(t('Cambiar tema')) ?>" title="<?= h(t('Cambiar tema')) ?>" id="theme-btn">
@@ -730,12 +732,18 @@ function syncSortOptions(){
   else if (s.value === 'relevance') { s.value = 'recent'; sortExplicit = false; }
 }
 
-function buildParams(){
+// forUrl: en la URL de la página el filtro de idioma del catálogo se llama
+// 'rlang', porque '?lang=' ya es el IDIOMA DE LA INTERFAZ (shared/i18n.php lo
+// lee y lo guarda en una cookie de un año). Con el mismo nombre, pulsar «EN»
+// filtraba el catálogo a recursos en inglés, y compartir un enlace filtrado
+// por «Español» cambiaba el idioma de la web de quien lo abría. A la API se
+// le sigue mandando 'lang', que allí solo significa filtro.
+function buildParams(forUrl){
   const p = new URLSearchParams();
   const q = $('search').value.trim();
   if (q) p.set('search', q);
   if (currentCat) p.set('category', currentCat);
-  const lg = $('filter-lang').value;  if (lg) p.set('lang', lg);
+  const lg = $('filter-lang').value;  if (lg) p.set(forUrl ? 'rlang' : 'lang', lg);
   const lv = $('filter-level').value; if (lv) p.set('level', lv);
   // 'recent' YA NO es el defecto universal: con búsqueda, el defecto de la API
   // es 'relevance'. Mandamos 'sort' sólo cuando difiere de ese defecto, así la
@@ -747,10 +755,19 @@ function buildParams(){
 
 // ── Estado ↔ URL: la búsqueda se puede compartir, marcar y deshacer con "atrás" ──
 function syncURL(push){
-  const qs = buildParams().toString();
+  const qs = buildParams(true).toString();
   const url = qs ? location.pathname + '?' + qs : location.pathname;
+  syncLangSwitch(qs);
   if (url === location.pathname + location.search) return;
   if (push) history.pushState(null, '', url); else history.replaceState(null, '', url);
+}
+// Cambiar de idioma no debe tirar la búsqueda que tienes delante: el enlace
+// ES/EN arrastra el estado actual (que ya no incluye ningún '?lang=').
+function syncLangSwitch(qs){
+  const a = $('lang-switch');
+  if (!a) return;
+  const base = a.getAttribute('href').split('&')[0];
+  a.setAttribute('href', qs ? base + '&' + qs : base);
 }
 function applyStateFromURL(){
   const p = new URLSearchParams(location.search);
@@ -761,12 +778,13 @@ function applyStateFromURL(){
   $('sort').value = p.get('sort') || '';
   sortExplicit = $('sort').value !== '';
   if (!sortExplicit) $('sort').value = 'recent';
-  $('filter-lang').value  = p.get('lang')  || '';
+  $('filter-lang').value  = p.get('rlang') || '';
   $('filter-level').value = p.get('level') || '';
   currentCat = p.get('category') || null;
   syncSortOptions();
   syncClearBtn();
   markActivePill();
+  syncLangSwitch(buildParams(true).toString());
 }
 window.addEventListener('popstate', () => { applyStateFromURL(); loadResources({push:false}); });
 
@@ -1080,7 +1098,7 @@ function applyFeaturedFavs(){
   document.querySelectorAll('.fav-corner').forEach(btn=>setFavBtn(btn,favSet.has(Number(btn.dataset.fid))));
 }
 
-// Deep-link: search, sort, category, lang y level se leen de la URL — así
+// Deep-link: search, sort, category, rlang y level se leen de la URL — así
 // funcionan "Ver todos → /?sort=popular" y cualquier enlace compartido.
 applyStateFromURL();
 // El 404 enlaza a /?focus=search: con el foco puesto (y el teclado abierto en
