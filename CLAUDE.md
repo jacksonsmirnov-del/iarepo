@@ -23,7 +23,7 @@ el cron `link_check` «parado» (vivo) y el backup «sin instalar» (corriendo).
 §2 y §3 son estables; **los números y los estados caducan.**
 
 ```bash
-# 1. ¿Qué está VIVO en producción? (commit, BD, crons, recursos)
+# 1. ¿Qué está VIVO en producción? (commit, BD, crons, recursos, errores 24 h)
 curl -s https://iarepo.com/api/health.php
 
 # 2. ¿Coincide con lo que tienes delante?
@@ -64,10 +64,10 @@ despliegan, y nadie se entera hasta que un usuario lo reporta.
 1. **NUNCA `require` de `shared/helpers.php` en una página que emite HTML.** Arrastra
    `shared/error_handler.php`, cuyos handlers hacen `echo json_encode(...)` + `exit(1)`:
    ante cualquier error la página sale a medio renderizar con un blob JSON incrustado. En
-   su lugar: `h()` local + `shared/error_tracker.php` (ejemplos: `index.php:16`,
-   `404.php:9`). En `api/*.php` sí va, ahí el JSON es la respuesta correcta. *Las 7
-   páginas heredadas que lo violan están en `quality/baseline_html_helpers.txt`; esa lista
-   solo puede encoger.*
+   su lugar, **lo primero de la página**: `require_once …/shared/page_errors.php` (registra
+   el error, lo cuenta en `health.php` y sirve un 500 limpio; AGENTS.md §6.11) + `h()`
+   local. En `api/*.php` sí va `helpers.php`, ahí el JSON es la respuesta correcta.
+   *`quality/baseline_html_helpers.txt` está VACÍA desde 2026-09-26 y así debe seguir.*
 2. **Nunca `?>` dentro de un comentario PHP de línea** (`//`, `#`). Cierra el modo PHP y el
    fichero imprime su propio código fuente. **`php -l` NO lo detecta**; sí el guard G2
    (`php quality/lib/analyze.php close-tag <fichero>`). Los comentarios de bloque
@@ -122,6 +122,9 @@ legibles desde internet **a posta**, y esto (`CLAUDE.md`) es uno de ellos.
   aunque se revierta.** Ya pasó: la contraseña real de la BD estuvo en
   `setup/seed_resources.php` (commit `5b6c1e6`) y sigue en el historial público. Sacarla
   del working tree **no** es rotarla (`docs/RUNBOOK.md §0`).
+- **Un fallo de seguridad ABIERTO no se describe en ficheros versionados** (ni en estos
+  documentos, ni en comentarios, ni en mensajes de commit antes del deploy): va a las
+  notas privadas del mantenedor y se documenta al cerrarlo.
 - **Tú (agente) no haces `commit`, `push`, `checkout`, `stash` ni `reset`.**
 - **Sí hay CI** desde 2026-08 (`.github/workflows/ci.yml`, `make check` + integración en
   cada push a cualquier rama). **`--no-verify` no la salta**; al hook local sí.
@@ -139,7 +142,7 @@ make check     # = lint + guards + test   (~1,5 s, sin red)  ← lo que exige el
 | `make lint` | `php -l` + `node --check` sobre ficheros **trackeados** | siempre |
 | `make guards` | `quality/guards.sh` — 9 chequeos estáticos (G1-G9), ~0,5 s | siempre |
 | `make test` | `php tests/run.php` — unitarios, sin BD, < 5 s | siempre |
-| `make integration` | `--integration` — BD real (MariaDB en Docker) | si tocas SQL/búsqueda |
+| `make integration` | `--integration` — BD real (MariaDB en Docker). Abre además **cada página** como anónimo, alumno y profesor (`render_pages_test.php`) y comprueba quién ve qué en `api/` (`authorization_test.php`) | si tocas SQL/búsqueda **o cualquier página o endpoint** |
 | `make smoke` | `quality/smoke_test.sh` contra **producción** | **DESPUÉS** del deploy |
 | `make hooks` | instala el gate local (`git config core.hooksPath .githooks`) | una vez por clon |
 
@@ -169,7 +172,14 @@ api/*.php          17 endpoints REST. helpers.php SÍ va aquí.  (ls -1 api/*.ph
                    ⛔ Ninguno guarda IPs, y hay un test que barre los dos.
 assets/js/track.js el cliente del beacon. Cambiar los campos que manda obliga
                    a tocar legal/terms.php §10.1 (hay test que lo exige)
+assets/css/app.css el sistema de diseño (tokens --ia-*, componentes .ia-*)
+assets/js/         theme.js (tema, en el <head>) · ui.js (window.IA) · qrcode.js (MIT,
+                   auto-alojado) · lucide.min.js · pwa.js
 shared/            auth jwt db cors helpers error_handler error_tracker i18n i18n_en
+                   page_errors = errores de las páginas HTML (lo primero de cada una)
+                   access = canView(): quién ve un recurso (lo usan todos los endpoints)
+                   ui + labels + asset = componentes, etiquetas traducidas y ?v= de
+                   assets (AGENTS.md §6.10). Una página nueva los usa, no los copia.
                    viewer_key = identidad anónima + sal diaria caducable.
                    NO carga helpers.php (igual que search.php)
                    mailer notify moderation similarity · search + search_synonyms
@@ -192,8 +202,8 @@ docs/RUNBOOK.md    procedimientos + §10: lo que solo puede hacer el mantenedor
 ```
 
 `.htaccess` bloquea `setup/`, `shared/`, `admin/` (salvo `errors.php`/`create.php`),
-`*.sql`, `.env.php` y —desde 2026-08-04, aún sin desplegar— `tests/`, `quality/`, `docs/`,
-`Makefile` y todo lo que empiece por `.git`. `cron/` **no** se bloquea (lo llama un
+`*.sql`, `.env.php` y —desde 2026-08-04, desplegado con la tanda del 06— `tests/`,
+`quality/`, `docs/`, `Makefile` y todo lo que empiece por `.git`. `cron/` **no** se bloquea (lo llama un
 scheduler externo); los `.md` de la raíz tampoco.
 
 ⚠️ **Nunca metas un bloque `<Directory>` en `.htaccess`**: no es sintaxis válida ahí y
@@ -219,7 +229,8 @@ LiteSpeed**, que es lo que corre producción.
    casi todos). **Solo el autor de la RAÍZ** puede marcar `is_recommended`; ocultar el
    botón no es la protección.
 3. **Hay un service worker** (`sw.js`, registrado por `assets/js/pwa.js`). Si un cambio
-   "no aparece" en el navegador, es la caché del SW, no tu código.
+   "no aparece" en el navegador, es la caché del SW, no tu código. Por eso todo asset
+   propio se enlaza con `iarepo_asset()` (`?v=<hash>`, `shared/asset.php`).
    ⚠️ **`view_count` está CONGELADO** desde 2026-08-06 y no vuelve a subir: era cargas de
    página sin deduplicar, y encima **`/resource/N` no contaba nada** pese a ser donde se
    usa el recurso (20 alumnos → 8 visitas). La métrica viva es `unique_views`, que escribe

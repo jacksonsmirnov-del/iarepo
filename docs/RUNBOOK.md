@@ -16,7 +16,11 @@
 
 ## 0. Antes de tocar nada
 
-### 0.1 🔴 PASO 0 — Rotar la contraseña de la BD (URGENTE · NO espera al deploy)
+### 0.1 Rotar la contraseña de la BD — ✅ HECHO [2026-08-06, confirmado por el mantenedor]
+
+> Esta sección se conserva como **procedimiento** por si vuelve a hacer falta (un secreto
+> commiteado, un portátil perdido). La rotación de 2026-08 **ya está hecha**: no la pidas
+> otra vez sin comprobarlo (CLAUDE.md §8). Lo que sigue es el relato original.
 
 **Qué pasó:** `setup/seed_resources.php` contenía la contraseña real de la BD de
 producción **en claro**. Ya no está en el working tree, pero **sigue en el historial de
@@ -425,6 +429,8 @@ En orden, de lo más barato a lo más caro:
 # 1. ¿Es la BD o es el código? ¿Y qué commit lo causó?
 curl -s https://iarepo.com/api/health.php
 #    "db":"connected"  → el problema es el código; mira 'commit' y 'deploy_subject'
+#    "errors_24h":{"server":N} con N > 0 → las páginas HTML están registrando errores:
+#       el detalle, con el código «ref» que vio la persona, está en admin/errors.php (paso 4)
 #    "degraded" / sin respuesta → credenciales o BD caída
 #    (¿acabas de rotar la contraseña? → §0.1, restaura .env.php.bak)
 ```
@@ -435,8 +441,11 @@ fallo más barato de descartar y el más caro de no ver: `health.php` tampoco re
 que el paso 1 no te dirá nada útil.
 
 2. **¿Es solo una ruta?** Prueba `/`, `/resource/<id>`, `/api/resources.php?limit=1`.
-   Si la API responde y las páginas HTML no, sospecha de la regla #1
-   (`helpers.php` en una página HTML: busca un blob `{"ok":false,...}` en el HTML).
+   Si una página HTML muestra **«Algo ha fallado · ref xxxxxxxx»**, es
+   `shared/page_errors.php` haciendo su trabajo: busca esa referencia en el paso 4 (o en
+   el `error_log`, donde va con el mismo `[ref xxxxxxxx]`). Si en vez de eso ves un blob
+   `{"ok":false,...}` dentro del HTML, alguien ha vuelto a cargar `helpers.php` en una
+   página (regla #1).
 
 3. **¿La página imprime su propio código fuente?** Es la regla #2 (`?>` en un comentario
    de línea). `php -l` no lo ve; usa:
@@ -444,10 +453,13 @@ que el paso 1 no te dirá nada útil.
    php quality/lib/analyze.php close-tag <fichero>
    ```
 
-4. **Errores JS del cliente:** `https://iarepo.com/admin/errors.php?pass=<ADMIN_PASS>`
-   (agrupados, últimos 7 días).
+4. **Errores registrados:** `https://iarepo.com/admin/errors.php?pass=<ADMIN_PASS>`
+   (agrupados, últimos 7 días). Desde 2026-09-26 salen AQUÍ también los de las páginas
+   HTML: `source` empieza por `server:` y el mensaje lleva la `ref` que vio la persona.
+   El resto son errores de JavaScript del navegador.
 
-5. **Errores PHP:** el `error_log` del doc root, por SSH. No está en git.
+5. **Errores PHP de los endpoints `api/`:** el `error_log` del doc root, por SSH (no está
+   en git). Los de las páginas HTML también están ahí, con `[ref …]`.
 
 6. **Si el 500 es del buscador** con una consulta concreta, reprodúcelo en local sin BD:
    ```bash

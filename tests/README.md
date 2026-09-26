@@ -132,7 +132,13 @@ solo se resuelve una vez, así que los escenarios de idioma (cookie,
 | `unit/i18n_test.php` | `shared/i18n.php` | Traducción, *fallback*, resolución de idioma y sanidad del diccionario. |
 | `unit/similarity_test.php` | `shared/similarity.php` | Detector de plagio: solo las funciones de texto (las que hablan con PDO son de integración). |
 | `unit/helpers_isolation_test.php` | `shared/helpers.php` | `sanitize()`, `h()` y la demostración de la regla #1. |
-| `integration/` | API + BD real | Lo mantiene otro agente. Se ejecuta con `--integration`. |
+| `unit/page_errors_test.php` | `shared/page_errors.php` | Un fatal en una página HTML no deja media página (500 limpio con `ref`), los avisos no se enseñan pero se registran, y **las 15 páginas** lo cargan lo primero. Reproduce en un subproceso el `t(T.creating)` que rompió el panel (AGENTS.md §15.4). |
+| `unit/labels_test.php` | `shared/labels.php`, `shared/asset.php`, `IA.esc` | Cada categoría sembrada tiene etiqueta y color; niveles con edades; la fuente se deduce del dominio; ningún tipo sale en crudo; `?v=` solo dentro del repo; `IA.esc` escapa la comilla simple (lo ejecuta con `node`). |
+| `unit/comprehension_test.php`, `fork_lineage_test.php`, `tracking_test.php`, `usage_signal_test.php` | señales de 2026-08-06 | «¿Te quedó claro?», linaje de versiones, beacon de visitas y «lo usé en clase». |
+| `integration/render_pages_test.php` | **cada página HTML** | Levanta el sitio con `php -S` (copia temporal de los ficheros, `.env.php` de pruebas, atajo de login que solo existe en esa copia) y la abre como anónimo, alumno y profesor: estado esperado, HTML hasta `</html>`, sin JSON de error, sin avisos de PHP. Rompe una página a propósito y comprueba el 500, la fila en `client_error_log` y `errors_24h` en `health.php`. `IAREPO_TEST_KEEP_SITE=1` conserva la copia y su `server.log` para depurar. |
+| `integration/authorization_test.php` | quién ve qué en `api/` | Entra como otro profesor, como alumno y como anónimo y pide lo ajeno a `versions`, `usage`, `assignments` y `comments`. |
+| `integration/site_server.php` | infraestructura | No define tests: la usan los dos anteriores. |
+| resto de `integration/` | API + BD real | Buscador, esquema, latidos, señales. Se ejecuta con `--integration`. |
 
 ### Las invariantes del buscador
 
@@ -159,35 +165,12 @@ repetir el HTTP 500 de `C++`:
 
 ---
 
-## Un test en rojo a propósito
+## ~~Un test en rojo a propósito~~ — resuelto
 
-```
-✗ bug_terms_numericos_salen_como_int_en_vez_de_string
-```
-
-**Es un fallo real de `shared/search.php`, no del test.** `iarepo_tokenize()`
-deduplica con `$out[$t] = true` y PHP convierte a `int` las claves de array
-que parecen enteros canónicos, así que `array_keys()` las devuelve ya como
-enteros:
-
-```php
-iarepo_build_search('2024 examen')['terms']   //  [2024, 'examen']
-```
-
-`api/resources.php` devuelve eso tal cual en `search.terms`, de modo que el
-navegador recibe `{"terms":[2024,"examen"]}` y cualquier resaltado que haga
-`t.toLowerCase()` revienta en cuanto alguien busca un año o un número de
-ejercicio. Además es inconsistente: `'007'` sí sale como cadena.
-
-Arreglo, una línea en `shared/search.php:148`:
-
-```php
-return array_map('strval', array_keys($out));
-```
-
-Ese fichero es de otro agente, así que aquí queda el test que lo demuestra.
-**Mientras siga en rojo, `php tests/run.php` sale con 1 y el hook `pre-push`
-bloquea el push.** Es intencionado: el arreglo cuesta menos que discutirlo.
+`bug_terms_numericos_salen_como_int_en_vez_de_string` demostraba que `iarepo_tokenize()`
+devolvía `[2024, 'examen']` (PHP convierte a `int` las claves numéricas). El arreglo
+—`array_map('strval', array_keys($out))`— está en `shared/search.php` y el test sigue ahí,
+en verde, para que no vuelva.
 
 ---
 
@@ -204,7 +187,9 @@ bloquea el push.** Es intencionado: el arreglo cuesta menos que discutirlo.
   los ~0,4 s totales: el resto de la suite (82.000 aserciones) tarda menos
   que arrancar tres intérpretes. Si esto crece, es el primer sitio donde
   mirar.
-- **`tests/` se despliega a producción** dentro de `public_html` y
-  `.htaccess` no lo bloquea. Por eso cada fichero de aquí empieza
-  rechazando cualquier SAPI que no sea CLI. La defensa buena es una regla
-  `RewriteRule ^tests/ - [F,L]` en `.htaccess`, que es de otro agente.
+- **`tests/` se despliega a producción** dentro de `public_html`. Desde
+  2026-08 `.htaccess` lo bloquea (`RewriteRule ^tests(/|$) - [F,L]`), y
+  además cada fichero de aquí empieza rechazando cualquier SAPI que no sea
+  CLI: dos cerrojos, por si uno falla bajo LiteSpeed.
+- **La suite de integración comparte UNA base de datos** (`iarepo_test` en
+  el contenedor `iarepo_test_db`): no la corras dos veces a la vez.

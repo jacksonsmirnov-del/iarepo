@@ -45,7 +45,10 @@ git log -1 --date=short --format='%ad %s' -- AGENTS.md CLAUDE.md docs/
 Detalle y ejemplos en `CLAUDE.md` §2. En una línea cada una:
 
 1. `shared/helpers.php` **jamás** en una página que emite HTML (arrastra
-   `error_handler.php`, cuyos handlers imprimen JSON y hacen `exit`).
+   `error_handler.php`, cuyos handlers imprimen JSON y hacen `exit`). Lo que va
+   en su lugar, **lo primero de todo**, es `shared/page_errors.php` (§6.11): registra
+   el error, lo cuenta en `health.php` y sirve un 500 limpio. Desde 2026-09-26 **ninguna**
+   página HTML carga `helpers.php` (la baseline está vacía y así debe seguir).
 2. Nunca `?>` dentro de un comentario de línea PHP (`//`, `#`). `php -l` no lo ve.
 3. Toda cadena visible en `t('español')` + entrada en `shared/i18n_en.php`.
 4. Cero CDNs: lucide y todo lo demás, auto-alojado en `assets/`.
@@ -436,6 +439,7 @@ A partir de 2026-08 se **AÑADEN** campos (nunca se quitan):
 | `deployed_at` | Marca UTC del `checkout -f` | ídem |
 | `deploy_subject` | Asunto del commit desplegado (≤ 200 chars, saneado) | ídem |
 | `crons` | Un objeto por job de `cron/run.php` con `age_seconds`, `status`, `stale`… | La BD no responde, o la tabla `cron_heartbeats` no existe |
+| `errors_24h` [2026-09-26] | `{server, client}`: errores de las últimas 24 h en `client_error_log`. `server` = páginas HTML (`shared/page_errors.php`, `source` `server:…`); `client` = JavaScript. Solo recuentos: el detalle, con el código de referencia que vio la persona, en `admin/errors.php` | La BD no responde, o `migration_006` sin aplicar |
 
 ⚠️ **`version` es la constante literal `'1.1.0'` escrita a mano**: nunca ha cambiado y no
 dice NADA sobre qué código corre. Se conserva porque es parte del contrato, pero **lo que
@@ -468,7 +472,16 @@ job muerto se arreglan de formas distintas.
 
 ## 5. Visibilidad y roles
 
-### 5.1 Niveles y `canView()` [V 2026-08-04: `api/resources.php:594-613`, fiel a lo documentado]
+### 5.1 Niveles y `canView()` [2026-09-26: vive en `shared/access.php`]
+
+`canView()` vivía dentro de `api/resources.php`, y un endpoint no puede incluir otro: por
+eso `api/versions.php` **no comprobaba nada** y entregaba el código de cualquier versión,
+borradores ajenos incluidos. Desde 2026-09-26 está en `shared/access.php` (funciones
+puras, sin `require`) y la usan `api/resources.php`, `api/versions.php` y
+`api/comments.php`. **Un endpoint nuevo que devuelva un recurso o algo colgado de él
+(versiones, comentarios, usos) llama a `canView()` y responde 404 —no 403, que confirmaría
+que el borrador existe—**. `tests/integration/authorization_test.php` lo ataca como otro
+profesor, como alumno y como anónimo.
 
 | Nivel | Quién ve |
 |---|---|
@@ -658,6 +671,12 @@ vuelven a ser la página genérica del servidor.
 que una cadena sin traducir se muestra en español (fallback silencioso), no se rompe.
 
 - En JS: se inyecta `const T = { clave: <?= json_encode(t('...')) ?> , ... }`.
+- **`t()` solo acepta un texto literal en PHP** (`tests/unit/i18n_test.php`). El panel del
+  autor murió tres meses por un `t(T.creating)` —la sintaxis del objeto `T` de JS pegada
+  dentro de PHP— que dejó un reemplazo en bloque (§15.4).
+- Las etiquetas que salen de la BD (categorías, niveles, tipo, idioma, fuente) se
+  traducen en **`shared/labels.php`**, no en cada página, y `api/resources.php` las
+  devuelve ya calculadas (§6.10).
 - El guard G7 avisa (no bloquea) si una cadena `t()` no tiene traducción.
   Se vuelve bloqueante con `GUARDS_I18N_STRICT=1`.
 - **`lang()` cachea en un `static` irreversible**: un proceso PHP solo puede servir un
@@ -671,6 +690,12 @@ dashboard, editor, profile, collection, favorites).
 
 **Trampa clásica:** si un cambio no se refleja en el navegador, es la caché del service
 worker. No persigas el bug en el servidor.
+
+**Desde 2026-09-26 los assets propios van versionados**: `iarepo_asset('/assets/css/app.css')`
+(`shared/asset.php`) devuelve `…/app.css?v=<hash del contenido>`. `sw.js` es cache-first
+**por URL**, así que sin versión un cambio en un asset no le llegaba nunca a quien ya
+había visitado la web. `sw.js` pasó a `CACHE = 'iarepo-v2'` para tirar las copias viejas
+sin versión. Un asset nuevo se enlaza SIEMPRE con `iarepo_asset()`.
 
 ### 6.4 Viewer
 
@@ -896,6 +921,56 @@ rompiendo la deduplicación en silencio—. Ese módulo **no carga `helpers.php`
 `shared/search.php`.
 
 ---
+
+### 6.10 Sistema de diseño compartido [2026-09-26]
+
+Antes, 13 páginas llevaban su propio `<style>` (10 copias casi iguales de `:root`), había
+17 copias del conmutador de tema y cada página tenía su cabecera: el selector de idioma
+existía en unas y no en otras, y en móvil desaparecía. Desde 2026-09-26 hay **una**
+implementación de cada cosa:
+
+| Pieza | Fichero | Qué da |
+|---|---|---|
+| Estilos | `assets/css/app.css` | tokens `--ia-*` (contraste AA medido), modo oscuro, color por materia (`.s-<slug>`), componentes `.ia-*` |
+| Tema | `assets/js/theme.js` (en el `<head>`) | aplica el tema antes de pintar; `[data-theme-toggle]` lo cambia |
+| Comportamiento | `assets/js/ui.js` (`window.IA`) | `IA.esc` (escapa también `'`), `IA.toast`, `IA.cover`, `IA.openSend`, menú móvil |
+| QR | `assets/js/qrcode.js` | qrcode-generator 1.4.4 (MIT), auto-alojado; el QR se genera en el navegador |
+| Componentes PHP | `shared/ui.php` | `iarepo_head_assets()`, `iarepo_header()`, `iarepo_footer()`, `iarepo_cover()`, `iarepo_send_dialog()`, `iarepo_body_assets()` |
+| Etiquetas | `shared/labels.php` | categoría, nivel con edades, fuente (deducida del dominio si falta), cómo se abre, idioma — con `t()` |
+| Versión de assets | `shared/asset.php` | `iarepo_asset()` → `?v=<hash>` (§6.3) |
+
+Reglas:
+
+- **Una página nueva usa estas piezas**; no copia CSS ni reescribe la cabecera. El CSS
+  que quede inline en una página es solo lo específico de esa página.
+- Las etiquetas visibles salen de `shared/labels.php`. `api/resources.php` las añade a cada
+  fila (`category_label`, `subject_class`, `level_label`, `source_label`, `source_mono`,
+  `opens_label`, `lang_label`): son **campos nuevos**, Campus no nota nada, y el JS de la
+  portada no duplica ni la lógica ni las traducciones.
+- Ningún texto en `ui.js`: los pone la página con `t()`.
+- **Cifras en público solo con umbral**: «Abierto por N personas» si `view_count +
+  unique_views ≥ 10`; «Usado en clase por N docentes» si `use_count ≥ 3`. Un contador a
+  cero funciona como prueba social al revés. Al autor, en su panel, sí se le enseñan sus
+  cifras reales.
+
+### 6.11 Errores de las páginas HTML: registrados, contados y sin media página [2026-09-26]
+
+`shared/page_errors.php` se incluye **lo primero** en cada página HTML
+(`tests/unit/page_errors_test.php` lo exige para las 15). Al incluirlo:
+
+1. `display_errors = 0`: nunca se enseñan rutas ni trazas.
+2. Cada aviso, excepción o error fatal va al log de PHP con el formato estándar
+   (`PHP Warning:  … in F on line L [ref xxxxxxxx]`) **y** a `client_error_log` con
+   `source = 'server:<fichero>'` (misma tabla que los errores de JavaScript).
+3. La salida va en un búfer: si algo revienta a mitad, se tira entera y se sirve un 500
+   limpio («Algo ha fallado» + `ref xxxxxxxx`). La misma referencia está en la fila.
+4. `shared/db.php`, dentro de una página, **lanza** en vez de imprimir su JSON de 503.
+
+Dónde se ve: `api/health.php` → `errors_24h.server` (sin autenticación, solo el número);
+`admin/errors.php` → el detalle con la referencia; `quality/smoke_test.sh` → un AVISO
+(no un FAIL: un error de ayer puede no tener que ver con este despliegue) si hubo errores
+de servidor en 24 h. Los tests unitarios definen `IAREPO_PAGE_ERRORS_NO_DB`: en el clon del
+mantenedor `.env.php` podría apuntar a una base real.
 
 ## 7. El buscador
 
@@ -1333,7 +1408,7 @@ working tree; el usuario decide.
 |---|---|---|---|
 | 1 · estáticos | `quality/guards.sh` (9 chequeos, ~0,5 s) | antes del push | **sí** |
 | 2 · unitarios | `php tests/run.php` (sin BD, < 5 s) | antes del push | **sí** |
-| 3 · integración | `make integration` (= `php tests/run.php --integration`, MariaDB en Docker) | al tocar SQL/búsqueda | opcional |
+| 3 · integración | `make integration` (= `php tests/run.php --integration`, MariaDB en Docker). Incluye desde 2026-09-26 **`render_pages_test.php`** (levanta el sitio con `php -S` y abre cada página HTML como anónimo, alumno y profesor) y **`authorization_test.php`** (quién ve qué en `api/*.php`) | al tocar SQL/búsqueda **o cualquier página** | opcional en local, **obligatoria en la CI** |
 | 4 · gate local | `.githooks/pre-push` (instálalo con `make hooks`) | en el push | **es EL gate local** |
 | 5 · **CI** | `.github/workflows/ci.yml` en GitHub | en cada push a cualquier rama y en cada PR | **sí, y `--no-verify` NO la salta** (§8.7) |
 | 6 · post-deploy | `quality/smoke_test.sh` (red, contra producción) | después del push | **no** |
@@ -1454,6 +1529,10 @@ cuarto (`required_tests.txt`) es lo contrario: solo debería crecer.
 - **JSON-LD inline** (`resource/index.php`, `profile/index.php`): mezcla condicionales
   PHP que emiten estructura, así que ninguna sustitución textual produce JSON válido.
   Solo se puede validar sobre la página renderizada (capa 6).
+- ~~**Que una página se renderice entera con sesión**~~ — **resuelto el 2026-09-26**:
+  `tests/integration/render_pages_test.php` (§15.4). Sigue sin cubrirse lo que solo pasa
+  en el NAVEGADOR (JS que falla en ejecución): para eso están `shared/error_tracker.php` y
+  `errors_24h.client` en `health.php`, y las capturas con Playwright del RUNBOOK §5.
 - **La base de datos**: los guards protegen el código. Una migración mala sigue siendo
   irreversible; lo que sí existe ya es un backup diario **verificado** (§8.8).
 - **Que el cron esté realmente siendo invocado**: nada del repo puede comprobarlo. Lo más
@@ -1707,6 +1786,26 @@ que documentar el patrón malo —como hace este párrafo— no lo pone en rojo.
 
 ---
 
+### Fugas CERRADAS el 2026-09-26 (y el primer test de autorización)
+
+Hasta esa fecha el gate no tenía **ni una** regla de autorización, y bastaba entrar con
+Google para leer lo que no es de uno:
+
+| Endpoint | Qué entregaba | Ahora |
+|---|---|---|
+| `api/versions.php?id=N` | el **código** de cualquier versión, borradores ajenos incluidos | solo si `canView()`; si no, 404 |
+| `api/usage.php` (GET) | nombre, colegio y aula de cada uso, también a alumnos | nombres solo al autor del recurso; al resto, el recuento por tipo |
+| `api/assignments.php` (GET) | aulas y docentes de todos los centros; `?tenant_id=` a elección | el tenant sale del token (un superadmin puede pedir otro) |
+| `api/comments.php` | comentarios de cualquier recurso; los alumnos publicaban con nombre y foto | GET sigue `canView()`; POST exige rol docente |
+
+`tests/integration/authorization_test.php` entra como «el otro» y pide lo ajeno; contra
+el código anterior, sus cuatro tests se ponen rojos. **Regla desde entonces:** un GET que
+devuelva filas de otras personas lleva su test de visibilidad en ese fichero.
+
+⚠️ Un fallo de seguridad **abierto** no se describe en ficheros versionados (este
+documento se publica en GitHub y en `https://iarepo.com/AGENTS.md`): va a las notas
+privadas del mantenedor y se documenta aquí al cerrarlo.
+
 ## 10. Configuración (`.env.php`)
 
 `.env.php` **no está en git**. La plantilla versionada es `.env.php.example`, que
@@ -1929,3 +2028,45 @@ en un catálogo con 37 recursos de biología.
 **La lección general:** los campos que rellena un humano (o un seed de hace meses) son una
 **pista**, no un dato. Cualquier lógica de producto que dependa de ellos hereda su
 fiabilidad. Mídela antes de construir encima.
+
+### 15.4 Tres meses con el panel roto y todo el gate en verde [2026-06-13 → 2026-09-26]
+
+`8f9dafc` tradujo el panel del autor con un reemplazo en bloque de literales por `T.x`, y
+el reemplazo alcanzó también dos argumentos de `t()` **dentro de PHP**: `t(T.creating)`.
+En PHP eso es la constante `T` concatenada con la constante `creating`: error fatal. Como
+la página cargaba `helpers.php`, su `error_handler` volcó un JSON en mitad del `<script>`
+y todo el JavaScript del panel murió: pestañas, listas, borrar, notificaciones, tema. El
+HTML servidor sí se pintaba, así que publicar y editar seguían funcionando y **nadie lo
+notificó**.
+
+Pasaron `php -l` (no ejecuta), 9 guards (buscan patrones de fallos anteriores), 136 tests
+(ninguno abría una página con sesión), la CI y el smoke (anónimo). **Ninguna capa
+ejecutaba una página tal como la ve una persona.**
+
+Lo que se añadió, cada cosa contra una parte del fallo:
+
+- `tests/integration/render_pages_test.php`: cada página × {anónimo, alumno, profesor};
+  exige el estado esperado, HTML hasta `</html>`, ningún `{"ok":false` y ningún aviso de
+  PHP. Reintroduciendo el fallo de junio se pone rojo por tres vías.
+- `tests/unit/i18n_test.php`: `t()` solo con literales (tokenizador de PHP, no regex).
+- `shared/page_errors.php` + `errors_24h` en `health.php` (§6.11): el siguiente fallo de
+  este tipo **se cuenta** aunque ningún test lo prevea.
+
+**La lección general:** un gate que solo busca los fallos que ya pasaron no ve el
+siguiente de la misma familia. Si tocas una página, ábrela —con la sesión del rol que la
+usa— antes de dar el cambio por bueno. Y todo reemplazo mecánico que cruce varias páginas
+obliga a renderizarlas.
+
+### 15.5 Un parámetro, dos significados: `?lang=` [2026-09-26]
+
+`?lang=` era a la vez el idioma de la interfaz (`shared/i18n.php` lo lee y lo guarda en
+una cookie de un año) y el filtro de idioma del catálogo (la portada lo leía de la URL).
+Pulsar «EN» dejaba 267 de 361 recursos y entraba en modo búsqueda; compartir un enlace
+filtrado por «Español» cambiaba el idioma de la web de quien lo abría. Además el selector
+de idioma compartía clase con «Presentar», que se oculta en móvil: allí no había forma de
+cambiar de idioma.
+
+Hoy el filtro va en `?rlang=` en la URL de la portada (a la API se le sigue mandando
+`lang`, que allí solo significa filtro). **Regla:** un parámetro de URL = un concepto. Y
+todo control que exista en escritorio existe también en móvil.
+
