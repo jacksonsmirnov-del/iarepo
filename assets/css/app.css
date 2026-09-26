@@ -294,6 +294,11 @@
   .ia-cover { background: var(--subj); }
 }
 :root[data-theme="dark"] .ia-cover { box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .08); }
+/* Captura real del recurso (iarepo_thumb): tapa el icono y el tema; el sello
+   de la fuente y el distintivo de idioma quedan encima. */
+.ia-cover-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: top center; background: var(--ia-surface-2); }
+.ia-cover-img ~ .ia-cover-icon, .ia-cover-img ~ .ia-cover-topic { display: none; }
+.ia-cover-source, .ia-cover-badge { z-index: 1; }
 .ia-cover-icon { position: absolute; right: 12%; top: 50%; transform: translate(35%, -50%); width: 30%; max-width: 88px; height: auto; opacity: .95; }
 .ia-cover-icon svg { width: 100%; height: auto; stroke-width: 1.6; }
 .ia-cover-source {

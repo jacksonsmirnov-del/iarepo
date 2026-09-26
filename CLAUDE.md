@@ -47,9 +47,9 @@ explica por qué el segundo brazo tiene **tres formas** que no se pueden unifica
 
 ## 1. Qué es esto
 
-iarepo.com: repositorio público de recursos educativos interactivos ("un GitHub para
-profesores"). Cualquier profesor sube/busca/forkea recursos; Campus (claseprivada.com)
-los consume vía API con JWT. Alias activo: `resources.claseprivada.com`.
+iarepo.com: simulaciones gratuitas de ciencias y matemáticas, clasificadas por curso y con
+la fuente original citada, para profesores, estudiantes y autodidactas. Los docentes también
+publican y adaptan recursos; Campus (claseprivada.com) los consume vía API con JWT. Alias activo: `resources.claseprivada.com`.
 
 **Stack: PHP 8 + MySQL/MariaDB + Vanilla JS. CERO dependencias.** Sin Composer, npm,
 frameworks, CDNs ni build step. Si necesitas una librería, se auto-aloja en `assets/`.

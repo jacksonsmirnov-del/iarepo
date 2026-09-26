@@ -28,3 +28,23 @@ function iarepo_asset(string $path): string
     $v = substr((string) @md5_file($real), 0, 8);
     return $memo[$path] = $v !== '' ? $path . '?v=' . $v : $path;
 }
+
+/**
+ * Captura real de un recurso (thumbnails/og-N.png) o null si no la hay.
+ *
+ * Las capturas se generan a mano (setup/tools/generate-thumbnails.sh), viven
+ * fuera de git y sobreviven al checkout -f del deploy. La portada antigua las
+ * pedía SIEMPRE con un <img onerror>, y cada una que faltaba era una petición
+ * que el catch-all de .htaccess convertía en 404.php: hasta 50 ejecuciones de
+ * PHP por página. Aquí se mira el disco (un stat por fila) y solo se enlaza la
+ * que existe, con ?v=<mtime> para que el service worker no sirva una vieja
+ * tras regenerarla. Sin ella, la tarjeta usa la portada generativa.
+ */
+function iarepo_thumb(int $id): ?string
+{
+    if ($id <= 0)
+        return null;
+    $mtime = @filemtime(dirname(__DIR__) . "/thumbnails/og-$id.png");
+    return $mtime ? "/thumbnails/og-$id.png?v=$mtime" : null;
+}
+

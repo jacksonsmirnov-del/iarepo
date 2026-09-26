@@ -82,11 +82,14 @@
 
   var ICON_RE = /^[a-z0-9-]{2,40}$/;
   var SUBJ_RE = /^s-[a-z-]{2,30}$/;
+  var THUMB_RE = /^\/thumbnails\/og-\d+\.png(\?v=\d+)?$/;
   IA.cover = function (r, opts) {
     opts = opts || {};
     var subj = SUBJ_RE.test(r.subject_class || '') ? r.subject_class : 's-general';
     var icon = ICON_RE.test(r.category_icon || '') ? r.category_icon : 'sparkles';
     var html = '<div class="ia-cover ' + subj + '" aria-hidden="true">';
+    // Captura real (la API la da en r.thumb solo si existe en el servidor).
+    if (THUMB_RE.test(r.thumb || '')) html += '<img class="ia-cover-img" src="' + r.thumb + '" alt="" loading="lazy" decoding="async">';
     if (r.source_label) {
       html += '<span class="ia-cover-source"><span class="ia-cover-mono">' + IA.esc(r.source_mono || '') + '</span>'
             + IA.esc(r.source_label) + '</span>';

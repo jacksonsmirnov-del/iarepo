@@ -3,7 +3,7 @@
 > iarepo.com is a free, open repository of interactive educational resources for teachers worldwide.
 
 ## About
-iarepo is a platform where teachers can discover, share, and execute interactive educational resources — simulations, tools, AI-generated models, and more. Think of it as "GitHub for Education."
+iarepo is a free library of science and maths simulations (PhET, NASA, GeoGebra and other sources), sorted by grade and age, with the original author always credited. Teachers project them in class or send them to students with a link or QR code; students and self-learners use them on their own. No install, no sign-up.
 
 ## Key Features
 - Interactive simulations from PhET, GeoGebra, Desmos

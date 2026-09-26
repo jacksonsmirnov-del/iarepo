@@ -203,3 +203,51 @@ function test_pwa_js_recibe_sus_textos_traducidos_y_no_pisa_el_tema(): void
         assert_not_matches('#<script[^>]+pwa\.js#', $src, "$rel carga pwa.js a mano: usa iarepo_pwa_script()");
     }
 }
+
+/**
+ * La captura real se usa cuando EXISTE, y solo entonces.
+ *
+ * El rediseño de 2026-09 se probó en local, donde no hay capturas
+ * (thumbnails/ vive fuera de git), y las tarjetas pasaron a pintar siempre la
+ * portada generativa: en producción se habrían perdido las capturas reales.
+ * Además no debe pedirse NUNCA una captura que no existe (cada 404 es una
+ * ejecución de 404.php por el catch-all de .htaccess).
+ */
+function test_la_captura_real_se_usa_si_existe_y_si_no_la_portada_generativa(): void
+{
+    require_once IAREPO_ROOT . '/shared/ui.php';
+    $dir     = IAREPO_ROOT . '/thumbnails';
+    $made    = !is_dir($dir) && mkdir($dir);
+    $id      = 987654321;
+    $file    = "$dir/og-$id.png";
+    try {
+        assert_null(iarepo_thumb($id), 'sin fichero, sin captura');
+        $sin = iarepo_cover(['id' => $id, 'category_slug' => 'physics', 'category_icon' => 'atom']);
+        assert_not_contains('<img', $sin, 'sin captura no se pide ninguna imagen');
+        assert_contains('ia-cover-icon', $sin, 'y queda la portada generativa');
+
+        file_put_contents($file, 'png');
+        assert_matches('#^/thumbnails/og-' . $id . '\.png\?v=\d+$#', (string) iarepo_thumb($id), 'con fichero, su URL versionada');
+        $con = iarepo_cover(iarepo_with_labels(['id' => $id, 'category_slug' => 'physics', 'category_icon' => 'atom']));
+        assert_matches('#<img class="ia-cover-img" src="/thumbnails/og-' . $id . '\.png\?v=\d+"#', $con, 'la tarjeta enseña la captura real');
+    } finally {
+        @unlink($file);
+        if ($made) @rmdir($dir);
+    }
+
+    // La versión JS hace lo mismo con r.thumb (que la API solo manda si existe)
+    // y no acepta otra cosa que una ruta de thumbnails/.
+    exec('command -v node 2>/dev/null', $o, $rc);
+    if ($rc !== 0)
+        return;
+    $js = 'global.window = {}; global.document = { readyState: "complete", addEventListener(){} };'
+        . 'require(' . json_encode(IAREPO_ROOT . '/assets/js/ui.js') . ');'
+        . 'const c = window.IA.cover;'
+        . 'process.stdout.write(JSON.stringify(['
+        . '  c({id: 5, thumb: "/thumbnails/og-5.png?v=17"}).includes(\'src="/thumbnails/og-5.png?v=17"\'),'
+        . '  c({id: 5}).includes("<img"),'
+        . '  c({id: 5, thumb: "javascript:alert(1)"}).includes("<img"),'
+        . '  c({id: 5, thumb: "https://evil.example/x.png"}).includes("<img")'
+        . ']));';
+    assert_eq('[true,false,false,false]', trim((string) shell_exec('node -e ' . escapeshellarg($js) . ' 2>&1')));
+}

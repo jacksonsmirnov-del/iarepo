@@ -19,6 +19,7 @@
 // ================================================================
 
 require_once __DIR__ . '/i18n.php';
+require_once __DIR__ . '/asset.php';   // iarepo_thumb(): la captura real, si existe
 
 /** Slug de categoría → nombre visible. Desconocido → el nombre de la BD. */
 function iarepo_category_label(?string $slug, ?string $dbName = null): string
@@ -269,5 +270,6 @@ function iarepo_with_labels(array $r): array
     $r['opens_label']    = iarepo_opens_label($r['code_type'] ?? null);
     $r['lang_label']     = iarepo_lang_label($r['lang'] ?? null);
     $r['topic_label']    = iarepo_topic_label($r['topic_tag'] ?? null);
+    $r['thumb']          = iarepo_thumb((int) ($r['id'] ?? 0));
     return $r;
 }

@@ -205,6 +205,11 @@ function iarepo_cover(array $r, ?string $topic = null): string
     $r    = isset($r['subject_class']) ? $r : iarepo_with_labels($r);
     $icon = preg_match('/^[a-z0-9-]{2,40}$/', (string) ($r['category_icon'] ?? '')) ? $r['category_icon'] : 'sparkles';
     $out  = '<div class="ia-cover ' . iarepo_e($r['subject_class']) . '" aria-hidden="true">';
+    // La captura real, si existe, va DEBAJO del sello de la fuente y tapa el
+    // icono y el tema (app.css). Sin ella, queda la portada generativa.
+    $thumb = $r['thumb'] ?? iarepo_thumb((int) ($r['id'] ?? 0));
+    if ($thumb)
+        $out .= '<img class="ia-cover-img" src="' . iarepo_e($thumb) . '" alt="" loading="lazy" decoding="async">';
     if (!empty($r['source_label']))
         $out .= '<span class="ia-cover-source"><span class="ia-cover-mono">' . iarepo_e($r['source_mono']) . '</span>' . iarepo_e($r['source_label']) . '</span>';
     $out .= '<span class="ia-cover-icon"><i data-lucide="' . iarepo_e($icon) . '"></i></span>';
