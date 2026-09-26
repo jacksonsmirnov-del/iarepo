@@ -339,6 +339,27 @@ El smoke tiene además dos secciones que solo tienen sentido tras el deploy:
   `check_cron_job moderation 120`. Un rojo aquí **es el hallazgo**, no un defecto del
   check: quiere decir que el job no está corriendo.
 
+**Tras el deploy del rediseño de 2026-09** (`AGENTS.md` §6.12), tres comprobaciones nuevas.
+El smoke ya las hace («Landing: Listos para clase», «Landing: Para empezar (REGEXP)» y
+«API: el filtro ?lang= no cambia el idioma de la web»); a mano, por si hay que mirarlas
+sueltas:
+
+```bash
+# La portada calcula dos secciones con SQL propio, cada una en su try: si una
+# falla, desaparece ELLA sola, sin 500. El REGEXP con lookbehind está SOLO en
+# «Para empezar» (#para-empezar); «Listos para clase» (#listos) usa
+# RAND(TO_DAYS(CURDATE())) y NO detecta un fallo del REGEXP.
+curl -s https://iarepo.com/ | grep -c 'id="listos"'          # espera 1
+curl -s https://iarepo.com/ | grep -c 'id="para-empezar"'    # espera 1 (si 0: el REGEXP)
+
+# El filtro ?lang= de la API NO debe plantar la cookie de idioma (AGENTS.md §15.5).
+curl -sI 'https://iarepo.com/api/resources.php?lang=en&limit=10' | grep -ci 'set-cookie: lang='   # espera 0
+```
+
+Si `#listos` o `#para-empezar` falta: busca `portada: sin «` en el log de errores de PHP o en
+`admin/errors.php` (y `health.php` → `errors_24h.server` > 0). La sección degrada a no mostrarse; no hace falta rollback
+inmediato, pero sí arreglarlo.
+
 **A ojo, en el navegador** (nada de esto lo cubre ningún test automático):
 la portada en móvil, que la barra de búsqueda pegajosa no tape la primera fila de
 resultados, que Tab llegue a las tarjetas, y —si tocaste el frontend— **recarga forzada**

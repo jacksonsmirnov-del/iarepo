@@ -238,6 +238,11 @@ LiteSpeed**, que es lo que corre producción.
    `view_count + 1`**: contaría en las dos métricas a la vez. `AGENTS.md` §6.8.
 4. **`shared/i18n.php::lang()` cachea el idioma en un `static` irreversible**: un
    proceso PHP solo puede hablar un idioma. Importa al escribir tests.
+   ⚠️ **`?lang=` significa dos cosas**: en una página es el idioma de la interfaz (y
+   `lang()` lo guarda en una cookie de un año); en `api/resources.php` es el **filtro**
+   de idioma del recurso, y la API lo aparta de `$_GET` antes de traducir nada. En la URL
+   de la portada, el filtro es `?rlang=`. Una API nueva que traduzca etiquetas tiene que
+   hacer lo mismo (`tests/unit/i18n_test.php` lo exige; `AGENTS.md` §15.5).
 5. **`resources.lang` NO es de fiar** (§7). `use_count` era 0 en todo el catálogo porque
    `api/usage.php` existía y **nadie lo llamaba nunca**; desde 2026-08-06 hay un botón
    ("Lo usé en clase") que por fin lo alimenta. Sigue sin haber datos: no construyas
@@ -319,8 +324,15 @@ es una constante literal y **no** dice nada.
    Si a las semanas siguen a cero, el problema no es el código: es que hay que hablar con
    los profesores. Con este volumen, **cinco conversaciones enseñan más que seis meses de
    telemetría**.
-4. **`quality/baseline_html_helpers.txt` tiene 7 páginas**; esa lista solo puede encoger.
-   `resource/index.php` y `dashboard/index.php` son las que más lógica nueva acumulan.
+4. ✅ **`quality/baseline_html_helpers.txt` está VACÍA** desde 2026-09-26 (eran 7
+   páginas). Que siga así: ninguna página HTML carga `helpers.php`.
+5. **Tras desplegar el rediseño de 2026-09** (`AGENTS.md` §6.12): `make smoke` busca ya
+   `id="listos"` y `id="para-empezar"` en la portada —cada sección tiene su SQL; el
+   `REGEXP` con lookbehind está **solo** en `#para-empezar`, así que es ese marcador el
+   que dice si falló contra la MariaDB de producción— y
+   comprueba que `api/resources.php?lang=en` **no** planta la cookie `lang`
+   (`docs/RUNBOOK.md` §5). Pendiente de producto: regenerar `assets/img/og-default.png`,
+   que aún dice «El GitHub para profesores» (`AGENTS.md` §13).
 
 **Deuda abierta (revisa antes de citarla — esta sección caduca):**
 

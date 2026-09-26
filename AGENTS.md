@@ -265,13 +265,16 @@ shared/                   auth.php jwt.php db.php cors.php helpers.php error_han
                           error_tracker.php i18n.php i18n_en.php mailer.php notify.php
                           moderation.php similarity.php search.php
                           search_synonyms.php   ← diccionario ES↔EN, datos puros (§7.3)
-resource/index.php        /resource/N — detalle: preview, likes, comentarios, similares,
-                          share panel, embed, JSON-LD LearningResource
-viewer/index.php          /view/N — iframe sandbox + modo presentación (?mode=present)
-dashboard/                index.php (mis recursos + actividad) · editor.php
-profile/index.php         /profile/N — perfil público
-collection/index.php      /collection/?id=N
-favorites/index.php       /favorites/ — ⭐ guardado privado (destino de los estudiantes)
+                          access.php (canView, §5.1) · page_errors.php (§6.11)
+                          ui.php · labels.php · asset.php   ← base común del diseño (§6.10)
+resource/index.php        /resource/N — la ficha: acciones de aula (Proyectar, Mandar a mis
+                          alumnos con QR, Guardar, Añadir a una lista), panel «Para docentes»,
+                          «Siguiente paso», comentarios, JSON-LD LearningResource (§6.12)
+viewer/index.php          /view/N — iframe sandbox + modo presentación (?mode=present, ?ui=0)
+dashboard/                index.php («Mi panel»: cifras reales del autor, «Mis listas») · editor.php
+profile/index.php         /profile/N — perfil público de un DOCENTE (el de un alumno da 404)
+collection/index.php      /collection/?id=N — una lista: secuencia numerada, cada paso por canView()
+favorites/index.php       /favorites/ — «Guardados (solo tú los ves)», destino de los estudiantes
 admin/                    create.php · errors.php   (se autoprotegen con ADMIN_PASS, ver §9)
 legal/terms.php
 assets/                   img/ (logo, iconos PWA, og-default) · js/lucide.min.js · js/pwa.js
@@ -302,7 +305,7 @@ headless y subidos por SCP), `deploy_version.txt` (lo escribe el hook en cada de
 
 | Endpoint | Métodos | Auth | Función |
 |---|---|---|---|
-| `api/resources.php` | GET/POST/PUT/DELETE | GET opcional, resto obligatoria | CRUD, fork (`?action=fork&id=`), versionado, listado con filtros y búsqueda |
+| `api/resources.php` | GET/POST/PUT/DELETE | GET opcional, resto obligatoria | CRUD, fork (`?action=fork&id=`), versionado, listado con filtros y búsqueda. POST/PUT aceptan `source_name`/`source_url` (§6.12.3) |
 | `api/assignments.php` | GET/POST/DELETE | obligatoria + `requireRole` | Recursos asignados a aulas |
 | `api/usage.php` | GET/POST | obligatoria | Tracking de uso |
 | `api/stats.php` | GET | obligatoria | Métricas |
@@ -310,7 +313,7 @@ headless y subidos por SCP), `deploy_version.txt` (lo escribe el hook en cada de
 | `api/versions.php` | GET | obligatoria | Historial de versiones |
 | `api/likes.php` | GET/POST | obligatoria en POST | Like / unlike — **el unlike es el mismo POST (toggle), no un DELETE** |
 | `api/comments.php` | GET/POST/DELETE | obligatoria salvo GET | Comentarios |
-| `api/collections.php` | GET/POST/PUT/DELETE | obligatoria salvo `GET ?id=` / `?user_id=` | Colecciones (curaduría). El GET **sin** parámetros ("mis colecciones") sí exige auth |
+| `api/collections.php` | GET/POST/PUT/DELETE | obligatoria salvo `GET ?id=` / `?user_id=` | Listas (en la UI ya no se llaman «colecciones»). El GET **sin** parámetros ("mis colecciones") sí exige auth. `GET ?id=` devuelve los pasos en orden de llegada (`added_at ASC, id ASC`) y **solo** los que quien pregunta puede ver (`canView()`, desde 2026-09-26). ⚠️ **Cambio de contrato 2026-09-26:** antes era `added_at DESC` (lo último primero). Mismos campos, orden INVERSO: si Campus pinta los items tal cual, ahora salen como en la web (el «paso 1» primero) |
 | `api/favorites.php` | GET, POST `?id=` | obligatoria | ⭐ favorito privado — **distinto de colecciones, ver §5.3** |
 | `api/notifications.php` | GET, POST | obligatoria | GET = feed + no leídos · POST = marcar visto (`users.notifications_seen_at`) |
 | `api/log-error.php` | POST | No | Receptor de errores JS → `client_error_log` |
@@ -337,13 +340,13 @@ Rutas HTML con rewrite (no son endpoints): `/view/{id}`, `/resource/{id}`,
 | `search` | Búsqueda (ver §7) |
 | `area` | `subject_area` exacto |
 | `category` | `category_id` (se ignora si ≤ 0) |
-| `lang` | `es` / `en` / `pt` |
+| `lang` | `es` / `en` / `pt` — **idioma del RECURSO**. Aquí NO es el idioma de la interfaz: la API lo aparta de `$_GET` antes de traducir nada (§15.5); las etiquetas siguen la cookie `lang` o `Accept-Language` |
 | `level` | `primary`, `secondary`, `ib`, `university`, `general` (columna libre, no ENUM) |
 | `type` | `code_type` — **no estaba documentado** |
 | `tag` | subconsulta a `resource_tags` — **no estaba documentado**; única vía de consultar esa tabla desde la API |
 | `author_tenant_id` | Colegio de origen (se ignora si ≤ 0) |
 | `visibility` | Nivel de visibilidad |
-| `sort` | `recent` (default sin búsqueda), `relevance` (default **con** búsqueda), `popular`, `views`, `title`. Un valor desconocido se trata como **ausente** (cae al default que toque), no como `recent` fijo — ver la tabla de abajo |
+| `sort` | `recent` (default sin búsqueda), `relevance` (default **con** búsqueda), `popular`, `views`, `title`. Un valor desconocido se trata como **ausente** (cae al default que toque), no como `recent` fijo — ver la tabla de abajo. La portada solo **ofrece** `relevance` y `recent` desde 2026-09 (§6.7); la API sigue aceptando los demás para Campus |
 | `page` / `limit` | `limit` acotado a 10-100, default 20 |
 
 Todos los filtros pasan por **`iarepo_get_str()`** [V 2026-08-04: `grep -n 'function
@@ -508,11 +511,12 @@ y `area` no tienen semántica útil para ellos: todos los externos comparten el 
 `users.role` es `ENUM('student','teacher','admin','superadmin')` desde `migration_009`
 (`schema_users.sql` aún declara el ENUM viejo sin `student`).
 
-**El rol `student` tiene enrutado propio** [V 2026-08-04]: `dashboard/index.php:16` y
-`dashboard/editor.php:19` lo redirigen a `/favorites/`; `index.php:21` y
-`resource/index.php:66` le ocultan acciones de autoría (Fork); `profile/index.php:161`
-permite cambiar entre profesor y estudiante; `auth/onboarding.php:47` decide el destino
-tras el alta.
+**El rol `student` tiene enrutado propio** [V 2026-08-04; los números de línea son de
+antes del rediseño de 2026-09]: `dashboard/index.php` y `dashboard/editor.php` lo
+redirigen a `/favorites/`; `index.php` le oculta «Doy clase» y `resource/index.php` el
+panel «Para docentes» («Hacer mi versión», «Lo usé en clase»); `profile/index.php`
+permite cambiar entre «Doy clase» y «Estoy aprendiendo»; `auth/onboarding.php` decide el
+destino tras el alta. Desde 2026-09 el perfil de un alumno **no es público** (§6.12.4).
 
 ⚠️ **Ese enrutado era sólo cosmético hasta 2026-08-06: NINGÚN endpoint comprobaba el
 rol.** `requireRole()` existe en `shared/auth.php:110` desde siempre y no lo llamaba
@@ -533,7 +537,8 @@ hay **dos** fuentes de identidad y `authenticate()` normaliza ambas.
 |---|---|---|
 | Tabla | `resource_favorites` (UNIQUE user+resource) | `collections` + `collection_items` |
 | API | `api/favorites.php` | `api/collections.php` |
-| UI | 1 clic en la card | Modal "Guardar en colección" (`resource/index.php:389`) |
+| Nombre en la UI (2026-09) | «Guardados (solo tú los ves)» | «Lista» / «Mis listas» |
+| UI | 1 clic en la estrella de la card o «Guardar» en la ficha | «Añadir a una lista» en la ficha, con «+ Nueva lista» en el sitio |
 | Semántica | Privado, personal, sin nombre | Curaduría con nombre, compartible |
 | Razón de existir | Gancho de captación de estudiantes | Organización avanzada del profesor |
 
@@ -684,9 +689,15 @@ que una cadena sin traducir se muestra en español (fallback silencioso), no se 
 
 ### 6.3 PWA
 
-`manifest.webmanifest` + `sw.js` (raíz) + `assets/js/pwa.js:18`, que registra el
-service worker. El `<link rel="manifest">` está en 8 páginas (index, resource, viewer,
-dashboard, editor, profile, collection, favorites).
+`manifest.webmanifest` + `sw.js` (raíz) + `assets/js/pwa.js`, que registra el service
+worker, ofrece «Instalar app» y aplica el «guardar» pendiente de un invitado cuando vuelve
+con sesión (clave `iarepo_pending_fav` en localStorage). **Se carga siempre con
+`iarepo_pwa_script()`** (`shared/ui.php`), que le pasa sus textos ya traducidos en `data-*`:
+un `.js` estático no puede llamar a `t()`, y hasta 2026-09-26 decía «Instalar app» y
+«Guardado en tus favoritos ⭐» en cualquier idioma. Ya **no** toca el `theme-color` (lo
+lleva `theme.js`; los dos pintaban colores distintos y parpadeaba).
+`tests/unit/labels_test.php` impide cargarlo a mano. **El visor no lo carga**: su botón
+flotante tapaba la proyección.
 
 **Trampa clásica:** si un cambio no se refleja en el navegador, es la caché del service
 worker. No persigas el bug en el servidor.
@@ -734,7 +745,15 @@ sin sandbox. Se hizo así porque muchos sitios externos (PhET, GeoGebra) se romp
 sandboxeados, pero conviene saberlo antes de afirmar que "el viewer está sandboxeado".
 
 `/view/{id}?mode=present` = fullscreen sin barra; ESC sale (sincronizado con
-`fullscreenchange`).
+`fullscreenchange`). Desde el rediseño de 2026-09:
+
+- el visor decide con `canView()` (`shared/access.php`), como la ficha; la copia que tenía
+  comparaba el tenant con `!==` entre un `int` y un `string`;
+- en `?mode=present` hay un botón discreto de pantalla completa que se esconde tras 3 s
+  sin ratón (en pantallas táctiles se queda atenuado: no hay `mousemove`);
+- `?ui=0` quita **todos** los controles (para capturas: §6.5);
+- `<html lang>` sigue a la interfaz, los errores pasan por `t()` y un 401 ofrece «Entrar»;
+- sin `pwa.js` (§6.3). Lo fija `tests/unit/resource_page_test.php`.
 
 ### 6.5 OG images y thumbnails
 
@@ -743,7 +762,8 @@ sandboxeados, pero conviene saberlo antes de afirmar que "el viewer está sandbo
 fallback: DejaVuSans → **DroidSans** (lo que hay en el servidor) → DejaVuSansMono.
 
 Los thumbnails se generan **en local** con `setup/tools/generate-thumbnails.sh` (Chrome
-headless sobre `/view/{id}?mode=present`) y se suben por SCP. Cobertura al 100 % desde
+headless sobre `/view/{id}?mode=present&ui=0` —`ui=0` quita todos los controles del
+visor, que si no salían en cada miniatura—) y se suben por SCP. Cobertura al 100 % desde
 2026-06-10 [S: registrado en la memoria del mantenedor, no verificable desde aquí].
 
 *Nota histórica:* hubo un intento de generar los screenshots en el propio servidor con
@@ -765,6 +785,14 @@ la migración de servidor de 2026-07-13 eso ya no es comprobable ni bloquea nada
   `docs/RUNBOOK.md §8.3`, con los registros exactos; resumida en el cierre (§10).
 
 ### 6.7 El `<select id="sort">` y el orden por relevancia [V 2026-08-04]
+
+> **Desde el rediseño de 2026-09** la fila «Orden» de la portada solo aparece al buscar y
+> solo ofrece «Más relevantes» y «Más recientes». `popular`, `views` y `title` se tratan
+> como **ausentes** en la UI (un `?sort=popular` viejo abre la portada con su orden por
+> defecto) y la API los sigue aceptando. `popular` ordenaba por `use_count`, que es 0 en
+> casi todo el catálogo, y `views` por `view_count`, congelado desde 2026-08-06
+> (`tests/unit/landing_test.php`). Lo de abajo sigue describiendo la mecánica del
+> desplegable; los números de línea son de antes del rediseño.
 
 El desplegable **mentía**: con búsqueda y sin `?sort=`, la API ordena por relevancia
 (§7.3) mientras el `<select>` seguía mostrando "Más recientes". Arreglado en dos capas, y
@@ -935,8 +963,8 @@ implementación de cada cosa:
 | Tema | `assets/js/theme.js` (en el `<head>`) | aplica el tema antes de pintar; `[data-theme-toggle]` lo cambia |
 | Comportamiento | `assets/js/ui.js` (`window.IA`) | `IA.esc` (escapa también `'`), `IA.toast`, `IA.cover`, `IA.openSend`, menú móvil |
 | QR | `assets/js/qrcode.js` | qrcode-generator 1.4.4 (MIT), auto-alojado; el QR se genera en el navegador |
-| Componentes PHP | `shared/ui.php` | `iarepo_head_assets()`, `iarepo_header()`, `iarepo_footer()`, `iarepo_cover()`, `iarepo_send_dialog()`, `iarepo_body_assets()` |
-| Etiquetas | `shared/labels.php` | categoría, nivel con edades, fuente (deducida del dominio si falta), cómo se abre, idioma — con `t()` |
+| Componentes PHP | `shared/ui.php` | `iarepo_head_assets()`, `iarepo_pwa_script()` (§6.3), `iarepo_header()`, `iarepo_footer()`, `iarepo_cover()`, `iarepo_card_meta()` (línea «fuente · curso · idioma» de perfil, lista y Guardados, dentro de `.ia-cards-meta`), `iarepo_send_dialog()`, `iarepo_body_assets()` |
+| Etiquetas | `shared/labels.php` | categoría, nivel con edades, fuente (deducida del dominio si falta y, en un `url` sin `source_url`, de su propia dirección), cómo se abre, idioma, tema (`topic_label`: el primero de `topic_tag`), `iarepo_num()` (miles según el idioma) y los umbrales públicos `IAREPO_PROOF_MIN_*` — con `t()` |
 | Versión de assets | `shared/asset.php` | `iarepo_asset()` → `?v=<hash>` (§6.3) |
 
 Reglas:
@@ -945,13 +973,19 @@ Reglas:
   que quede inline en una página es solo lo específico de esa página.
 - Las etiquetas visibles salen de `shared/labels.php`. `api/resources.php` las añade a cada
   fila (`category_label`, `subject_class`, `level_label`, `source_label`, `source_mono`,
-  `opens_label`, `lang_label`): son **campos nuevos**, Campus no nota nada, y el JS de la
-  portada no duplica ni la lógica ni las traducciones.
+  `opens_label`, `lang_label`, `topic_label`): son **campos nuevos**, Campus no nota nada, y
+  el JS de la portada no duplica ni la lógica ni las traducciones. Para deducir la fuente
+  de un enlace sin `source_url`, los listados seleccionan
+  `IF(r.code_type = 'url', r.code_content, NULL) AS link_url` (la API lo quita de la
+  respuesta; `tests/unit/labels_test.php` exige la columna en los cinco listados).
+- `app.css` hace que el atributo `hidden` gane siempre (`.ia-page [hidden]`): `.ia-btn`,
+  `.ia-chip`… fijan `display` y lo anulaban sin avisar. No lo copies en una página.
 - Ningún texto en `ui.js`: los pone la página con `t()`.
 - **Cifras en público solo con umbral**: «Abierto por N personas» si `view_count +
-  unique_views ≥ 10`; «Usado en clase por N docentes» si `use_count ≥ 3`. Un contador a
-  cero funciona como prueba social al revés. Al autor, en su panel, sí se le enseñan sus
-  cifras reales.
+  unique_views ≥ 10`; «Usado en clase por N docentes» si `use_count ≥ 3`
+  (`IAREPO_PROOF_MIN_OPENS` / `IAREPO_PROOF_MIN_TEACHERS` en `shared/labels.php`: una sola
+  definición para la ficha y el perfil). Un contador a cero funciona como prueba social al
+  revés. Al autor, en su panel y en su propio perfil, sí se le enseñan sus cifras reales.
 
 ### 6.11 Errores de las páginas HTML: registrados, contados y sin media página [2026-09-26]
 
@@ -971,6 +1005,104 @@ Dónde se ve: `api/health.php` → `errors_24h.server` (sin autenticación, solo
 (no un FAIL: un error de ayer puede no tener que ver con este despliegue) si hubo errores
 de servidor en 24 h. Los tests unitarios definen `IAREPO_PAGE_ERRORS_NO_DB`: en el clon del
 mantenedor `.env.php` podría apuntar a una base real.
+
+### 6.12 El rediseño de 2026-09, página a página [2026-09-26]
+
+Cuatro áreas rehechas en paralelo sobre la base común (§6.10) y una pasada de
+integración. Lo que **no falla ruidosamente** si alguien lo deshace está fijado por un
+test (entre paréntesis). Vocabulario nuevo en toda la UI: «Lista» (no «colección»),
+«Guardados (solo tú los ves)» (no «favoritos»), «Mi panel» (no «Dashboard»), «Me gusta»
+(no «Likes»), «Hacer mi versión» (no «Fork»), «Proyectar», «Mandar a mis alumnos»,
+«Estoy aprendiendo (en clase o por mi cuenta)».
+
+#### 6.12.1 Portada (`index.php`, `404.php`, `manifest.webmanifest`) — `tests/unit/landing_test.php`
+
+- Posicionamiento «Ciencias y matemáticas que se entienden tocándolas». Sin Google Fonts
+  ni Google Sign-In: «Entrar» lleva a `/auth/signin.php`.
+- Filtros en chips (Materia, Curso y edad, Idioma del recurso). El idioma del recurso va
+  en `?rlang=` en la URL de la portada; a la API se le manda `lang` (§4.2, §15.5).
+- «Más usados» (ordenaba por `view_count`, congelado) desaparece. En su lugar, dos
+  secciones calculadas en el servidor: **«Listos para clase · Primaria y Secundaria»**
+  (`#listos`) y **«Para empezar»** (`#para-empezar`, títulos que empiezan por
+  intro/básic/fundament). Filtro común `IAREPO_HOME_WHERE` (público, aprobado, enlace no
+  roto, Primaria/Secundaria) y orden `RAND(TO_DAYS(CURDATE()))`: rota cada día, igual
+  para todos, **sin popularidad**, y ningún recurso sale en las dos. Si el SQL de una
+  falla, la sección no se pinta y el fallo queda en el log y en `client_error_log`
+  (lo cuenta `health.php`). `quality/smoke_test.sh` busca `id="listos"` y
+  `id="para-empezar"`: el `REGEXP` con lookbehind está **solo** en «Para empezar», así que
+  si falla en producción falta `#para-empezar` y `#listos` sigue saliendo
+  (`tests/unit/smoke_markers_test.php`).
+- Tarjeta sin 👁 ni ❤, clicable entera, tarjeta-fila en móvil. El catálogo pagina de 48
+  en 48. El health check JSON de `index.php` se responde antes de abrir sesión.
+- SEO: title/description/OG con `t()`, canonical por idioma, hreflang es/en/x-default y
+  JSON-LD `WebSite` con `SearchAction`.
+
+#### 6.12.2 Ficha y visor (`resource/index.php`, `viewer/index.php`) — `tests/unit/resource_page_test.php`
+
+- Acción principal **«Proyectar»** (Fullscreen API, o CSS si no la hay; si el sitio no se
+  deja embeber, abre la web original y lo dice). Luego «Mandar a mis alumnos»
+  (`IA.openSend`, QR generado en local), «Guardar», «Añadir a una lista» (con «+ Nueva
+  lista» en el sitio), y como gestos menores «Me gusta» (sin número si es 0) y Compartir.
+- Panel **«Para docentes»**, que el alumno no ve: «Lo usé en clase» (contrato de §5.4
+  intacto), «Hacer mi versión» **solo en html/embed** (en un `url` duplicaría un enlace),
+  «Insertar en tu aula virtual», «Ver fuente». El autor ve sus cifras reales en «Es tu
+  recurso»; en público, solo por encima del umbral (§6.10).
+- Atribución «Creado por <fuente> · <dominio>» y debajo «Elegido por <autor>» (la cuenta
+  semilla elige pero no firma). «Siguiente paso»: misma materia y nivel, sin popularidad,
+  sin repetir el linaje. Los enlaces de etiqueta usan `/?search=` (el `?tag=` antiguo no
+  lo leía nadie). Solo URLs http(s) en iframes y enlaces; los `sandbox` no cambian y el
+  beacon (`data-surface="detail"`, §6.8) se conserva.
+- Visor: ver §6.4.
+
+#### 6.12.3 Cuenta (`dashboard/`, `auth/`, POST/PUT de `api/resources.php`) — `tests/unit/account_pages_test.php`, `tests/integration/account_api_test.php`
+
+- **Mi panel**: «Abierto por» = `view_count + unique_views`; «Usos en clase» =
+  `use_count`; «Me gusta recibidos» de `resource_likes`; «Versiones de otros docentes» =
+  las **públicas** hechas por otros, por `root_id` (no `fork_count`, que cuenta borradores).
+  Pestaña «Mis listas» (`#listas`, y `#collections` por compatibilidad). Los nombres de
+  quien comenta o da «Me gusta» salen escapados (antes era un XSS).
+- **Editor**: a la vista tipo, título, contenido o dirección, materia y curso; plegado en
+  «Más opciones» lo demás. Traduce los errores de la API **por código**.
+- **API** (POST/PUT): `source_name` (una línea, ≤ 150) y `source_url` (solo http(s), ≤ 500;
+  vacía → NULL; un PUT que no las manda no las toca, así Campus no borra nada). Un recurso
+  `url` exige una dirección http(s) y, sin `source_url`, esa dirección es la fuente. La
+  lista negra de URLs retiradas se aplica al crear **y al editar**. Códigos nuevos:
+  `MISSING_TITLE`, `INVALID_SOURCE_URL`, `INVALID_SOURCE_NAME`, `INVALID_URL`,
+  `DAILY_LIMIT` (antes `RATE_LIMITED` genérico), `DUPLICATE_CONTENT`. Un cuerpo malformado
+  (un título que llega como lista) da 400, no 500.
+- Visibilidad `school`/`area` se enseña como «Con cuenta en iarepo» mientras
+  `tenant_id = 0` (§5.2): decir «Tu centro» prometería una privacidad que no existe.
+- Entrar: sin intención de guardar explica qué se gana con cuenta a quien aprende y a
+  quien da clase; `safeLocalPath` descarta un `return_url` externo. Bienvenida: «Doy
+  clase» / «Estoy aprendiendo…»; «Saltar» va a la portada; un admin no se degrada.
+
+#### 6.12.4 Perfil, listas y Guardados — `tests/unit/lists_profile_test.php`
+
+- **El perfil de un alumno no es público**: `/profile/N` de un alumno da 404 a todos
+  menos a él (el suyo lleva `noindex`). La consulta ya no lee el email.
+- **Una lista es una secuencia**: pasos numerados en orden de llegada (`added_at ASC,
+  id ASC`), cada recurso pasa por `canView()` (un borrador metido en una lista pública
+  salía entero), no se nombra a un dueño alumno y un alumno no ve «Mandar a mis alumnos».
+  `api/collections.php?id=` sigue la misma regla desde la integración (§9).
+- **Guardados** se pinta en el servidor; la estrella alterna por la API y la tarjeta se
+  atenúa, así un toque sin querer se deshace con otro.
+- `legal/terms.php` solo cambió de aspecto: el texto legal es idéntico byte a byte
+  (va marcado `lang="es"`; en inglés, un aviso dice que solo existe en español).
+
+#### 6.12.5 Integración [2026-09-26]
+
+- `?lang=` en `api/resources.php` es solo el filtro: se aparta de `$_GET` antes de
+  cualquier `t()` (§15.5; `tests/integration/api_lang_test.php` y
+  `tests/unit/i18n_test.php`).
+- `shared/i18n_en.php` no guarda claves que ningún `t()` use ni claves repetidas (se
+  quitaron 144 huérfanas del vocabulario viejo y 4 duplicadas; con claves repetidas gana
+  la **última**). `tests/unit/i18n_test.php` lo exige: si quitas un `t()`, quita su
+  clave. Lo mismo para `quality/i18n_ignore.txt`.
+- Google Fonts salió de `quality/allowed_hosts.txt`: ninguna página lo carga (la última
+  era `admin/create.php`), así que volver a meterlo hace fallar G3.
+- Los marcadores que busca `quality/smoke_test.sh` en cada página existen en su fuente
+  (`tests/unit/smoke_markers_test.php`): el rediseño había quitado `class="fcard"` y
+  `class="preview-card"` y el smoke habría dado FAIL con la web ya publicada.
 
 ## 7. El buscador
 
@@ -1299,9 +1431,10 @@ otra).
   frontera de palabra, pero el bono de +10 sigue siendo `LIKE '%c%'` sobre el título.
   Dentro del conjunto ya filtrado puede premiar un título que solo contiene la letra
   suelta. Inofensivo mientras el filtro sea estrecho, pero está ahí.
-- **`api/resources.php` no filtra por `moderation_status`** en el listado, pero la
-  sección "Más usados" de la portada sí. La búsqueda puede servir un recurso pendiente
-  que la portada oculta en el mismo pantallazo. Sin unificar.
+- **`api/resources.php` no filtra por `moderation_status`** en el listado, pero las
+  secciones de la portada sí («Listos para clase» y «Para empezar», que sustituyeron a
+  «Más usados» en 2026-09; filtro en `IAREPO_HOME_WHERE`, `index.php`). La búsqueda puede
+  servir un recurso pendiente que la portada oculta en el mismo pantallazo. Sin unificar.
 
 ### 7.4.1 ⚠️ El riesgo abierto: el `REGEXP` no está probado contra la MariaDB de producción
 
@@ -1452,7 +1585,7 @@ Hoy son **9** [V 2026-08-04]; si el número no cuadra con lo que ves, manda el s
 | G4 | Credenciales con valor literal **o posicionales**, `.env.php` en el índice de git | sí |
 | G5 | JSON estático inválido (`manifest.webmanifest`, `*.json`) | sí |
 | G6 | Sintaxis del JavaScript **inline** de los `<script>` (necesita `node`) | sí |
-| G7 | Cadenas `t()` sin traducción en `i18n_en.php` | aviso (`GUARDS_I18N_STRICT=1` lo hace bloqueante) |
+| G7 | Cadenas `t()` sin traducción en `i18n_en.php` (fuera de `tests/`, que escriben `t('Fork')` como texto que exigen que NO aparezca) | aviso (`GUARDS_I18N_STRICT=1` lo hace bloqueante). El sentido contrario —claves sin ningún `t()` que las use— lo vigila `tests/unit/i18n_test.php` |
 | G8 | Migraciones sin `IF NOT EXISTS` | aviso |
 | G9 | Una suite declarada en `quality/required_tests.txt` ha desaparecido o está vacía | sí |
 
@@ -1502,17 +1635,15 @@ con más de 20 fallos sobre código correcto y el gate se desactivaría en una s
 Son cuatro ficheros de datos en `quality/`; los tres primeros solo pueden encoger, el
 cuarto (`required_tests.txt`) es lo contrario: solo debería crecer.
 
-- `quality/baseline_html_helpers.txt` — las 7 páginas heredadas que violan la regla #1.
-  **Solo puede encoger.** Añadir una línea es exactamente lo que el guard existe para
-  impedir.
-- `quality/allowed_hosts.txt` — `fonts.googleapis.com` (**12 páginas** [V 2026-08-04:
-  `git grep -l fonts.googleapis.com -- '*.php' | wc -l`]; el comentario del propio
-  baseline dice 13, y ese 13 sale de contar también este AGENTS.md), `fonts.gstatic.com`
-  (en la lista blanca por precaución: **ningún fichero del repo lo nombra**, lo pide el
-  CSS que sirve Google Fonts en runtime), `accounts.google.com` y `oauth2.googleapis.com`
-  (Google Sign-In, no auto-alojable), dominio propio. La regla "cero CDNs" se cumple
-  para lucide, no para las fuentes.
-- `quality/i18n_ignore.txt` — literales idénticos en inglés (`Embed`, `Python`).
+- `quality/baseline_html_helpers.txt` — **vacía desde 2026-09-26** (eran 7 páginas
+  heredadas que violaban la regla #1). **Solo puede encoger**: añadir una línea es
+  exactamente lo que el guard existe para impedir.
+- `quality/allowed_hosts.txt` — `accounts.google.com` y `oauth2.googleapis.com` (Google
+  Sign-In, no auto-alojable) y el dominio propio. **Google Fonts salió el 2026-09-26**:
+  todas las páginas usan las fuentes del sistema (`--ia-font` en `app.css`) y la regla
+  "cero CDNs" se cumple ya también para las fuentes; volver a cargarlas hace fallar G3.
+- `quality/i18n_ignore.txt` — literales idénticos en inglés. **Vacía desde 2026-09-26**;
+  `tests/unit/i18n_test.php` avisa si una entrada se queda sin uso.
 - `quality/required_tests.txt` — suites y piezas del gate que G9 exige que sigan
   existiendo: el runner, las unitarias, las de integración, los fixtures y el propio
   `pre-push` (`grep -vcE '^\s*#|^\s*$' quality/required_tests.txt` para el recuento vivo).
@@ -1797,6 +1928,7 @@ Google para leer lo que no es de uno:
 | `api/usage.php` (GET) | nombre, colegio y aula de cada uso, también a alumnos | nombres solo al autor del recurso; al resto, el recuento por tipo |
 | `api/assignments.php` (GET) | aulas y docentes de todos los centros; `?tenant_id=` a elección | el tenant sale del token (un superadmin puede pedir otro) |
 | `api/comments.php` | comentarios de cualquier recurso; los alumnos publicaban con nombre y foto | GET sigue `canView()`; POST exige rol docente |
+| `api/collections.php?id=N` | título y descripción de un borrador (o de un `school` de otro centro) metido en una lista pública, también a anónimos | cada paso pasa por `canView()`, como la página de la lista |
 
 `tests/integration/authorization_test.php` entra como «el otro» y pide lo ajeno; contra
 el código anterior, sus cuatro tests se ponen rojos. **Regla desde entonces:** un GET que
@@ -1914,9 +2046,9 @@ Ordenada por lo que más duele. El procedimiento de cada una está en `docs/RUNB
    de alta en cron-job.org.
 9. **`tenant_id = 0`**: el modelo de visibilidad no tiene semántica útil para los
    profesores externos (§5.2).
-10. **`sort=popular` ordena por `use_count`, que es 0 en todo el catálogo**, así que
-    "Más usados" del select devuelve un orden arbitrario y contradice a la sección
-    destacada de la portada, que usa `use_count*3 + view_count + like_count*2`.
+10. ~~**`sort=popular` ordena por `use_count`, que es 0 en todo el catálogo**~~ —
+    **resuelto en la UI el 2026-09-26**: la portada ya no ofrece ese orden ni la sección
+    «Más usados» (§6.7, §6.12.1). La API lo sigue aceptando para Campus.
 11. **`level` sin lista blanca en la API** (§9).
 12. **El listado no filtra `moderation_status`, la portada sí** (§7.4).
 13. **`setup/run_migration.php`** parte el SQL con `explode(';', ...)`, que rompe
@@ -1930,6 +2062,28 @@ Ordenada por lo que más duele. El procedimiento de cada una está en `docs/RUNB
 17. **`migration_007` y `migration_008` no son idempotentes** (`ADD COLUMN` sin
     `IF NOT EXISTS`): G8 las marca en **aviso**, no bloquea. Como no hay tabla de
     migraciones aplicadas, reejecutarlas falla en vez de no hacer nada.
+18. **`assets/img/og-default.png` sigue diciendo «El GitHub para profesores»** (la imagen
+    que se ve al compartir la portada en redes). El texto OG ya es el nuevo; la imagen no.
+19. ~~**`/auth/onboarding.php` no lleva token CSRF**~~ — **resuelto 2026-09-26** (revisión
+    del rediseño). El POST exige el token de la sesión (`iarepo_csrf_token()` /
+    `iarepo_csrf_valid()`, `shared/auth.php`; lo mandan la bienvenida y el perfil) y que no
+    venga de otra web. Además, **ninguna escritura con cookie de sesión** cuenta si
+    `Sec-Fetch-Site`/`Origin` dicen que viene de otra web (`iarepo_is_cross_site_write()` en
+    `authenticateSession()` → la API responde 401): antes un formulario ajeno con
+    `_method=DELETE` borraba recursos. Campus entra por JWT y no se ve afectado. Pendiente:
+    fijar `SameSite=Lax` en la cookie de sesión (hoy cada página llama a `session_start()`
+    por su cuenta; hay que hacerlo antes de todas a la vez).
+20. **Los alumnos pueden crear listas (la API lo permite) pero no gestionarlas**: no tienen
+    panel. Hueco de producto, no de seguridad. Tampoco hay ruta corta para una lista
+    (`/collection/?id=5` es lo que un alumno teclea desde el diálogo «Mandar»).
+21. **`report()`/`api()` duplicados en `dashboard/index.php` y `dashboard/editor.php`**
+    (mandan a `/api/log-error.php`): deberían ser `IA.report()`/`IA.api()` en `ui.js`.
+22. **«Mi panel» no pagina**: con los 331 recursos de la cuenta semilla pesa ~500 KB de
+    HTML. A un profesor normal no le afecta.
+23. **Detectar que un sitio no se deja embeber es imposible desde JS** con un
+    `X-Frame-Options` de otro origen: «Proyectar» pone a pantalla completa la página de
+    error del navegador. Lo mitiga el enlace «¿No se ve bien? Ábrelo en <fuente>» y
+    `iframe_blocked = 1` (que sí abre la web original).
 
 ---
 
@@ -2069,4 +2223,18 @@ cambiar de idioma.
 Hoy el filtro va en `?rlang=` en la URL de la portada (a la API se le sigue mandando
 `lang`, que allí solo significa filtro). **Regla:** un parámetro de URL = un concepto. Y
 todo control que exista en escritorio existe también en móvil.
+
+**La misma confusión volvió por la API, el mismo mes** [cazada en la integración del
+2026-09-26, antes de desplegar]. Mientras `api/resources.php` no traducía nada, que
+`lang()` leyera su `?lang=` no importaba. El rediseño le hizo devolver etiquetas ya
+traducidas (`iarepo_with_labels()`, §6.10) y, desde ese momento, pulsar «Inglés» en los
+filtros de la portada respondía con `Set-Cookie: lang=en` para un año: la web entera
+pasaba a inglés en la siguiente carga, y las etiquetas del catálogo llegaban en inglés a
+una portada en español. 200, JSON válido, ningún error. Ahora la API aparta el filtro de
+`$_GET` **antes** de la primera llamada que traduce. `tests/integration/api_lang_test.php`
+lo prueba por HTTP (filtra, no planta la cookie, las etiquetas siguen la cookie de
+interfaz, y una página con `?lang=` sí la planta) y `tests/unit/i18n_test.php` lo fija
+sin BD para cualquier `api/*.php` que cargue `labels.php`, `i18n.php` o `ui.php`.
+**Lección:** cuando un módulo empieza a leer estado global (`$_GET`, cookies) desde un
+sitio nuevo, revisa qué significa ese estado en *cada* punto de entrada que lo carga.
 
