@@ -1,17 +1,37 @@
 <?php
 // ================================================================
-// 404.php — Branded "not found" page (Apache ErrorDocument)
-// HTML page → no helpers.php; h() defined locally.
+// 404.php — «Página no encontrada», con la cabecera y el pie de la web
+//
+// La sirven el ErrorDocument de Apache y, en LiteSpeed (producción), la regla
+// de .htaccess que manda aquí toda ruta que no sea un fichero ni un directorio.
+// Página HTML: sin shared/helpers.php (CLAUDE.md §2.1), h() local.
+//
+// No es un callejón sin salida: lleva un buscador que abre la portada con
+// /?search=… y enlaces a explorar. Quien llega por un enlace roto (un recurso
+// retirado, una URL mal copiada de la pizarra) sigue buscando.
 // ================================================================
 // Primero de todo: los errores de esta página se registran y se ven (y nunca
 // dejan media página). Ver shared/page_errors.php.
 require_once __DIR__ . '/shared/page_errors.php';
 
 http_response_code(404);
+require_once __DIR__ . '/shared/auth.php';
 require_once __DIR__ . '/shared/i18n.php';
+require_once __DIR__ . '/shared/ui.php';
 lang();
-function h(string $s): string { return htmlspecialchars($s, ENT_QUOTES, 'UTF-8'); }
-$q = trim($_GET['q'] ?? '');
+
+if (!function_exists('h')) {
+    function h(string $s): string
+    {
+        return htmlspecialchars($s, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+    }
+}
+
+// La sesión solo se lee si YA existe: este script responde también a cada
+// fichero que falta, y abrirla sin cookie crearía una sesión nueva por cada
+// petición perdida de un robot.
+$user = isset($_COOKIE[session_name()]) ? getSessionUser() : null;
+$q    = trim((string) ($_GET['q'] ?? ''));
 ?>
 <!DOCTYPE html>
 <html lang="<?= lang() ?>">
@@ -22,47 +42,41 @@ $q = trim($_GET['q'] ?? '');
 <title><?= h(t('Página no encontrada — iarepo')) ?></title>
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="icon" href="/favicon.ico" sizes="any">
-<meta name="theme-color" content="#7c3aed">
+<meta name="theme-color" content="#F6F7F9">
+<?= iarepo_head_assets() ?>
 <style>
-*{margin:0;padding:0;box-sizing:border-box}
-body{font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;background:#f8fafc;color:#1e293b;
-  min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}
-.wrap{max-width:480px;width:100%;text-align:center}
-.tile{width:84px;height:84px;border-radius:22px;margin:0 auto 26px;background:linear-gradient(135deg,#7c3aed,#06b6d4);
-  display:flex;align-items:center;justify-content:center;box-shadow:0 10px 30px rgba(124,58,237,.30)}
-.tile svg{width:52px;height:52px}
-.code{font-size:5rem;font-weight:800;line-height:1;letter-spacing:-3px;
-  background:linear-gradient(135deg,#7c3aed,#06b6d4);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;margin-bottom:8px}
-h1{font-size:1.4rem;font-weight:700;margin-bottom:10px}
-p{color:#475569;font-size:.95rem;line-height:1.6;margin-bottom:26px}
-.actions{display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
-.btn{display:inline-flex;align-items:center;gap:6px;text-decoration:none;font-weight:600;font-size:.9rem;
-  padding:11px 22px;border-radius:100px;transition:transform .2s}
-.btn-primary{background:linear-gradient(135deg,#7c3aed,#06b6d4);color:#fff;box-shadow:0 6px 18px rgba(124,58,237,.3)}
-.btn-primary:hover{transform:translateY(-2px)}
-.btn-outline{background:#fff;border:1px solid #e2e8f0;color:#475569}
-.btn-outline:hover{border-color:#7c3aed;color:#7c3aed}
+/* Solo lo propio de esta página; lo común vive en assets/css/app.css. */
+.nf { padding-top: 56px; padding-bottom: 24px; max-width: 720px; }   /* sin tocar el margen lateral de .ia-container */
+.nf h1 { margin-bottom: 12px; }
+.nf-lead { color: var(--ia-ink-2); font-size: 1.05rem; max-width: 56ch; }
+.nf-search { margin: 20px 0 18px; }
+.nf-links { display: flex; flex-wrap: wrap; gap: 10px; }
+@media (max-width: 559px) { .nf { padding-top: 32px; } }
 </style>
+<?php require_once __DIR__ . '/shared/error_tracker.php'; ?>
 </head>
-<body>
-  <div class="wrap">
-    <div class="tile">
-      <svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <line x1="32" y1="22" x2="19" y2="12" stroke="white" stroke-width="2.4" stroke-linecap="round" stroke-opacity="0.8"/>
-        <line x1="32" y1="22" x2="45" y2="12" stroke="white" stroke-width="2.4" stroke-linecap="round" stroke-opacity="0.8"/>
-        <circle cx="19" cy="11" r="3.5" fill="white" fill-opacity="0.8"/>
-        <circle cx="45" cy="11" r="3.5" fill="white" fill-opacity="0.8"/>
-        <circle cx="32" cy="22" r="5.5" fill="white"/>
-        <rect x="27" y="31" width="10" height="22" rx="5" fill="white"/>
-      </svg>
-    </div>
-    <div class="code">404</div>
-    <h1><?= h(t('Esta página no existe')) ?></h1>
-    <p><?= h(t('El recurso que buscas se movió, fue eliminado o el enlace está mal escrito. Pero hay cientos de recursos esperándote.')) ?></p>
-    <div class="actions">
-      <a class="btn btn-primary" href="/">🏠 <?= h(t('Ir al inicio')) ?></a>
-      <a class="btn btn-outline" href="/?focus=search">🔍 <?= h(t('Explorar recursos')) ?></a>
-    </div>
+<body class="ia-page">
+<?php iarepo_header($user, ''); ?>
+
+<main id="main" class="ia-container nf">
+  <p class="ia-eyebrow"><?= h(t('Error 404')) ?></p>
+  <h1><?= h(t('Esta página no existe')) ?></h1>
+  <p class="nf-lead"><?= h(t('Puede que el enlace esté mal escrito o que el recurso se haya movido o retirado. Busca lo que necesitabas:')) ?></p>
+  <!-- GET a la portada: /?search=… es un deep-link que index.php ya entiende. -->
+  <form class="ia-search nf-search" role="search" action="/" method="get">
+    <i data-lucide="search" aria-hidden="true"></i>
+    <label for="nf-q" class="ia-sr-only"><?= h(t('Buscar recursos')) ?></label>
+    <input type="search" id="nf-q" name="search" value="<?= h($q) ?>" enterkeyhint="search" autocomplete="off"
+           placeholder="<?= h(t('Tema de la clase o lo que quieres entender: fuerzas, fracciones, el átomo…')) ?>">
+    <button type="submit" class="ia-btn ia-btn-primary"><?= h(t('Buscar')) ?></button>
+  </form>
+  <div class="nf-links">
+    <a class="ia-btn ia-btn-secondary" href="/?focus=search"><i data-lucide="compass" aria-hidden="true"></i><?= h(t('Explorar recursos')) ?></a>
+    <a class="ia-btn ia-btn-ghost" href="/"><i data-lucide="house" aria-hidden="true"></i><?= h(t('Ir al inicio')) ?></a>
   </div>
+</main>
+
+<?php iarepo_footer($user); ?>
+<?= iarepo_body_assets() ?>
 </body>
 </html>

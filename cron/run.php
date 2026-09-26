@@ -265,7 +265,10 @@ if ($job === 'link_check') {
         $url = trim($r['code_content']);
         $id  = (int) $r['id'];
 
-        if (empty($url) || !filter_var($url, FILTER_VALIDATE_URL)) {
+        // Solo http(s): FILTER_VALIDATE_URL admite file://, gopher://… y esta
+        // dirección va directa a curl. La API ya no deja guardar otra cosa en
+        // un 'url', pero las filas viejas o de Campus no pasaron por ahí.
+        if (empty($url) || !filter_var($url, FILTER_VALIDATE_URL) || !preg_match('#^https?://#i', $url)) {
             $update->execute(['broken', 0, $id]);
             $log[] = ['id' => $id, 'status' => 'broken', 'reason' => 'invalid_url'];
             $broken++;

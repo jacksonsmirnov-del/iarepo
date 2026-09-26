@@ -8,7 +8,8 @@
 //                      con apóstrofo rompía un onclick="f('…')".
 //   IA.toast(msg)      aviso breve (#ia-toast, lo imprime iarepo_footer()).
 //                      Cada llamada pone SU texto: el aviso viejo reutilizaba
-//                      el último («Guardado en tus favoritos» al copiar).
+//                      el último («Guardado en tus favoritos» al copiar). Con
+//                      un diálogo modal abierto se muestra DENTRO de él.
 //   IA.cover(r)        portada generativa; mismo marcado que iarepo_cover()
 //                      en shared/ui.php. Usa las etiquetas que ya devuelve la
 //                      API (subject_class, source_label, source_mono…).
@@ -41,9 +42,27 @@
   };
 
   var toastTimer = null;
+  // Diálogo modal abierto, si lo hay. ':modal' en navegadores recientes; si no
+  // lo entienden (lanza), cualquier <dialog open>.
+  function openModal() {
+    try { return document.querySelector('dialog:modal'); }
+    catch (e) { return document.querySelector('dialog[open]'); }
+  }
   IA.toast = function (msg) {
     var el = document.getElementById('ia-toast');
     if (!el) return;
+    // Con un <dialog> modal abierto, el resto de la página es inerte y queda
+    // POR DEBAJO de él: «Enlace copiado» salía tapado por «Mandar a mis
+    // alumnos» (en el móvil no se veía nada) y el lector de pantalla no lo
+    // anunciaba. Mientras dure, el aviso vive DENTRO del diálogo; al cerrarse
+    // vuelve al <body> [revisión 2026-09].
+    var dlg = openModal();
+    if (dlg && el.parentNode !== dlg) {
+      dlg.appendChild(el);
+      dlg.addEventListener('close', function () { document.body.appendChild(el); }, { once: true });
+    } else if (!dlg && el.parentNode !== document.body) {
+      document.body.appendChild(el);
+    }
     el.textContent = String(msg || '');
     el.classList.add('is-on');
     clearTimeout(toastTimer);
@@ -73,7 +92,11 @@
             + IA.esc(r.source_label) + '</span>';
     }
     html += '<span class="ia-cover-icon"><i data-lucide="' + icon + '"></i></span>';
-    var topic = opts.topic != null ? opts.topic : (r.topic_tag || r.category_label || '');
+    // Solo el primer tema (topic_label lo calcula shared/labels.php; si la fila
+    // no pasó por iarepo_with_labels, se corta aquí): topic_tag a veces es una
+    // lista y la portada pintaba «WAVES,INTRODU…».
+    var topic = opts.topic != null ? opts.topic
+      : (r.topic_label || String(r.topic_tag || '').split(',')[0].trim() || r.category_label || '');
     if (topic) html += '<span class="ia-cover-topic">' + IA.esc(topic) + '</span>';
     if (opts.badge) html += '<span class="ia-cover-badge">' + IA.esc(opts.badge) + '</span>';
     return html + '</div>';
@@ -112,8 +135,16 @@
       if (!full) return;
       full.querySelector('[data-send-qr-big]').innerHTML = qrSvg(url);
       full.querySelector('[data-send-url-big]').textContent = shortUrl;
+      // Primero se cierra el diálogo: un <dialog> modal va en la capa
+      // superior y TAPABA el QR grande donde no hay pantalla completa (Safari
+      // de iPhone): «Proyectar el código» no hacía nada visible y el QR
+      // aparecía solo al cerrar el diálogo [revisión 2026-09].
+      if (dlg.open && typeof dlg.close === 'function') dlg.close();
       full.classList.add('is-open');
-      if (full.requestFullscreen) full.requestFullscreen().catch(function () {});
+      var rfs = full.requestFullscreen || full.webkitRequestFullscreen;   // webkit: Safari de iPad antiguo
+      if (rfs) {
+        try { var p = rfs.call(full); if (p && p.catch) p.catch(function () {}); } catch (e) {}
+      }
     };
 
     if (typeof dlg.showModal === 'function') dlg.showModal(); else dlg.setAttribute('open', '');
@@ -125,6 +156,7 @@
     if (!full || !full.classList.contains('is-open')) return;
     full.classList.remove('is-open');
     if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(function () {});
+    else if (document.webkitFullscreenElement && document.webkitExitFullscreen) document.webkitExitFullscreen();
   }
 
   // ── Delegación de eventos comunes ──────────────────────────────
@@ -155,11 +187,13 @@
   document.addEventListener('keydown', function (e) {
     if (e.key === 'Escape') closeQrFull();
   });
-  document.addEventListener('fullscreenchange', function () {
-    if (!document.fullscreenElement) {
-      var full = document.getElementById('ia-qr-full');
-      if (full) full.classList.remove('is-open');
-    }
+  ['fullscreenchange', 'webkitfullscreenchange'].forEach(function (ev) {
+    document.addEventListener(ev, function () {
+      if (!document.fullscreenElement && !document.webkitFullscreenElement) {
+        var full = document.getElementById('ia-qr-full');
+        if (full) full.classList.remove('is-open');
+      }
+    });
   });
 
   window.IA = IA;

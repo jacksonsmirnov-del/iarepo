@@ -1,7 +1,27 @@
 <?php
 // ================================================================
-// collection/index.php — Collection Detail Page
+// collection/index.php — Una lista, como SECUENCIA de pasos
 // URL: /collection/?id=X
+//
+// ── POR QUÉ UNA SECUENCIA ─────────────────────────────────────
+// Una lista la arma un docente para una clase o un tema: el orden en que
+// añadió los recursos ES el orden en que los quiere usar. Antes se enseñaba
+// al revés (added_at DESC: lo último añadido, primero) y sin numerar, como
+// un cajón. Ahora: orden de llegada (added_at ASC, id ASC para desempatar),
+// pasos 1, 2, 3… con portada, fuente y curso, y un «Mandar a mis alumnos» de
+// la lista ENTERA (QR + enlace, assets/js/ui.js → IA.openSend({path})).
+//
+// ── QUIÉN VE QUÉ ──────────────────────────────────────────────
+//   · La lista: pública, o su dueño (si no, a la portada; lo fija
+//     quality/smoke_test.sh con un 302).
+//   · Cada recurso de la lista pasa por canView() (shared/access.php), la
+//     MISMA regla que la API: un borrador metido en una lista pública no se
+//     le enseña a nadie más que a su autor. Antes salía entero —título y
+//     descripción— a cualquiera que abriera la lista.
+//   · El nombre del dueño solo se enseña si NO es alumno: los perfiles de
+//     alumno no son públicos (profile/index.php).
+//   · «Mandar a mis alumnos» no se le ofrece a un alumno (igual que la ficha),
+//     ni «Editar en Mi panel»: un alumno no tiene panel (le lleva a Guardados).
 // ================================================================
 
 // Primero de todo: los errores de esta página se registran y se ven (y nunca
@@ -11,6 +31,9 @@ require_once __DIR__ . '/../shared/page_errors.php';
 session_start();
 require_once __DIR__ . '/../shared/auth.php';
 require_once __DIR__ . '/../shared/db.php';
+require_once __DIR__ . '/../shared/access.php';
+require_once __DIR__ . '/../shared/i18n.php';
+require_once __DIR__ . '/../shared/ui.php';
 // h() local — NO se carga shared/helpers.php: su error_handler vuelca JSON y
 // corta la página a medias ante cualquier error (CLAUDE.md §2.1).
 if (!function_exists('h')) {
@@ -18,237 +41,250 @@ if (!function_exists('h')) {
         return htmlspecialchars($s, ENT_QUOTES | ENT_HTML5, 'UTF-8');
     }
 }
-require_once __DIR__ . '/../shared/i18n.php';
 lang();
 
 $id = (int)($_GET['id'] ?? 0);
 if (!$id) { header('Location: /'); exit; }
 
-$db = getResourcesDB();
+$db          = getResourcesDB();
 $sessionUser = getSessionUser();
+$viewer      = authenticate();   // la forma que espera canView()
 
-// Fetch collection
-$stmt = $db->prepare("SELECT * FROM collections WHERE id = ?");
+$stmt = $db->prepare("
+    SELECT col.id, col.user_id, col.title, col.description, col.is_public, col.created_at,
+           u.name AS owner_name, u.role AS owner_role
+    FROM collections col
+    LEFT JOIN users u ON u.id = col.user_id
+    WHERE col.id = ?
+");
 $stmt->execute([$id]);
 $coll = $stmt->fetch();
-if (!$coll) { header('HTTP/1.1 404 Not Found'); header('Location: /'); exit; }
+if (!$coll) { header('Location: /'); exit; }
 
 $isOwner = $sessionUser && (int)$coll['user_id'] === (int)$sessionUser['id'];
 if (!$coll['is_public'] && !$isOwner) { header('Location: /'); exit; }
 
-// Fetch items
+// Pasos: en el orden en que se añadieron.
 $items = $db->prepare("
-    SELECT ci.id AS item_id, r.id, r.title, r.description, r.code_type,
-           r.subject_area, r.level, r.lang, r.view_count, r.like_count, r.fork_count,
-           r.author_display_name, r.author_user_id, r.visibility, r.category_id,
-           c.name AS category_name, c.icon AS category_icon
+    SELECT ci.id AS item_id, r.id, r.title, r.description, r.code_type, r.level, r.lang, r.topic_tag,
+           r.source_name, r.source_url, r.author_display_name,
+           IF(r.code_type = 'url', r.code_content, NULL) AS link_url,
+           r.visibility, r.author_tenant_id, r.author_user_id,
+           c.name AS category_name, c.slug AS category_slug, c.icon AS category_icon
     FROM collection_items ci
-    JOIN resources r ON r.id = ci.resource_id
+    JOIN resources r ON r.id = ci.resource_id AND r.is_active = 1
     LEFT JOIN categories c ON c.id = r.category_id
-    WHERE ci.collection_id = ? AND r.is_active = 1
-    ORDER BY ci.added_at DESC
+    WHERE ci.collection_id = ?
+    ORDER BY ci.added_at ASC, ci.id ASC
 ");
 $items->execute([$id]);
-$resources = $items->fetchAll();
+$steps = [];
+foreach ($items->fetchAll() as $row)
+    if (canView($row, $viewer))
+        $steps[] = iarepo_with_labels($row);
 
-$levelLabels = ['primary'=>'Primaria','secondary'=>'Secundaria','ib'=>'IB','university'=>'Universidad','general'=>'General'];
+$isStudentViewer = ($sessionUser['role'] ?? '') === 'student';
+$showOwner       = ($coll['owner_role'] ?? '') !== 'student' && (string)($coll['owner_name'] ?? '') !== '';
+$canSend         = !$isStudentViewer && (bool)$coll['is_public'] && $steps;
+$title           = (string)$coll['title'];
+$desc            = (string)($coll['description'] ?? '');
+$n               = count($steps);
+$countText       = $n === 1 ? t('1 recurso') : sprintf(t('%s recursos'), $n);
+$metaDesc        = $desc !== '' ? $desc : sprintf(t('Lista de %s recursos educativos interactivos en iarepo, en orden para usarlos en clase.'), $n);
+$selfPath        = '/collection/?id=' . $id;
+$canonical       = 'https://iarepo.com' . $selfPath;
+
+
+/**
+ * Un paso: número, portada, título, descripción y «fuente · curso · idioma».
+ * Toda la tarjeta enlaza a la ficha (.ia-card-link); el dueño tiene además
+ * un botón para quitarlo, FUERA del enlace (un <button> dentro de un <a> es
+ * inválido) y por encima (z-index de .ia-card-fav).
+ */
+function cl_step(array $r, int $n, bool $isOwner, int $listId): string
+{
+    $rid  = (int)$r['id'];
+    $out  = '<li class="cl-step" id="item-' . (int)$r['item_id'] . '">'
+          . '<span class="cl-step-n" aria-hidden="true">' . $n . '</span>'
+          . '<article class="ia-card cl-card">'
+          . iarepo_cover($r)
+          . '<div class="ia-card-body">'
+          .   '<p class="cl-step-label"><span data-step-label>' . h(sprintf(t('Paso %s'), $n)) . '</span>'
+          .   ($isOwner && ($r['visibility'] ?? '') !== 'community' ? ' <span class="ia-tag ia-tag-new">' . h(t('No es público: solo lo ves tú')) . '</span>' : '')
+          .   '</p>'
+          .   '<h3 class="ia-card-title" id="st-' . $rid . '">' . h((string)$r['title']) . '</h3>'
+          .   ((string)$r['description'] !== '' ? '<p class="ia-card-desc">' . h((string)$r['description']) . '</p>' : '')
+          .   '<div class="ia-card-meta">' . iarepo_card_meta($r) . '</div>'
+          . '</div>'
+          // ?list=: la ficha enseña «Paso N de M» y el paso siguiente DE LA LISTA.
+          . '<a class="ia-card-link" href="/resource/' . $rid . '?list=' . $listId . '" aria-labelledby="st-' . $rid . '"></a>';
+    if ($isOwner)
+        $out .= '<button type="button" class="ia-btn ia-btn-secondary ia-btn-icon ia-card-fav cl-remove" data-remove="' . $rid . '"'
+              . ' title="' . h(t('Quitar de la lista')) . '" aria-label="' . h(t('Quitar de la lista')) . ': ' . h((string)$r['title']) . '">'
+              . '<i data-lucide="x" aria-hidden="true"></i></button>';
+    return $out . '</article></li>';
+}
 ?>
 <!DOCTYPE html>
 <html lang="<?= lang() ?>">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title><?= h($coll['title']) ?> — <?= h(t('Colección')) ?> · iarepo</title>
-<meta name="description" content="<?= h($coll['description'] ?: 'Colección de recursos educativos en iarepo') ?>">
-<meta property="og:title" content="<?= h($coll['title']) ?> — iarepo">
-<meta property="og:description" content="<?= h($coll['description'] ?: 'Colección de recursos educativos') ?>">
+<title><?= h($title) ?> — <?= h(t('Lista')) ?> · iarepo</title>
+<?php if (!$coll['is_public']): ?><meta name="robots" content="noindex"><?php endif; ?>
+<meta name="description" content="<?= h($metaDesc) ?>">
+<meta property="og:title" content="<?= h($title) ?> — iarepo">
+<meta property="og:description" content="<?= h($metaDesc) ?>">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="iarepo">
-<link rel="canonical" href="https://iarepo.com/collection/?id=<?= $id ?>">
+<link rel="canonical" href="<?= h($canonical) ?>">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="icon" href="/favicon.ico" sizes="any">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link rel="manifest" href="/manifest.webmanifest">
-<meta name="theme-color" content="#7c3aed">
-<script src="/assets/js/pwa.js" defer></script>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<script src="/assets/js/lucide.min.js"></script>
+<meta name="theme-color" content="#F6F7F9">
+<?= iarepo_head_assets() ?>
+<?= iarepo_pwa_script() ?>
 <style>
-*{margin:0;padding:0;box-sizing:border-box}
-:root{--bg:#f8fafc;--bg2:#fff;--bg3:#f1f5f9;--text:#1e293b;--text2:#475569;--text3:#94a3b8;--accent:#7c3aed;--accent2:#06b6d4;--grad:linear-gradient(135deg,#7c3aed,#06b6d4);--card:#fff;--border:#e2e8f0;--radius:12px;--shadow:0 1px 3px rgba(0,0,0,.06);--shadow-hover:0 8px 24px rgba(124,58,237,.12)}
-[data-theme="dark"]{--bg:#0a0e1a;--bg2:#111827;--bg3:#1e293b;--text:#e2e8f0;--text2:#94a3b8;--text3:#64748b;--card:#151c2e;--border:#1e293b;--shadow:0 1px 3px rgba(0,0,0,.3);--shadow-hover:0 8px 24px rgba(124,58,237,.2)}
-body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;transition:background .3s,color .3s}
-a{color:var(--accent2);text-decoration:none}
-
-.topbar{display:flex;align-items:center;justify-content:space-between;padding:12px 24px;background:var(--bg2);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:100}
-.topbar-left{display:flex;align-items:center;gap:12px}
-.topbar-left a{color:var(--accent);font-weight:600;font-size:.95rem}
-
-.container{max-width:1100px;margin:0 auto;padding:32px 24px}
-
-.coll-header{margin-bottom:32px}
-.coll-header h1{font-size:1.8rem;font-weight:800;margin-bottom:8px}
-.coll-header p{color:var(--text2);font-size:.95rem;line-height:1.6;max-width:600px}
-.coll-meta{display:flex;gap:16px;margin-top:12px;flex-wrap:wrap;font-size:.85rem;color:var(--text3)}
-.badge{display:inline-block;padding:3px 10px;border-radius:10px;font-size:.75rem;font-weight:600}
-.badge-pub{background:#dcfce7;color:#166534}
-.badge-priv{background:#fef3c7;color:#92400e}
-[data-theme="dark"] .badge-pub{background:rgba(34,197,94,.15);color:#4ade80}
-[data-theme="dark"] .badge-priv{background:rgba(251,191,36,.15);color:#fbbf24}
-
-.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:20px}
-.card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:20px;box-shadow:var(--shadow);transition:.2s;position:relative}
-.card:hover{box-shadow:var(--shadow-hover);border-color:var(--accent);transform:translateY(-2px)}
-.card-header{display:flex;align-items:flex-start;gap:10px;margin-bottom:10px}
-.card-icon{font-size:1.4rem;flex-shrink:0}
-.card-title{font-size:.95rem;font-weight:700;line-height:1.3;color:var(--text)}
-.card-title a{color:var(--text)}
-.card-title a:hover{color:var(--accent)}
-.card-desc{font-size:.82rem;color:var(--text2);line-height:1.5;margin-bottom:12px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
-.card-meta{display:flex;gap:8px;flex-wrap:wrap;font-size:.75rem;color:var(--text3);margin-bottom:10px}
-.card-stats{display:flex;gap:12px;font-size:.78rem;color:var(--text3)}
-.card-actions{display:flex;gap:6px;margin-top:12px}
-.btn{padding:6px 14px;border-radius:8px;border:none;cursor:pointer;font-family:inherit;font-size:.8rem;font-weight:600;transition:all .2s;display:inline-flex;align-items:center;gap:4px;text-decoration:none}
-.btn-primary{background:var(--grad);color:#fff}
-.btn-primary:hover{transform:translateY(-1px)}
-.btn-outline{background:transparent;border:1px solid var(--border);color:var(--text2)}
-.btn-outline:hover{border-color:var(--accent);color:var(--accent)}
-.btn-danger-sm{background:transparent;border:1px solid transparent;color:var(--text3);font-size:.75rem;padding:4px 8px}
-.btn-danger-sm:hover{border-color:#ef4444;color:#ef4444}
-
-.remove-btn{position:absolute;top:10px;right:10px}
-
-.type-icon{width:28px;height:28px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:.75rem;font-weight:700;flex-shrink:0}
-.type-html{background:rgba(239,68,68,.1);color:#dc2626}
-.type-url{background:rgba(6,182,212,.1);color:#0891b2}
-.type-embed{background:rgba(168,85,247,.1);color:#7c3aed}
-.type-python{background:rgba(59,130,246,.1);color:#2563eb}
-.type-prompt{background:rgba(245,158,11,.1);color:#d97706}
-.type-other{background:var(--bg3);color:var(--text3)}
-
-.empty{text-align:center;padding:80px 24px;color:var(--text3)}
-.empty h3{color:var(--text);margin-bottom:8px;font-size:1.2rem}
-
-.theme-toggle{position:fixed;bottom:16px;right:16px;z-index:100;width:40px;height:40px;border-radius:50%;border:1px solid var(--border);background:var(--bg2);color:var(--text2);cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:var(--shadow)}
-.theme-toggle:hover{border-color:var(--accent);color:var(--accent)}
+/* Solo lo propio de la lista; lo común vive en assets/css/app.css. */
+/* Tarjetas: .ia-cards-meta (app.css) + iarepo_card_meta() (shared/ui.php). */
+.cl-head { padding: 32px 0 8px; max-width: 760px; }
+.cl-head h1 { overflow-wrap: anywhere; }
+.cl-desc { color: var(--ia-ink-2); font-size: 1.05rem; max-width: 62ch; }
+.cl-by { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; color: var(--ia-ink-3); font-size: .9rem; margin-bottom: 16px; }
+.cl-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.cl-note { margin-top: 12px; }
+/* La secuencia: número en una columna a la izquierda, unido por una línea. */
+.cl-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 16px; max-width: 980px; }
+.cl-step { position: relative; display: grid; grid-template-columns: 44px 1fr; gap: 14px; align-items: start; }
+.cl-step:not(:last-child)::before { content: ""; position: absolute; left: 21px; top: 48px; bottom: -16px; width: 2px; background: var(--ia-line-strong); }
+.cl-step-n { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 50%; background: var(--ia-ink); color: var(--ia-bg);
+  font-weight: 800; font-size: 1.1rem; font-variant-numeric: tabular-nums; position: relative; }
+.cl-card { flex-direction: row; min-width: 0; }
+.cl-card .ia-cover { width: 34%; max-width: 280px; flex: none; }
+.cl-card .ia-card-body { min-width: 0; justify-content: center; }
+.cl-card .ia-card-title { padding-right: 44px; }   /* sitio para el botón de quitar */
+.cl-step-label { margin: 0; font-size: .8rem; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--ia-ink-3); }
+.cl-step-label .ia-tag { text-transform: none; letter-spacing: 0; }
+.cl-remove { width: 38px; min-height: 38px; }
+.cl-step.is-removing { opacity: .4; pointer-events: none; }
+@media (max-width: 559px) {
+  .cl-step { grid-template-columns: 32px 1fr; gap: 10px; }
+  .cl-step:not(:last-child)::before { left: 15px; top: 36px; }
+  .cl-step-n { width: 32px; height: 32px; font-size: .95rem; }
+  .cl-card .ia-cover { width: 96px; aspect-ratio: auto; min-height: 96px; }
+  .cl-card .ia-cover-icon { right: 50%; transform: translate(50%, -50%); width: 52%; }
+  .cl-card .ia-cover-source, .cl-card .ia-cover-topic, .cl-card .ia-cover-badge { display: none; }
+  .cl-card .ia-card-desc { display: none; }
+  .cl-step-label [data-step-label] { display: none; }   /* el número ya está en el círculo; en móvil cada línea cuenta */   /* en móvil, título + fuente · curso: cabe la secuencia entera */
+  .cl-card:hover { transform: none; }
+}
 </style>
 <?php require_once __DIR__ . '/../shared/error_tracker.php'; ?>
 </head>
-<body>
+<body class="ia-page">
+<?php iarepo_header($sessionUser, ''); ?>
 
-<div class="topbar">
-  <div class="topbar-left">
-    <a href="/"><img src="/assets/img/logo.svg" alt="iarepo" style="height:24px;width:auto;vertical-align:middle"></a>
-    <span style="color:var(--text3)">/</span>
-    <span style="font-size:.85rem;color:var(--text2)"><?= h(t('Colección')) ?></span>
-  </div>
-  <div style="display:flex;align-items:center;gap:10px;font-size:.85rem">
-    <?php if ($sessionUser): ?>
-      <?php if ($sessionUser['avatar_url']): ?><img src="<?= h($sessionUser['avatar_url']) ?>" alt="" style="width:28px;height:28px;border-radius:50%"><?php endif; ?>
-      <a href="/dashboard/">Dashboard</a>
-    <?php endif; ?>
-  </div>
-</div>
-
-<div class="container">
-  <div class="coll-header">
-    <h1>📁 <?= h($coll['title']) ?></h1>
-    <?php if ($coll['description']): ?>
-      <p><?= h($coll['description']) ?></p>
-    <?php endif; ?>
-    <div class="coll-meta">
-      <span class="badge <?= $coll['is_public'] ? 'badge-pub' : 'badge-priv' ?>"><?= $coll['is_public'] ? h(t('Pública')) : h(t('Privada')) ?></span>
-      <span>📦 <?= count($resources) ?> <?= h(t('recursos')) ?></span>
-      <span><?= h(t('Creada')) ?> <?= date('d/m/Y', strtotime($coll['created_at'])) ?></span>
+<main id="main" class="ia-container">
+  <header class="cl-head">
+    <p class="ia-eyebrow"><?= h(t('Lista')) ?> · <span data-step-count><?= h($countText) ?></span></p>
+    <h1><?= h($title) ?></h1>
+    <?php if ($desc !== ''): ?><p class="cl-desc"><?= h($desc) ?></p><?php endif; ?>
+    <div class="cl-by">
+      <?php if ($showOwner): ?><span><?= h(t('Lista de')) ?> <a href="/profile/<?= (int)$coll['user_id'] ?>"><?= h((string)$coll['owner_name']) ?></a></span><?php endif; ?>
       <?php if ($isOwner): ?>
-        <a href="/dashboard/" style="color:var(--accent)">← <?= h(t('Ir a mi dashboard')) ?></a>
+        <span class="ia-tag<?= $coll['is_public'] ? ' ia-tag-ok' : '' ?>"><?= h($coll['is_public'] ? t('Pública') : t('Privada')) ?></span>
+        <?php if (!$isStudentViewer): ?><a href="/dashboard/"><?= h(t('Editar en Mi panel')) ?></a><?php endif; ?>
       <?php endif; ?>
     </div>
-  </div>
-
-  <?php if (empty($resources)): ?>
-    <div class="empty">
-      <h3><?= h(t('Esta colección está vacía')) ?></h3>
-      <p><?= h(t('Agrega recursos desde sus páginas de detalle.')) ?></p>
-      <?php if ($isOwner): ?>
-        <a href="/" class="btn btn-primary" style="margin-top:16px;padding:10px 24px"><?= h(t('Explorar recursos')) ?></a>
+    <?php if ($steps): ?>
+    <div class="cl-actions">
+      <?php if ($canSend): ?>
+        <button type="button" class="ia-btn ia-btn-primary" id="sendListBtn"><i data-lucide="send" aria-hidden="true"></i><?= h(t('Mandar a mis alumnos')) ?></button>
       <?php endif; ?>
+      <a class="ia-btn <?= $canSend ? 'ia-btn-secondary' : 'ia-btn-primary' ?>" href="/resource/<?= (int)$steps[0]['id'] ?>?list=<?= $id ?>"><i data-lucide="play" aria-hidden="true"></i><?= h(t('Empezar por el paso 1')) ?></a>
     </div>
-  <?php else: ?>
-    <div class="grid" id="resourceGrid">
-      <?php foreach ($resources as $r): ?>
-        <?php
-          $typeClass = 'type-' . ($r['code_type'] ?? 'other');
-          $typeLabel = strtoupper($r['code_type'] ?? '');
-        ?>
-        <div class="card" id="item-<?= (int)$r['item_id'] ?>">
-          <?php if ($isOwner): ?>
-            <button class="btn btn-danger-sm remove-btn" onclick="removeFromCollection(<?= (int)$r['item_id'] ?>, <?= (int)$r['id'] ?>)" title="<?= h(t('Quitar de la colección')) ?>">✕</button>
-          <?php endif; ?>
-          <div class="card-header">
-            <div class="type-icon <?= $typeClass ?>"><?= $typeLabel ?></div>
-            <div class="card-title">
-              <a href="/resource/<?= (int)$r['id'] ?>"><?= h($r['title']) ?></a>
-            </div>
-          </div>
-          <?php if ($r['description']): ?>
-            <div class="card-desc"><?= h($r['description']) ?></div>
-          <?php endif; ?>
-          <div class="card-meta">
-            <?php if ($r['category_name']): ?><span><?= h($r['category_icon'] ?? '') ?> <?= h($r['category_name']) ?></span><?php endif; ?>
-            <?php if ($r['level']): ?><span><?= h($levelLabels[$r['level']] ?? $r['level']) ?></span><?php endif; ?>
-            <?php if ($r['lang']): ?><span><?= strtoupper(h($r['lang'])) ?></span><?php endif; ?>
-          </div>
-          <div class="card-stats">
-            <span>👁 <?= (int)$r['view_count'] ?></span>
-            <span>❤ <?= (int)$r['like_count'] ?></span>
-            <span>🔄 <?= (int)$r['fork_count'] ?></span>
-            <!-- El nombre del autor era el único sitio del repo donde se
-                 mostraba sin enlazar a su perfil. La ficha y el dashboard ya
-                 enlazaban; buscar por nombre de autor ya funcionaba
-                 (shared/search.php:302 lo mete en el haystack). Faltaba el
-                 camino corto: pinchar el nombre. -->
-            <span>· <a href="/profile/<?= (int)$r['author_user_id'] ?>" style="color:var(--accent2);text-decoration:none"><?= h($r['author_display_name']) ?></a></span>
-          </div>
-          <div class="card-actions">
-            <a href="/resource/<?= (int)$r['id'] ?>" class="btn btn-primary"><?= h(t('Ver recurso')) ?></a>
-            <a href="/view/<?= (int)$r['id'] ?>" target="_blank" class="btn btn-outline"><?= h(t('Abrir')) ?></a>
-          </div>
-        </div>
-      <?php endforeach; ?>
+    <?php endif; ?>
+    <?php if ($isOwner && !$isStudentViewer && !$coll['is_public']): ?>
+      <p class="cl-note ia-muted ia-small"><?= h(t('Esta lista es privada: para mandársela a tus alumnos, hazla pública en Mi panel.')) ?></p>
+    <?php endif; ?>
+  </header>
+
+  <section class="ia-section" aria-labelledby="cl-steps-title">
+    <h2 id="cl-steps-title" class="ia-sr-only"><?= h(t('Recursos de la lista, en orden')) ?></h2>
+    <?php if ($steps): ?>
+      <ol class="cl-steps ia-cards-meta" role="list">
+        <?php foreach ($steps as $i => $r) echo cl_step($r, $i + 1, $isOwner, $id); ?>
+      </ol>
+    <?php endif; ?>
+    <div class="ia-empty<?= $steps ? ' ia-hidden' : '' ?>" id="clEmpty">
+      <h3><?= h(t('Esta lista está vacía')) ?></h3>
+      <p><?= h(t('Añade recursos desde su ficha, con «Añadir a una lista».')) ?></p>
+      <?php if ($isOwner): ?><a class="ia-btn ia-btn-primary" href="/"><i data-lucide="compass" aria-hidden="true"></i><?= h(t('Explorar recursos')) ?></a><?php endif; ?>
     </div>
-  <?php endif; ?>
-</div>
+  </section>
+</main>
 
-<button class="theme-toggle" aria-label="<?= h(t('Cambiar tema')) ?>" id="themeBtn"><i data-lucide="moon" style="width:18px;height:18px"></i></button>
-
+<?php iarepo_footer($sessionUser); ?>
+<?php if ($canSend) iarepo_send_dialog(); ?>
+<?= iarepo_body_assets($canSend) ?>
 <script>
-const COLL_ID = <?= $id ?>;
-const IS_OWNER = <?= $isOwner ? 'true' : 'false' ?>;
+(function () {
+  const COLL_ID = <?= $id ?>;
+  const T = <?= json_encode([
+      'title'         => $title,
+      'copied'        => t('Enlace copiado'),
+      'confirmRemove' => t('¿Quitar este recurso de la lista?'),
+      'removed'       => t('Quitado de la lista'),
+      'removeError'   => t('No se pudo quitar de la lista'),
+      'step'          => t('Paso %s'),
+      'one'           => t('1 recurso'),
+      'many'          => t('%s recursos'),
+  ], JSON_UNESCAPED_UNICODE | JSON_HEX_TAG) ?>;
 
-if(localStorage.getItem('iarepo-theme')==='dark') document.documentElement.setAttribute('data-theme','dark');
-document.getElementById('themeBtn').addEventListener('click',()=>{
-  const d=document.documentElement.getAttribute('data-theme')==='dark';
-  d?document.documentElement.removeAttribute('data-theme'):document.documentElement.setAttribute('data-theme','dark');
-  localStorage.setItem('iarepo-theme',d?'light':'dark');
-});
+  const send = document.getElementById('sendListBtn');
+  if (send) send.addEventListener('click', () =>
+    IA.openSend({ path: '/collection/?id=' + COLL_ID, title: T.title, copiedMsg: T.copied }));
 
-async function removeFromCollection(itemId, resourceId) {
-  if (!IS_OWNER) return;
-  if (!confirm(<?= json_encode(t('¿Quitar este recurso de la colección?')) ?>)) return;
-  try {
-    const res = await fetch(`/api/collections.php?action=remove&id=${COLL_ID}`, {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({resource_id: resourceId})
+  // Tras quitar un paso, los demás se renumeran: la secuencia sigue siendo 1, 2, 3…
+  function renumber() {
+    const steps = document.querySelectorAll('.cl-step');
+    steps.forEach((li, i) => {
+      li.querySelector('.cl-step-n').textContent = i + 1;
+      const label = li.querySelector('[data-step-label]');
+      if (label) label.textContent = T.step.replace('%s', i + 1);
     });
-    const data = await res.json();
-    if (!data.ok) throw new Error(data.error);
-    document.getElementById(`item-${itemId}`)?.remove();
-  } catch(e) { alert(e.message); }
-}
+    const count = document.querySelector('[data-step-count]');
+    if (count) count.textContent = steps.length === 1 ? T.one : T.many.replace('%s', steps.length);
+    if (!steps.length) {
+      document.getElementById('clEmpty').classList.remove('ia-hidden');
+      document.querySelector('.cl-actions')?.remove();
+    }
+  }
 
-lucide.createIcons();
+  document.addEventListener('click', async (e) => {
+    const btn = e.target.closest('[data-remove]');
+    if (!btn || !confirm(T.confirmRemove)) return;
+    const li = btn.closest('.cl-step');
+    li.classList.add('is-removing');
+    try {
+      const res  = await fetch('/api/collections.php?action=remove&id=' + COLL_ID, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ resource_id: Number(btn.dataset.remove) })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
+      li.remove();
+      renumber();
+      IA.toast(T.removed);
+    } catch (err) {
+      // Visible para la persona y en la consola; no se traga en silencio.
+      li.classList.remove('is-removing');
+      console.error('collection remove', err);
+      IA.toast(T.removeError);
+    }
+  });
+})();
 </script>
 </body>
 </html>

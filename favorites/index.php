@@ -1,9 +1,18 @@
 <?php
 // ================================================================
-// favorites/index.php — "Mis favoritos" (⭐ guardado rápido y privado)
+// favorites/index.php — «Guardados» (solo tú los ves)
 //
-// Lista los recursos que el usuario marcó con ⭐. Buen estado vacío que
-// empuja a explorar. La lista la sirve /api/favorites.php (por sesión).
+// El guardado privado de un clic (la estrella). NO es una lista: las listas
+// (collections) son curaduría pública y viven en otra tabla; esto es
+// resource_favorites. Se renombra, no se unifica (CLAUDE.md §6.1).
+// Para un alumno es su página de inicio: sin panel, el panel le trae aquí.
+//
+// Se pinta en el servidor, con la portada de cada recurso (iarepo_cover) y la
+// misma regla de acceso que la API (canView): antes la pintaba el JS a partir
+// de /api/favorites.php, sin portadas y con 👁/❤ a cero en cada tarjeta.
+// Quitar sigue yendo por la API (POST /api/favorites.php?id=N, que ALTERNA):
+// la tarjeta no desaparece al momento, se atenúa y la estrella vuelve a
+// guardarla. Un toque sin querer se deshace con otro toque.
 //
 // Página HTML: NO carga shared/helpers.php (su error_handler rompe el HTML).
 // ================================================================
@@ -14,166 +23,166 @@ require_once __DIR__ . '/../shared/page_errors.php';
 
 session_start();
 require_once __DIR__ . '/../shared/auth.php';
+require_once __DIR__ . '/../shared/db.php';
+require_once __DIR__ . '/../shared/access.php';
 require_once __DIR__ . '/../shared/i18n.php';
+require_once __DIR__ . '/../shared/ui.php';
+if (!function_exists('h')) {
+    function h(string $s): string {
+        return htmlspecialchars($s, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+    }
+}
 lang();
 
-function h(string $s): string {
-    return htmlspecialchars($s, ENT_QUOTES | ENT_HTML5, 'UTF-8');
-}
-
 $sessionUser = getSessionUser();
-if (!$sessionUser) { header('Location: /'); exit; }
+if (!$sessionUser) {
+    header('Location: /auth/signin.php?return_url=' . rawurlencode('/favorites/'));
+    exit;
+}
+$viewer = authenticate();   // la forma que espera canView()
+
+// Estrictamente los de ESTA sesión; lo último guardado, primero.
+$stmt = getResourcesDB()->prepare("
+    SELECT r.id, r.title, r.description, r.code_type, r.level, r.lang, r.topic_tag,
+           r.source_name, r.source_url, r.author_display_name,
+           IF(r.code_type = 'url', r.code_content, NULL) AS link_url,
+           r.visibility, r.author_tenant_id, r.author_user_id,
+           c.name AS category_name, c.slug AS category_slug, c.icon AS category_icon
+    FROM resource_favorites rf
+    JOIN resources r ON r.id = rf.resource_id AND r.is_active = 1
+    LEFT JOIN categories c ON c.id = r.category_id
+    WHERE rf.user_id = ?
+    ORDER BY rf.created_at DESC, rf.id DESC
+");
+$stmt->execute([(int)$sessionUser['id']]);
+$saved = [];
+foreach ($stmt->fetchAll() as $row)
+    if (canView($row, $viewer))   // si un recurso guardado pasó a borrador, deja de verse
+        $saved[] = iarepo_with_labels($row);
+
+
+/** Tarjeta de un guardado: portada, título, «fuente · curso · idioma» y la estrella. */
+function fv_card(array $r): string
+{
+    $rid  = (int)$r['id'];
+    // Botón conmutador: nombre fijo + aria-pressed (el estado lo dice el lector
+    // de pantalla); el title cambia con el estado para quien pasa el ratón.
+    $name = t('Guardar (solo tú lo ves)') . ': ' . (string)$r['title'];
+    return '<article class="ia-card fv-card" data-card="' . $rid . '">'
+        . iarepo_cover($r)
+        . '<div class="ia-card-body">'
+        .   '<h3 class="ia-card-title" id="fv-' . $rid . '">' . h((string)$r['title']) . '</h3>'
+        .   ((string)$r['description'] !== '' ? '<p class="ia-card-desc">' . h((string)$r['description']) . '</p>' : '')
+        .   '<div class="ia-card-meta">' . iarepo_card_meta($r) . '</div>'
+        . '</div>'
+        . '<a class="ia-card-link" href="/resource/' . $rid . '" aria-labelledby="fv-' . $rid . '"></a>'
+        . '<button type="button" class="ia-btn ia-btn-icon ia-card-fav fv-star" data-fav="' . $rid . '" aria-pressed="true"'
+        .   ' title="' . h(t('Quitar de Guardados')) . '" aria-label="' . h($name) . '">'
+        .   '<i data-lucide="star" aria-hidden="true"></i></button>'
+        . '</article>';
+}
+$n = count($saved);
 ?>
 <!DOCTYPE html>
 <html lang="<?= lang() ?>">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title><?= h(t('Mis favoritos')) ?> — iarepo</title>
+<title><?= h(t('Guardados')) ?> — iarepo</title>
 <meta name="robots" content="noindex">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="icon" href="/favicon.ico" sizes="any">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link rel="manifest" href="/manifest.webmanifest">
-<meta name="theme-color" content="#7c3aed">
-<script src="/assets/js/pwa.js" defer></script>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<script src="/assets/js/lucide.min.js"></script>
+<meta name="theme-color" content="#F6F7F9">
+<?= iarepo_head_assets() ?>
+<?= iarepo_pwa_script() ?>
 <style>
-*{margin:0;padding:0;box-sizing:border-box}
-:root{--bg:#f8fafc;--bg2:#fff;--bg3:#f1f5f9;--text:#1e293b;--text2:#475569;--text3:#94a3b8;--accent:#7c3aed;--accent2:#06b6d4;--grad:linear-gradient(135deg,#7c3aed,#06b6d4);--card:#fff;--border:#e2e8f0;--radius:12px;--shadow:0 1px 3px rgba(0,0,0,.06)}
-[data-theme="dark"]{--bg:#0a0e1a;--bg2:#111827;--bg3:#1e293b;--text:#e2e8f0;--text2:#94a3b8;--text3:#64748b;--card:#151c2e;--border:#1e293b;--shadow:0 1px 3px rgba(0,0,0,.3)}
-body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
-a{color:var(--accent2);text-decoration:none}
-.topbar{display:flex;align-items:center;justify-content:space-between;padding:12px 24px;background:var(--bg2);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:100}
-.topbar-left a{color:var(--accent);font-weight:600;font-size:.95rem}
-.topbar-right{display:flex;align-items:center;gap:14px;font-size:.85rem}
-.topbar-right a{color:var(--text2)}
-.topbar-right a:hover{color:var(--accent)}
-.topbar-right img{width:28px;height:28px;border-radius:50%;vertical-align:middle}
-.container{max-width:1100px;margin:0 auto;padding:32px 24px}
-.head{display:flex;align-items:center;gap:10px;margin-bottom:6px}
-.head h1{font-size:1.5rem;font-weight:800}
-.head .star{color:#f59e0b}
-.lead{color:var(--text3);font-size:.9rem;margin-bottom:24px}
-.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px}
-.card{position:relative;background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:20px;transition:.2s;box-shadow:var(--shadow);cursor:pointer}
-.card:hover{border-color:var(--accent);transform:translateY(-2px);box-shadow:0 8px 24px rgba(124,58,237,.12)}
-.card h3{font-size:.95rem;font-weight:600;margin-bottom:6px;padding-right:28px}
-.card h3 a{color:var(--text)}
-.card p{font-size:.85rem;color:var(--text2);line-height:1.5;margin-bottom:10px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
-.card-meta{display:flex;gap:12px;font-size:.78rem;color:var(--text3)}
-.tag{display:inline-block;padding:2px 8px;border-radius:4px;font-size:.72rem;font-weight:500;background:rgba(124,58,237,.08);color:var(--accent);margin-right:4px}
-.fav-remove{position:absolute;top:14px;right:12px;background:none;border:none;cursor:pointer;color:#f59e0b;font-size:1.25rem;line-height:1;padding:2px;border-radius:6px;transition:.15s}
-.fav-remove:hover{background:var(--bg3);transform:scale(1.1)}
-.empty{text-align:center;padding:64px 24px;color:var(--text3)}
-.empty .big{font-size:3rem;margin-bottom:16px}
-.empty h2{font-size:1.2rem;font-weight:700;color:var(--text);margin-bottom:8px}
-.empty p{font-size:.92rem;margin-bottom:22px;max-width:420px;margin-left:auto;margin-right:auto;line-height:1.55}
-.btn-explore{display:inline-flex;align-items:center;gap:8px;background:var(--grad);color:#fff;font-weight:700;font-size:.9rem;padding:11px 22px;border-radius:10px;border:none;cursor:pointer}
-.loading{text-align:center;padding:48px;color:var(--text3)}
-.fav-toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--text);color:var(--bg);padding:10px 18px;border-radius:10px;font-size:.85rem;font-weight:600;opacity:0;pointer-events:none;transition:.25s;z-index:2000;box-shadow:0 8px 24px rgba(0,0,0,.2)}
-.fav-toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
-.theme-toggle{position:fixed;bottom:16px;right:16px;z-index:100;width:40px;height:40px;border-radius:50%;border:1px solid var(--border);background:var(--bg2);color:var(--text2);cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:var(--shadow)}
+/* Solo lo propio de Guardados; lo común vive en assets/css/app.css. */
+/* Tarjetas: .ia-cards-meta (app.css) + iarepo_card_meta() (shared/ui.php). */
+.fv-head { padding: 32px 0 4px; }
+.fv-head h1 { display: flex; align-items: center; gap: 10px; }
+.fv-head h1 svg { width: 1em; height: 1em; color: var(--ia-warn-ink); fill: currentColor; flex: none; }
+.fv-lead { color: var(--ia-ink-2); margin: 0; display: inline-flex; align-items: center; gap: 6px; }
+.fv-lead svg { width: 18px; height: 18px; }
+/* La estrella sobre la portada: rellena = guardado. */
+.fv-star { background: var(--ia-surface); border-color: var(--ia-line); color: var(--ia-ink-3); box-shadow: var(--ia-shadow); width: 40px; min-height: 40px; }
+.fv-star:hover { background: var(--ia-surface); color: var(--ia-warn-ink); }
+.fv-star[aria-pressed="true"] { color: var(--ia-warn-ink); }
+.fv-star[aria-pressed="true"] svg { fill: currentColor; }
+.fv-card.is-off .ia-cover, .fv-card.is-off .ia-card-body { opacity: .45; }
+.fv-card .ia-card-title { padding-right: 0; }
+@media (max-width: 559px) {
+  .fv-card .ia-card-title { padding-right: 40px; }   /* en fila, la estrella queda sobre el texto */
+  .fv-star { top: 8px; right: 8px; width: 38px; min-height: 38px; }
+}
+.fv-empty-icon { width: 48px; height: 48px; color: var(--ia-warn-ink); }
 </style>
+<?php require_once __DIR__ . '/../shared/error_tracker.php'; ?>
 </head>
-<body>
+<body class="ia-page">
+<?php iarepo_header($sessionUser, 'saved'); ?>
 
-<div class="fav-toast" id="favToast"></div>
+<main id="main" class="ia-container">
+  <header class="fv-head">
+    <h1><i data-lucide="star" aria-hidden="true"></i><?= h(t('Guardados')) ?></h1>
+    <p class="fv-lead"><i data-lucide="lock" aria-hidden="true"></i><?= h(t('Solo tú los ves.')) ?>
+      <?php if ($n): ?><span class="ia-muted">· <?= h($n === 1 ? t('1 recurso') : sprintf(t('%s recursos'), $n)) ?></span><?php endif; ?></p>
+  </header>
 
-<div class="topbar">
-  <div class="topbar-left"><a href="/"><img src="/assets/img/logo.svg" alt="iarepo" style="height:24px;width:auto;vertical-align:middle"></a></div>
-  <div class="topbar-right">
-    <a href="/"><?= h(t('Explorar')) ?></a>
-    <a href="/profile/<?= (int)$sessionUser['id'] ?>"><?= h(t('Mi perfil')) ?></a>
-    <a href="/auth/logout.php"><?= h(t('Salir')) ?></a>
-  </div>
-</div>
+  <section class="ia-section" aria-labelledby="fv-list-title">
+    <h2 id="fv-list-title" class="ia-sr-only"><?= h(t('Tus recursos guardados')) ?></h2>
+    <?php if ($saved): ?>
+      <div class="ia-grid ia-grid-rows-mobile ia-cards-meta">
+        <?php foreach ($saved as $r) echo fv_card($r); ?>
+      </div>
+    <?php else: ?>
+      <div class="ia-empty">
+        <i data-lucide="star" class="fv-empty-icon" aria-hidden="true"></i>
+        <h3><?= h(t('Aún no has guardado nada')) ?></h3>
+        <p><?= h(t('Pulsa la estrella de cualquier recurso para tenerlo aquí, a mano, la próxima vez.')) ?></p>
+        <a class="ia-btn ia-btn-primary" href="/"><i data-lucide="compass" aria-hidden="true"></i><?= h(t('Explorar recursos')) ?></a>
+      </div>
+    <?php endif; ?>
+  </section>
+</main>
 
-<div class="container">
-  <div class="head">
-    <i data-lucide="star" class="star" style="width:24px;height:24px;fill:#f59e0b"></i>
-    <h1><?= h(t('Mis favoritos')) ?></h1>
-  </div>
-  <p class="lead"><?= h(t('Tu guardado rápido y privado. Solo tú ves esta lista.')) ?></p>
-
-  <div id="content"><div class="loading"><?= h(t('Cargando...')) ?></div></div>
-</div>
-
-<button class="theme-toggle" aria-label="<?= h(t('Cambiar tema')) ?>" id="themeBtn"><i data-lucide="moon" style="width:18px;height:18px"></i></button>
-
+<?php iarepo_footer($sessionUser); ?>
+<?= iarepo_body_assets() ?>
 <script>
-const T = {
-  views: <?= json_encode(t('Vistas')) ?>,
-  likes: <?= json_encode(t('Likes')) ?>,
-  removed: <?= json_encode(t('Quitado de favoritos')) ?>,
-  remove: <?= json_encode(t('Quitar de favoritos')) ?>,
-  loadError: <?= json_encode(t('Error al cargar recursos')) ?>,
-};
-const levels = <?= json_encode(['primary'=>t('Primaria'),'secondary'=>t('Secundaria'),'ib'=>t('IB'),'university'=>t('Universidad'),'general'=>t('General')], JSON_UNESCAPED_UNICODE) ?>;
+(function () {
+  const T = <?= json_encode([
+      'removed' => t('Quitado de Guardados. Pulsa la estrella para volver a guardarlo.'),
+      'saved'   => t('Guardado otra vez'),
+      'remove'  => t('Quitar de Guardados'),
+      'save'    => t('Volver a guardar'),
+      'error'   => t('No se pudo cambiar. Inténtalo de nuevo.'),
+  ], JSON_UNESCAPED_UNICODE | JSON_HEX_TAG) ?>;
 
-if(localStorage.getItem('iarepo-theme')==='dark') document.documentElement.setAttribute('data-theme','dark');
-document.getElementById('themeBtn').addEventListener('click',()=>{
-  const d=document.documentElement.getAttribute('data-theme')==='dark';
-  d?document.documentElement.removeAttribute('data-theme'):document.documentElement.setAttribute('data-theme','dark');
-  localStorage.setItem('iarepo-theme',d?'light':'dark');
-});
-
-function esc(s){const d=document.createElement('div');d.textContent=s||'';return d.innerHTML}
-function showFavToast(msg){const el=document.getElementById('favToast');el.textContent=msg;el.classList.add('show');clearTimeout(el._t);el._t=setTimeout(()=>el.classList.remove('show'),2300);}
-
-const EMPTY = `<div class="empty">
-  <div class="big">⭐</div>
-  <h2><?= h(t('Aún no tienes favoritos')) ?></h2>
-  <p><?= h(t('Pulsa la ⭐ en cualquier recurso para guardarlo aquí y volver a él cuando quieras.')) ?></p>
-  <a class="btn-explore" href="/"><i data-lucide="compass" style="width:16px;height:16px"></i> <?= h(t('Explorar recursos')) ?></a>
-</div>`;
-
-function cardHtml(r){
-  const lvl = levels[r.level] || '';
-  return `<div class="card" data-id="${r.id}" onclick="location='/resource/${r.id}'">
-    <button class="fav-remove" type="button" title="${T.remove}" aria-label="${T.remove}" onclick="event.stopPropagation();removeFav(${r.id})">★</button>
-    <h3><a href="/resource/${r.id}" onclick="event.stopPropagation()">${esc(r.title)}</a></h3>
-    ${r.description?`<p>${esc(r.description)}</p>`:''}
-    <div style="margin-bottom:8px">
-      <span class="tag">${esc(r.code_type)}</span>
-      ${lvl?`<span class="tag">${esc(lvl)}</span>`:''}
-      ${r.category_name?`<span class="tag" style="background:var(--bg3);color:var(--text2)">${esc(r.category_name)}</span>`:''}
-    </div>
-    <div class="card-meta">
-      <span>👁 ${r.view_count||0} ${T.views}</span>
-      <span>❤ ${r.like_count||0} ${T.likes}</span>
-    </div>
-  </div>`;
-}
-
-async function load(){
-  const content=document.getElementById('content');
-  try{
-    const res=await fetch('/api/favorites.php');
-    const data=await res.json();
-    if(!data.ok) throw new Error(data.error);
-    if(!data.favorites.length){ content.innerHTML=EMPTY; lucide.createIcons(); return; }
-    content.innerHTML=`<div class="grid">${data.favorites.map(cardHtml).join('')}</div>`;
-    lucide.createIcons();
-  }catch(e){
-    content.innerHTML=`<div class="empty"><p>${T.loadError}</p></div>`;
-  }
-}
-
-async function removeFav(id){
-  try{
-    const res=await fetch(`/api/favorites.php?id=${id}`,{method:'POST'});
-    const data=await res.json();
-    if(!data.ok) throw new Error(data.error);
-    const card=document.querySelector(`.card[data-id="${id}"]`);
-    if(card) card.remove();
-    showFavToast(T.removed);
-    if(!document.querySelector('.card')){ document.getElementById('content').innerHTML=EMPTY; lucide.createIcons(); }
-  }catch(e){ showFavToast(e.message); }
-}
-
-load();
+  // La API alterna (añade o quita). La respuesta manda: 'favorited' dice cómo
+  // quedó de verdad, así que dos pestañas abiertas no se desincronizan.
+  document.addEventListener('click', async (e) => {
+    const btn = e.target.closest('[data-fav]');
+    if (!btn || btn.disabled) return;
+    btn.disabled = true;
+    try {
+      const res  = await fetch('/api/favorites.php?id=' + Number(btn.dataset.fav), { method: 'POST' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
+      const on = !!data.favorited;
+      btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+      btn.title = on ? T.remove : T.save;
+      btn.closest('.fv-card').classList.toggle('is-off', !on);
+      IA.toast(on ? T.saved : T.removed);
+    } catch (err) {
+      // Visible para la persona y en la consola; no se traga en silencio.
+      console.error('favorites toggle', err);
+      IA.toast(T.error);
+    } finally {
+      btn.disabled = false;
+    }
+  });
+})();
 </script>
 </body>
 </html>

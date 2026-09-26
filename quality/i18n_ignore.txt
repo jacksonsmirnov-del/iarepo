@@ -14,6 +14,6 @@
 # Formato: el literal exacto, tal cual aparece dentro de t('...'), uno por línea.
 # '#' = comentario.
 
-# dashboard/editor.php — tipos de contenido embebido. Idénticos en inglés.
-Embed
-Python
+# (Vacío desde el rediseño 2026-09: 'Embed' y 'Python' eran del editor antiguo y
+# ya no los usa ningún t(). tests/unit/i18n_test.php avisa si una entrada de
+# aquí se queda sin uso.)

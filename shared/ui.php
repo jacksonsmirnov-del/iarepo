@@ -25,6 +25,7 @@
 // ================================================================
 
 require_once __DIR__ . '/i18n.php';
+require_once __DIR__ . '/local_path.php';
 require_once __DIR__ . '/asset.php';
 require_once __DIR__ . '/labels.php';
 
@@ -38,6 +39,22 @@ function iarepo_head_assets(): string
 {
     return '<link rel="stylesheet" href="' . iarepo_e(iarepo_asset('/assets/css/app.css')) . '">' . "\n"
          . '<script src="' . iarepo_e(iarepo_asset('/assets/js/theme.js')) . '"></script>' . "\n";
+}
+
+/**
+ * pwa.js (en <head>, tras iarepo_head_assets): registra el service worker,
+ * ofrece «Instalar app» y aplica el «guardar» pendiente de un invitado cuando
+ * vuelve con sesión. Sus textos llegan ya traducidos en data-*: un .js
+ * estático no puede llamar a t() (CLAUDE.md §2.3) y antes decía «Instalar
+ * app» y «Guardado en tus favoritos ⭐» en cualquier idioma. El visor NO lo
+ * carga: su botón flotante tapaba la proyección.
+ */
+function iarepo_pwa_script(): string
+{
+    return '<script src="' . iarepo_e(iarepo_asset('/assets/js/pwa.js')) . '" defer'
+         . ' data-install="' . iarepo_e(t('Instalar app')) . '"'
+         . ' data-hide="' . iarepo_e(t('Ocultar')) . '"'
+         . ' data-saved="' . iarepo_e(t('Guardado. Solo tú lo ves, en Guardados.')) . '"></script>' . "\n";
 }
 
 /** Final del <body>: iconos + comportamiento común (menú, diálogos, avisos). */
@@ -54,7 +71,7 @@ function iarepo_body_assets(bool $withQr = false): string
 function iarepo_current_path(): string
 {
     $uri = (string) ($_SERVER['REQUEST_URI'] ?? '/');
-    return preg_match('#^/[^/\\\\]#', $uri) || $uri === '/' ? $uri : '/';
+    return iarepo_is_local_path($uri) ? $uri : '/';   // shared/local_path.php
 }
 
 /**
@@ -66,7 +83,9 @@ function iarepo_header(?array $user, string $active = ''): void
     $isStudent = ($user['role'] ?? '') === 'student';
     $signin    = '/auth/signin.php?return_url=' . rawurlencode(iarepo_current_path());
     $saved     = $user ? '/favorites/' : '/auth/signin.php?return_url=' . rawurlencode('/favorites/');
-    $teach     = $user ? '/dashboard/' : '/auth/signin.php?return_url=' . rawurlencode('/dashboard/');
+    // «Para docentes» sin sesión: a «Listos para clase» de la portada (lo mismo
+    // que «Doy clase»), no a un muro de acceso. Para publicar, la banda del pie.
+    $teach     = $user ? '/dashboard/' : '/#listos';
     $toLang    = lang() === 'en' ? 'es' : 'en';
 
     $links = [['explore', '/', t('Explorar')], ['saved', $saved, t('Guardados')]];
@@ -80,15 +99,15 @@ function iarepo_header(?array $user, string $active = ''): void
         return $out;
     };
     ?>
-<a class="ia-sr-only" href="#main"><?= iarepo_e(t('Saltar al contenido')) ?></a>
+<a class="ia-sr-only ia-skip" href="#main"><?= iarepo_e(t('Saltar al contenido')) ?></a>
 <header class="ia-header">
   <div class="ia-container ia-header-inner">
-    <a class="ia-logo" href="/"><img src="/assets/img/logo-icon.svg" alt="" width="30" height="30"><span>iarepo</span></a>
+    <a class="ia-logo" href="/" aria-label="iarepo"><img src="/assets/img/logo-icon.svg" alt="" width="30" height="30"><span>iarepo</span></a>
     <nav class="ia-nav" aria-label="<?= iarepo_e(t('Principal')) ?>"><?= $nav() ?></nav>
     <div class="ia-header-tools">
       <a class="ia-btn ia-btn-ghost ia-btn-sm" id="lang-switch" href="<?= iarepo_e(langSwitchUrl($toLang)) ?>"
          hreflang="<?= $toLang ?>" title="<?= $toLang === 'en' ? 'Switch to English' : 'Cambiar a español' ?>"
-         aria-label="<?= $toLang === 'en' ? 'Switch to English' : 'Cambiar a español' ?>"><i data-lucide="globe"></i><?= strtoupper($toLang) ?></a>
+         aria-label="<?= $toLang === 'en' ? 'Switch to English' : 'Cambiar a español' ?>"><i data-lucide="globe"></i><span class="ia-lang-code"><?= strtoupper($toLang) ?></span></a>
       <button type="button" class="ia-btn ia-btn-ghost ia-btn-icon" data-theme-toggle aria-label="<?= iarepo_e(t('Cambiar tema')) ?>" title="<?= iarepo_e(t('Cambiar tema')) ?>">
         <i data-lucide="moon" class="ia-when-light"></i><i data-lucide="sun" class="ia-when-dark"></i>
       </button>
@@ -97,6 +116,11 @@ function iarepo_header(?array $user, string $active = ''): void
           <?php if (!empty($user['avatar_url'])): ?><img class="ia-avatar" src="<?= iarepo_e($user['avatar_url']) ?>" alt="" width="32" height="32" referrerpolicy="no-referrer"><?php else: ?><i data-lucide="user-round"></i><?php endif; ?>
           <span class="ia-hide-xs"><?= iarepo_e(explode(' ', (string) ($user['name'] ?? ''))[0]) ?></span>
         </a>
+        <?php /* «Salir» también en escritorio (en móvil va en el menú). Desde 900 px
+                 el menú se oculta y no había forma de cerrar sesión: en los
+                 ordenadores compartidos del aula la cuenta —de un docente o de
+                 un menor— se quedaba abierta para el siguiente [revisión 2026-09]. */ ?>
+        <a class="ia-btn ia-btn-ghost ia-btn-sm ia-logout" href="/auth/logout.php"><i data-lucide="log-out"></i><?= iarepo_e(t('Salir')) ?></a>
       <?php else: ?>
         <a class="ia-btn ia-btn-primary ia-btn-sm" href="<?= iarepo_e($signin) ?>"><?= iarepo_e(t('Entrar')) ?></a>
       <?php endif; ?>
@@ -111,15 +135,18 @@ function iarepo_header(?array $user, string $active = ''): void
 <?php
 }
 
-/** Pie común. A los alumnos no se les invita a publicar. */
-function iarepo_footer(?array $user = null): void
+/**
+ * Pie común. A los alumnos no se les invita a publicar. $cta = false quita la
+ * banda «Publicar un recurso» donde sobra: en el propio editor y en Entrar.
+ */
+function iarepo_footer(?array $user = null, bool $cta = true): void
 {
     $isStudent = ($user['role'] ?? '') === 'student';
     $publish   = $user ? '/dashboard/editor.php' : '/auth/signin.php?return_url=' . rawurlencode('/dashboard/editor.php');
     ?>
 <footer class="ia-footer">
   <div class="ia-container ia-footer-inner">
-    <?php if (!$isStudent): ?>
+    <?php if (!$isStudent && $cta): ?>
     <div class="ia-cta-band">
       <p><?= iarepo_e(t('¿Has hecho una simulación con IA para tu clase? Compártela con otros docentes.')) ?></p>
       <a class="ia-btn ia-btn-primary" href="<?= iarepo_e($publish) ?>"><i data-lucide="upload"></i><?= iarepo_e(t('Publicar un recurso')) ?></a>
@@ -138,6 +165,37 @@ function iarepo_footer(?array $user = null): void
 }
 
 /**
+ * Línea de datos de una tarjeta: «fuente · curso · idioma», sin partir ningún
+ * dato por la mitad («12–16 años» no se corta). La fuente ya la lleva el sello
+ * de la portada: aquí solo se VE en la tarjeta-fila del móvil, cuya portada
+ * es pequeña y no lo enseña; en escritorio queda para lectores de pantalla
+ * (.ia-meta-src; la portada es aria-hidden). Sin fuente, el autor si
+ * $withAuthor. $r ya pasó por iarepo_with_labels().
+ *
+ * La usan perfil, lista y Guardados dentro de un contenedor .ia-cards-meta
+ * (app.css). Vivía copiada en las tres páginas como lp_meta() [2026-09].
+ */
+function iarepo_card_meta(array $r, bool $withAuthor = true): string
+{
+    $sep  = '<span aria-hidden="true"> · </span>';
+    $item = static fn(string $txt, string $cls = ''): string =>
+        '<span class="ia-meta' . ($cls !== '' ? ' ' . $cls : '') . '">' . iarepo_e($txt) . '</span>';
+    $rest = [];
+    if ((string) ($r['level_label'] ?? '') !== '')
+        $rest[] = $item((string) $r['level_label']);
+    if ((string) ($r['lang_label'] ?? '') !== '')
+        $rest[] = $item((string) $r['lang_label'], ($r['lang'] ?? '') === 'es' ? 'ia-lang-es' : '');
+    $src    = (string) ($r['source_label'] ?? '');
+    $author = $withAuthor ? (string) ($r['author_display_name'] ?? '') : '';
+    $lead   = '';
+    if ($src !== '')
+        $lead = '<span class="ia-meta-src">' . $item($src) . ($rest ? $sep : '') . '</span>';
+    elseif ($author !== '')
+        $lead = $item($author) . ($rest ? $sep : '');
+    return $lead . implode($sep, $rest);
+}
+
+/**
  * Portada generativa de un recurso (color de la materia + icono + fuente).
  * $r: fila de resources con category_slug/category_icon (o con las etiquetas
  * de iarepo_with_labels()). $topic: texto opcional abajo a la izquierda.
@@ -150,7 +208,8 @@ function iarepo_cover(array $r, ?string $topic = null): string
     if (!empty($r['source_label']))
         $out .= '<span class="ia-cover-source"><span class="ia-cover-mono">' . iarepo_e($r['source_mono']) . '</span>' . iarepo_e($r['source_label']) . '</span>';
     $out .= '<span class="ia-cover-icon"><i data-lucide="' . iarepo_e($icon) . '"></i></span>';
-    $topic ??= trim((string) ($r['topic_tag'] ?? '')) !== '' ? (string) $r['topic_tag'] : ($r['category_label'] ?? '');
+    // Solo el primer tema: topic_tag a veces es una lista («waves,introduction»).
+    $topic ??= iarepo_topic_label($r['topic_tag'] ?? null) ?: (string) ($r['category_label'] ?? '');
     if ($topic !== '')
         $out .= '<span class="ia-cover-topic">' . iarepo_e($topic) . '</span>';
     if (($r['lang'] ?? '') === 'en' && lang() !== 'en')

@@ -19,6 +19,7 @@ require_once __DIR__ . '/../shared/db.php';
 require_once __DIR__ . '/../shared/auth.php';
 require_once __DIR__ . '/../shared/cors.php';
 require_once __DIR__ . '/../shared/helpers.php';
+require_once __DIR__ . '/../shared/access.php';
 
 cors();
 
@@ -47,22 +48,42 @@ if ($method === 'GET') {
         if (!$collection['is_public'] && !$isOwner)
             json_error('Collection is private', 403, 'COLLECTION_PRIVATE');
 
-        // Get items with resource details
+        // Get items with resource details.
+        //
+        // Una lista pública puede contener recursos que quien mira NO puede
+        // ver: un borrador, o uno 'school' de otro centro, que su dueño metió
+        // en la lista. Hasta 2026-09 salían aquí con título y descripción a
+        // cualquiera, anónimos incluidos. Cada recurso pasa por canView(), la
+        // misma regla que collection/index.php y la ficha
+        // (tests/integration/authorization_test.php, bloque de listas).
+        //
+        // Orden: una lista es una SECUENCIA en el orden en que se armó
+        // (added_at ASC, id ASC para desempatar), igual que la página, para
+        // que Campus y la web enseñen el mismo «paso 1».
         $items = $db->prepare("
             SELECT ci.id AS item_id, ci.added_at,
                    r.id, r.title, r.description, r.code_type, r.subject_area,
                    r.level, r.view_count, r.like_count, r.fork_count,
                    r.author_display_name, r.visibility,
+                   r.author_tenant_id, r.author_user_id,
                    c.name AS category_name, c.icon AS category_icon
             FROM collection_items ci
             JOIN resources r ON r.id = ci.resource_id AND r.is_active = 1
             LEFT JOIN categories c ON r.category_id = c.id
             WHERE ci.collection_id = ?
-            ORDER BY ci.added_at DESC
+            ORDER BY ci.added_at ASC, ci.id ASC
         ");
         $items->execute([$id]);
 
-        $collection['items'] = $items->fetchAll();
+        $visible = [];
+        foreach ($items->fetchAll() as $row) {
+            if (!canView($row, $user))
+                continue;
+            // Solo servían para decidir: no se añaden campos al contrato.
+            unset($row['author_tenant_id'], $row['author_user_id']);
+            $visible[] = $row;
+        }
+        $collection['items'] = $visible;
         json_ok(['collection' => $collection]);
     }
 

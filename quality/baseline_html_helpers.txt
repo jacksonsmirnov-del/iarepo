@@ -22,7 +22,7 @@
 #   * Añadir una ruta nueva a este fichero es EXACTAMENTE lo que el guard existe
 #     para impedir. Si has llegado aquí para añadir una línea, para: define h()
 #     local en tu página en lugar de cargar helpers.php.
-#     Ejemplos de cómo se hace bien: index.php:14 y 404.php:9.
+#     Ejemplos de cómo se hace bien: `function h` en index.php y en 404.php.
 #   * Esta lista solo puede ENCOGER. guards.sh avisa cuando una entrada ya no
 #     hace falta para que la borres.
 #

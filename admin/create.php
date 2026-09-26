@@ -115,9 +115,8 @@ function showLogin($error = null) {
 <!DOCTYPE html>
 <html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Admin — iarepo</title>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
 <style>
-*{margin:0;padding:0;box-sizing:border-box}body{font-family:'Inter',sans-serif;background:#f8fafc;display:flex;align-items:center;justify-content:center;min-height:100vh}
+*{margin:0;padding:0;box-sizing:border-box}body{font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;background:#f8fafc;display:flex;align-items:center;justify-content:center;min-height:100vh}
 .login{background:#fff;padding:40px;border-radius:12px;box-shadow:0 2px 8px rgba(0,0,0,.08);width:320px;text-align:center}
 .login h2{margin-bottom:20px;color:#1e293b}
 .login input{width:100%;padding:12px;border:1px solid #e2e8f0;border-radius:8px;font-size:1rem;margin-bottom:12px}
@@ -135,10 +134,9 @@ function showLogin($error = null) {
 <!DOCTYPE html>
 <html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Crear Recurso — iarepo Admin</title>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-body{font-family:'Inter',sans-serif;background:#f8fafc;color:#1e293b;padding:24px}
+body{font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;background:#f8fafc;color:#1e293b;padding:24px}
 .container{max-width:900px;margin:0 auto}
 h1{font-size:1.5rem;margin-bottom:8px;display:flex;align-items:center;gap:8px}
 .subtitle{color:#64748b;margin-bottom:24px;font-size:.9rem}

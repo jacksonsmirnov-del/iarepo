@@ -19,8 +19,8 @@
 # `git push origin main` es producción en vivo.
 #
 # FILOSOFÍA — por qué hay ficheros de baseline:
-#   El repo tiene violaciones PREEXISTENTES de sus propias reglas (7 páginas que
-#   cargan helpers.php, 3 migraciones no idempotentes). Un guard binario fallaría
+#   El repo tenía violaciones PREEXISTENTES de sus propias reglas (7 páginas que
+#   cargaban helpers.php —saldadas el 2026-09-26—, 3 migraciones no idempotentes). Un guard binario fallaría
 #   decenas de veces el primer día sobre código que ya está en producción y
 #   funcionando; en una semana alguien lo desactiva y la capa entera muere.
 #   Por eso lo preexistente va a baseline o a aviso, y lo BLOQUEANTE es solo lo
@@ -248,7 +248,10 @@ else
         if [ -s "$NEW_VIOL" ]; then
             det_reset
             sed 's/\t/  →  /' "$NEW_VIOL" >> "$DET"
-            det "Arréglalo: quita el require de helpers.php y define h() local (ver index.php:14)."
+            # Sin comillas invertidas dentro de "…": bash las EJECUTA (sustitución de
+            # órdenes), ensuciaba la salida con un «syntax error» y el consejo
+            # llegaba cortado [revisión 2026-09]. Lo vigila tests/unit/review_fixes_test.php.
+            det "Arréglalo: quita el require de helpers.php y define h() local (ver «function h» en index.php o 404.php)."
             det "NO añadas la ruta a quality/baseline_html_helpers.txt: ese fichero solo puede encoger."
             fail "G1 · página(s) HTML NUEVAS cargando shared/helpers.php" "$DET"
         else
@@ -451,7 +454,7 @@ fi
 # ~1.900 líneas de JS viven dentro de bloques <script> en .php y no las valida
 # nada: `node --check` solo ve los .js sueltos de assets/. Un error de sintaxis
 # en el bloque de index.php rompe favoritos, búsqueda y filtros de la portada,
-# y el smoke test no lo detecta (el HTML sigue conteniendo 'class="fcard"').
+# y el smoke test no lo detecta (el HTML del servidor sigue llevando sus marcadores).
 echo ""
 echo -e "${BLUE}── G6 · JavaScript inline ────────────────────────────${NC}"
 if [ ${#APP_PHP_FILES[@]} -eq 0 ]; then
@@ -502,12 +505,21 @@ fi
 # Cuando el backlog esté a cero, promuévelo a bloqueante con:
 #   GUARDS_I18N_STRICT=1 bash quality/guards.sh
 # (y pon esa variable en el hook para que quede fijo).
+#
+# tests/ queda fuera: los tests escriben t('Más usados') o t('Fork') como TEXTO
+# que exigen que NO aparezca en una página. Contarlos como cadenas visibles
+# obligaba a conservar traducciones muertas en el diccionario solo para callar
+# el aviso (tests/unit/i18n_test.php exige ahora que no haya ninguna).
 echo ""
 echo -e "${BLUE}── G7 · cobertura i18n ───────────────────────────────${NC}"
-if [ ${#APP_PHP_FILES[@]} -eq 0 ]; then
+I18N_FILES=()
+for f in ${APP_PHP_FILES[@]+"${APP_PHP_FILES[@]}"}; do
+    case "$f" in tests/*) ;; *) I18N_FILES+=("$f") ;; esac
+done
+if [ ${#I18N_FILES[@]} -eq 0 ]; then
     skip "G7 · sin ficheros .php que revisar"
 else
-    if php "$ANALYZE" i18n "${APP_PHP_FILES[@]}" > "$TMPDIR_G/g7.txt" 2>"$TMPDIR_G/g7.err"; then
+    if php "$ANALYZE" i18n "${I18N_FILES[@]}" > "$TMPDIR_G/g7.txt" 2>"$TMPDIR_G/g7.err"; then
         ok "G7 · todas las cadenas t() tienen traducción"
     elif [ -s "$TMPDIR_G/g7.err" ]; then
         warn "G7 · el analizador i18n falló" "$TMPDIR_G/g7.err"

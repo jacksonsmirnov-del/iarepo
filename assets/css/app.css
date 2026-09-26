@@ -42,7 +42,8 @@
   --ia-accent-hover: #5B21B6;
   --ia-accent-soft: #F0EAFE;
   --ia-on-accent: #FFFFFF;
-  --ia-ok: #15803D;           /*  5,0:1 */
+  --ia-ok: #157034;           /*  5,5:1 sobre --ia-ok-soft (la etiqueta «Pública»), 6,2:1 sobre blanco.
+                                 Era #15803D: 4,49:1 en «Pública», por debajo de AA [revisión 2026-09] */
   --ia-ok-soft: #E7F6EC;
   --ia-warn-soft: #FFF3D1;
   --ia-warn-ink: #7A5200;
@@ -244,7 +245,12 @@
   background: var(--ia-surface); border: 2px solid var(--ia-line-strong); border-radius: 999px;
   box-shadow: var(--ia-shadow);
 }
-.ia-search:focus-within { border-color: var(--ia-accent); }
+/* Un solo anillo de foco: el de la píldora entera. Sin la regla del input, el
+   :focus-visible general (.ia-page, más específico que .ia-search input)
+   pintaba un segundo anillo DENTRO de la píldora. */
+.ia-search:focus-within { border-color: var(--ia-accent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--ia-accent) 28%, transparent); }
+.ia-search input:focus-visible { outline: none; box-shadow: none; }
 .ia-search input {
   flex: 1; min-width: 0; border: 0; outline: 0; background: transparent;
   font: 500 1.05rem/1.3 var(--ia-font); color: var(--ia-ink);
@@ -321,9 +327,11 @@
 .ia-row .ia-cover-icon { right: 50%; transform: translate(50%, -50%); width: 55%; }
 .ia-row .ia-cover-source, .ia-row .ia-cover-topic, .ia-row .ia-cover-badge { display: none; }
 .ia-row-body { min-width: 0; flex: 1; }
-.ia-row-title { margin: 0; font-size: .98rem; font-weight: 700; line-height: 1.3; color: var(--ia-ink);
+/* display:block explícito: dentro de un <a class="ia-row"> van como <span>, y
+   sin él el recorte con puntos suspensivos no funciona. */
+.ia-row-title { display: block; margin: 0; font-size: .98rem; font-weight: 700; line-height: 1.3; color: var(--ia-ink);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ia-row-meta { font-size: .8125rem; color: var(--ia-ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ia-row-meta { display: block; font-size: .8125rem; color: var(--ia-ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 @media (max-width: 559px) {
   .ia-grid-rows-mobile { gap: 10px; }
   .ia-grid-rows-mobile .ia-card { flex-direction: row; align-items: stretch; }
@@ -332,6 +340,22 @@
   .ia-grid-rows-mobile .ia-card .ia-cover-source, .ia-grid-rows-mobile .ia-card .ia-cover-topic { display: none; }
   .ia-grid-rows-mobile .ia-card .ia-card-desc { -webkit-line-clamp: 2; }
   .ia-grid-rows-mobile .ia-card:hover { transform: none; }
+}
+
+/* Línea de datos «fuente · curso · idioma» de iarepo_card_meta() (shared/ui.php)
+   en perfil, lista y Guardados. Vivía copiada en las tres páginas. */
+.ia-cards-meta .ia-card-meta { display: block; }   /* texto corrido: al partir línea no queda un «·» colgando */
+.ia-cards-meta .ia-card-body { min-width: 0; }     /* en la tarjeta-fila del móvil el texto no ensancha la página */
+.ia-cards-meta .ia-cover-badge { display: none; }  /* el idioma ya va en la línea de datos */
+.ia-meta { white-space: nowrap; }                  /* ningún dato se parte («12–16 años») */
+/* …salvo en móviles estrechos: «Upper secondary & IB · ages 16–18» no cabe
+   en una tarjeta-fila de 360 px y ensanchaba la página. */
+@media (max-width: 379px) { .ia-meta { white-space: normal; } }
+/* La fuente: en escritorio la dice el sello de la portada, que es aria-hidden;
+   aquí queda para lectores de pantalla. En la tarjeta-fila del móvil, visible. */
+.ia-meta-src { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
+@media (max-width: 559px) {
+  .ia-meta-src { position: static; width: auto; height: auto; margin: 0; overflow: visible; clip: auto; white-space: normal; }
 }
 
 /* Estado vacío honesto: dice qué pasa y qué puedes hacer. */
@@ -397,11 +421,30 @@
 .ia-mobile-nav a { padding: 12px 8px; font-weight: 600; color: var(--ia-ink); text-decoration: none; border-radius: 10px; }
 .ia-page .ia-mobile-nav a { color: var(--ia-ink); text-decoration: none; }
 .ia-mobile-nav a:hover { background: var(--ia-surface-2); }
+/* «Salir» de la cabecera: en móvil vive en el menú; desde 900 px, que el menú
+   se oculta, va aquí (si no, no había forma de cerrar sesión en escritorio). */
+.ia-logout { display: none; }
 @media (min-width: 900px) {
   .ia-nav { display: flex; }
   .ia-menu-btn, .ia-mobile-nav, .ia-mobile-nav.is-open { display: none; }
+  .ia-page .ia-logout { display: inline-flex; }
 }
 @media (max-width: 480px) { .ia-hide-xs { display: none !important; } }
+/* Móviles estrechos (360 px, el Android más común; 320 px, iPhone SE): la
+   cabecera medía ~364 px y el botón del menú quedaba fuera de la pantalla, y
+   sin él no se llega a Guardados ni a Salir [revisión 2026-09]. Se aprieta:
+   el idioma se queda en el globo (su aria-label dice a cuál cambia), menos
+   hueco y botones de 40 px. Por debajo de 340 px, el logo sin el texto (el
+   enlace se sigue llamando «iarepo» por su aria-label). */
+@media (max-width: 379px) {
+  .ia-header-inner { gap: 6px; }
+  .ia-header-tools { gap: 2px; min-width: 0; }
+  .ia-header-tools .ia-btn-icon { width: 40px; min-height: 40px; }
+  .ia-header-tools .ia-btn-sm { padding: 6px 8px; }
+  .ia-lang-code { display: none; }
+  .ia-logo { gap: 6px; font-size: 1.05rem; }
+}
+@media (max-width: 339px) { .ia-logo span { display: none; } }
 
 .ia-footer { margin-top: 48px; padding: 32px 0 40px; border-top: 1px solid var(--ia-line); color: var(--ia-ink-3); font-size: .9rem; }
 .ia-footer-inner { display: grid; gap: 14px; }
@@ -413,9 +456,22 @@
 
 /* ── 9. Utilidades ─────────────────────────────────────────────── */
 .ia-sr-only { position: absolute !important; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+/* «Saltar al contenido» (primer Tab de cada página): oculto hasta que recibe
+   el foco, y entonces VISIBLE. Con solo .ia-sr-only el foco caía en un punto
+   de 1×1 px y quien usa el teclado no veía dónde estaba (WCAG 2.4.7). */
+.ia-page .ia-skip:focus, .ia-page .ia-skip:focus-visible {
+  position: fixed !important; left: 12px; top: 12px; z-index: 1200;
+  width: auto; height: auto; margin: 0; padding: 10px 16px; overflow: visible; clip: auto;
+  background: var(--ia-surface); color: var(--ia-accent); font-weight: 700;
+  border-radius: 10px; box-shadow: var(--ia-shadow-lg);
+}
 .ia-stack { display: grid; gap: 12px; }
 .ia-row-gap { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
 .ia-hidden { display: none !important; }
+/* El atributo hidden tiene que ganar SIEMPRE. .ia-btn, .ia-chip, .ia-row… fijan
+   display (flex, inline-flex, grid) y, con la misma especificidad o más, anulaban
+   [hidden] sin avisar: el JS «ocultaba» un botón que seguía viéndose. */
+.ia-page [hidden] { display: none !important; }
 @media (prefers-reduced-motion: reduce) {
   .ia-page *, .ia-page *::before, .ia-page *::after { transition: none !important; animation: none !important; }
 }

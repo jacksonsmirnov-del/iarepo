@@ -26,11 +26,11 @@
 iarepo.com
 www.iarepo.com
 
-# Fuentes web (Inter, Fira Code). Dependencia externa DELIBERADA, presente en 13
-# páginas. Auto-alojarlas es una mejora pendiente de rendimiento y privacidad,
-# no una regresión: por eso está en la lista blanca y no bloquea.
-fonts.googleapis.com
-fonts.gstatic.com
+# Google Fonts (fonts.googleapis.com / fonts.gstatic.com) SALIÓ de esta lista
+# el 2026-09-26: desde el rediseño todas las páginas usan las fuentes del
+# sistema (--ia-font en assets/css/app.css) y admin/create.php, la última que
+# las cargaba, también. Cada carga avisaba a Google de una visita a una web que
+# abren menores. Volver a meterla hace fallar G3 a propósito.
 
 # Google Sign-In (GIS). No es auto-alojable: el SDK debe servirse desde el
 # dominio de Google para que el flujo OAuth funcione.

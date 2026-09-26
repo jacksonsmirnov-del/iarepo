@@ -65,7 +65,9 @@ function notifyResourceAuthor(
         $unsubUrl = $base . '/unsubscribe.php?token=' . $token;
 
         $title = htmlspecialchars($row['title'], ENT_QUOTES, 'UTF-8');
-        $actor = htmlspecialchars($actorName, ENT_QUOTES, 'UTF-8');
+        // Sin nombre = alguien que está aprendiendo (api/likes.php no lo pasa:
+        // puede ser un menor y el correo va a cualquier docente).
+        $actor = $actorName !== '' ? htmlspecialchars($actorName, ENT_QUOTES, 'UTF-8') : 'Alguien que está aprendiendo';
 
         $map = [
             'like'    => ['❤️ Le dio like a tu recurso',  "<strong>{$actor}</strong> le dio like a tu recurso:"],

@@ -115,7 +115,9 @@ SUCCESS=0
 FAIL=0
 
 for ID in "${IDS[@]}"; do
-    URL="${BASE_URL}/${ID}?mode=present"
+    # ui=0: el visor sin NINGÚN control encima (viewer/index.php). Sin él, el
+    # botón «Pantalla completa» y la píldora «Abrir en…» salían en cada miniatura.
+    URL="${BASE_URL}/${ID}?mode=present&ui=0"
     OUTPUT="${LOCAL_TMP}/og-${ID}.png"
 
     echo -n "  [$ID] Capturing... "

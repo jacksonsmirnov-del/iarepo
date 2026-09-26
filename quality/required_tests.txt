@@ -116,3 +116,56 @@ tests/unit/page_errors_test.php
 # fuente deducida del dominio, ningún tipo en crudo), versionado de assets y
 # IA.esc escapando la comilla simple.
 tests/unit/labels_test.php
+
+# ── Rediseño 2026-09 ────────────────────────────────────────────
+# Las decisiones de producto del rediseño NO fallan ruidosamente si alguien
+# las deshace: volver a ordenar por view_count (congelado), pintar un «0
+# Vistas», enseñar «Hacer mi versión» en un enlace o abrir el perfil de un
+# alumno a cualquiera dejan la página en 200. Cada suite fija las de su área.
+#
+# landing_test.php: la portada no vuelve a ordenar por popularidad ni por
+# view_count, no avisa a terceros (Google Fonts / Sign-In), el filtro de
+# idioma del recurso va en ?rlang= y se respetan los contratos con pwa.js y
+# con el 404.
+tests/unit/landing_test.php
+# resource_page_test.php: la ficha solo enseña cifras por encima del umbral,
+# «Hacer mi versión» solo en html/embed, el alumno no ve el panel docente, los
+# sandbox de los iframes no cambian y el visor no carga pwa.js.
+tests/unit/resource_page_test.php
+# account_pages_test.php: las cifras del autor son las reales (unique_views,
+# versiones públicas de otros, no fork_count), source_url solo http(s) y cada
+# código de error de crear/editar tiene su texto en el editor.
+tests/unit/account_pages_test.php
+# account_api_test.php: lo mismo por HTTP contra la API: javascript:/data: como
+# fuente o enlace dan 400 con su código, un PUT sin fuente no la borra y la
+# lista negra se aplica al crear y al editar.
+tests/integration/account_api_test.php
+# lists_profile_test.php: el perfil de un alumno no es público, una lista es
+# una secuencia (added_at ASC) donde cada recurso pasa por canView(), y
+# Guardados no pinta contadores.
+tests/unit/lists_profile_test.php
+
+# ── Integración del rediseño (2026-09-26) ───────────────────────
+# api_lang_test.php: en api/resources.php, ?lang= es el FILTRO de idioma del
+# recurso. Cuando la API empezó a traducir etiquetas, lang() lo leyó como
+# idioma de la interfaz y pulsar «Inglés» en la portada plantaba una cookie
+# de un año que pasaba la web entera a inglés: 200 y JSON válido, sin error.
+tests/integration/api_lang_test.php
+# smoke_markers_test.php: cada marcador que quality/smoke_test.sh busca en una
+# página existe en su fuente. El rediseño quitó 'class="fcard"' y
+# 'class="preview-card"' y el smoke habría dado FAIL con la web ya publicada.
+tests/unit/smoke_markers_test.php
+
+# ── Revisión del rediseño (2026-09-26) ──────────────────────────
+# review_fixes_test.php (unitario + integración): lo que encontraron tres
+# revisores independientes y ninguna capa veía. CSRF (una web ajena cambiaba
+# el rol de una alumna —perfil público— o borraba recursos con la sesión de
+# quien la visitaba), perfil público de cuentas sin nada publicado, el nombre
+# de un alumno en los «Me gusta», el título de un original privado en sus
+# versiones, «https://x\@phet…» firmando PhET, cambiar solo el tipo a 'url'
+# sin validar, editar un enlace pisando su fuente, el idioma perdido al
+# cambiar ES/EN, «Siguiente paso» en inglés, y en la interfaz: sin «Salir» en
+# escritorio, salto de teclado invisible, aviso tapado por el diálogo, QR sin
+# pantalla completa en iPhone, «Cerrar» muerto del visor, muro de ceros.
+tests/unit/review_fixes_test.php
+tests/integration/review_fixes_test.php

@@ -1,32 +1,38 @@
 {
-  "name": "iarepo — Recursos educativos interactivos",
+  "name": "iarepo — Ciencias y matemáticas que se entienden tocándolas",
   "short_name": "iarepo",
-  "description": "Descubre, comparte y ejecuta simulaciones y recursos educativos interactivos. El GitHub para profesores.",
+  "description": "Simulaciones gratuitas de PhET, NASA, GeoGebra y otras fuentes, clasificadas por curso y con su autor original citado. Para proyectar en clase, mandar a los alumnos o aprender por tu cuenta: sin instalar y sin registrarte.",
   "lang": "es",
   "start_url": "/?utm_source=pwa",
   "scope": "/",
   "display": "standalone",
   "orientation": "any",
-  "background_color": "#ffffff",
-  "theme_color": "#7c3aed",
-  "categories": ["education", "productivity"],
+  "background_color": "#F6F7F9",
+  "theme_color": "#F6F7F9",
+  "categories": ["education"],
   "shortcuts": [
     {
-      "name": "Nuevo recurso",
-      "short_name": "Nuevo",
-      "url": "/dashboard/editor.php?utm_source=pwa_shortcut",
+      "name": "Explorar el catálogo",
+      "short_name": "Explorar",
+      "url": "/?utm_source=pwa_shortcut",
+      "icons": [{ "src": "/assets/img/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Guardados",
+      "short_name": "Guardados",
+      "url": "/favorites/?utm_source=pwa_shortcut",
       "icons": [{ "src": "/assets/img/icon-192.png", "sizes": "192x192" }]
     },
     {
       "name": "Mi panel",
-      "short_name": "Panel",
+      "short_name": "Mi panel",
       "url": "/dashboard/?utm_source=pwa_shortcut",
       "icons": [{ "src": "/assets/img/icon-192.png", "sizes": "192x192" }]
     },
     {
-      "name": "Explorar recursos",
-      "short_name": "Explorar",
-      "url": "/?utm_source=pwa_shortcut",
+      "name": "Publicar un recurso",
+      "short_name": "Publicar",
+      "url": "/dashboard/editor.php?utm_source=pwa_shortcut",
       "icons": [{ "src": "/assets/img/icon-192.png", "sizes": "192x192" }]
     }
   ],

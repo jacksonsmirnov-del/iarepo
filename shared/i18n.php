@@ -11,6 +11,8 @@
 //   then in the markup:  echo t('Recursos educativos');
 // ================================================================
 
+require_once __DIR__ . '/local_path.php';   // iarepo_is_local_path(), sin dependencias
+
 /** Resolve and (when possible) persist the active language: 'es' | 'en'. */
 function lang(): string
 {
@@ -44,9 +46,32 @@ function t(string $es): string
     return $dict[$es] ?? $es;
 }
 
-/** Build a URL to switch language, preserving the current path. */
+/**
+ * Enlace para cambiar de idioma SIN perder dónde estás: misma ruta y misma
+ * query, con 'lang' cambiado (y siempre el primero: index.php::syncLangSwitch
+ * corta por el primer '&' para añadir el estado del buscador).
+ *
+ * Antes tiraba la query entera. Mientras solo lo usaban la portada y la ficha
+ * daba igual; desde que la cabecera común (shared/ui.php) lo pone en TODAS las
+ * páginas, pulsar «EN» en una lista (/collection/?id=5) llevaba a la portada,
+ * en el editor abría un formulario vacío, en la baja de correos invalidaba el
+ * enlace y en Entrar perdía a dónde volver [revisión 2026-09].
+ *
+ * La query sale de REQUEST_URI (lo que pidió el navegador), NO de $_GET: las
+ * rutas bonitas (/resource/3 → resource/index.php?id=3) añaden claves que la
+ * URL no lleva. Nunca refleja el idioma recibido ('en' o 'es'), y una ruta que
+ * no es propia ('//otra.web', barras invertidas, controles) cae a '/'.
+ */
 function langSwitchUrl(string $to): string
 {
-    $path = strtok($_SERVER['REQUEST_URI'] ?? '/', '?');
-    return $path . '?lang=' . ($to === 'en' ? 'en' : 'es');
+    $uri  = (string) ($_SERVER['REQUEST_URI'] ?? '/');
+    $cut  = strpos($uri, '?');
+    $path = $cut === false ? $uri : substr($uri, 0, $cut);
+    $qs   = $cut === false ? '' : substr($uri, $cut + 1);
+    if (!iarepo_is_local_path($path))
+        $path = '/';
+    $query = [];
+    parse_str($qs, $query);
+    unset($query['lang']);
+    return $path . '?' . http_build_query(['lang' => $to === 'en' ? 'en' : 'es'] + $query, '', '&', PHP_QUERY_RFC3986);
 }

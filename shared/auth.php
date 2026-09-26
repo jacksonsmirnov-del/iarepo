@@ -62,7 +62,70 @@ function authenticateJWT(): ?array {
 }
 
 /**
+ * ¿Es una petición de ESCRITURA que viene de otra web? (CSRF)
+ *
+ * La cookie de sesión viaja también cuando otra web manda un formulario a
+ * iarepo, y con ella un POST ajeno actuaba en nombre de quien tuviera la
+ * sesión abierta: borrar sus recursos (request_method() acepta _method=DELETE
+ * desde un formulario), tocar sus listas o cambiarle el rol, del que depende
+ * que el perfil de un menor sea público [revisión 2026-09].
+ *
+ * Se decide con lo que el NAVEGADOR pone y una web no puede falsificar:
+ *   · Sec-Fetch-Site (Chrome 76+, Firefox 90+, Safari 16.4+): solo
+ *     'same-origin' (o 'none', lo que teclea la persona) es de aquí.
+ *   · Si no está, Origin (todos los navegadores lo mandan en un POST ajeno):
+ *     su host tiene que ser el nuestro. 'null' (iframe aislado) es ajeno.
+ *   · Sin ninguna de las dos no es un navegador (curl, un servidor) y ahí no
+ *     hay cookie de nadie que robar: se deja pasar.
+ * GET/HEAD/OPTIONS nunca escriben, así que no se miran.
+ */
+function iarepo_is_cross_site_write(): bool {
+    $method = strtoupper((string) ($_SERVER['REQUEST_METHOD'] ?? 'GET'));
+    if (in_array($method, ['GET', 'HEAD', 'OPTIONS'], true))
+        return false;
+
+    $site = strtolower(trim((string) ($_SERVER['HTTP_SEC_FETCH_SITE'] ?? '')));
+    if ($site !== '')
+        return !in_array($site, ['same-origin', 'none'], true);
+
+    $origin = trim((string) ($_SERVER['HTTP_ORIGIN'] ?? ''));
+    if ($origin === '')
+        return false;
+    $o     = parse_url($origin);
+    $oHost = strtolower((string) ($o['host'] ?? '')) . (isset($o['port']) ? ':' . (int) $o['port'] : '');
+    $host  = strtolower((string) ($_SERVER['HTTP_HOST'] ?? ''));
+    // El puerto por defecto puede venir o no en Host (según el proxy): no cuenta.
+    $host  = (string) preg_replace('/:(80|443)$/', '', $host);
+    $oHost = (string) preg_replace('/:(80|443)$/', '', $oHost);
+    return $oHost === '' || $host === '' || $oHost !== $host;
+}
+
+/**
+ * Token anti-CSRF de los formularios HTML que cambian algo con la sesión
+ * (hoy, el rol en auth/onboarding.php, que también usa profile/index.php).
+ * Uno por sesión; la página lo pone en un <input type="hidden" name="csrf">.
+ */
+function iarepo_csrf_token(): string {
+    if (session_status() === PHP_SESSION_NONE)
+        session_start();
+    if (!is_string($_SESSION['csrf'] ?? null) || strlen($_SESSION['csrf']) < 32)
+        $_SESSION['csrf'] = bin2hex(random_bytes(16));
+    return $_SESSION['csrf'];
+}
+
+/** ¿El token recibido es el de esta sesión? (comparación en tiempo constante) */
+function iarepo_csrf_valid(mixed $token): bool {
+    $mine = $_SESSION['csrf'] ?? null;
+    return is_string($token) && is_string($mine) && $mine !== '' && hash_equals($mine, $token);
+}
+
+/**
  * Authenticate via PHP session (Google Sign-In users).
+ *
+ * Una escritura que llega de otra web NO se autentica con la sesión (ver
+ * iarepo_is_cross_site_write): para la API es anónima → 401 en lo que pide
+ * cuenta. Campus no se ve afectado: entra por JWT (authenticateJWT), no por
+ * cookie.
  */
 function authenticateSession(): ?array {
     if (session_status() === PHP_SESSION_NONE) {
@@ -71,6 +134,15 @@ function authenticateSession(): ?array {
 
     if (empty($_SESSION['user']['id']))
         return null;
+
+    if (iarepo_is_cross_site_write()) {
+        // Se registra: si algún día una escritura legítima cae aquí, se ve.
+        error_log('iarepo: sesión ignorada en una escritura de otra web (CSRF) — '
+            . ($_SERVER['REQUEST_METHOD'] ?? '?') . ' ' . strtok((string) ($_SERVER['REQUEST_URI'] ?? ''), '?')
+            . ' · Sec-Fetch-Site=' . substr((string) ($_SERVER['HTTP_SEC_FETCH_SITE'] ?? '-'), 0, 20)
+            . ' · Origin=' . substr((string) ($_SERVER['HTTP_ORIGIN'] ?? '-'), 0, 80));
+        return null;
+    }
 
     $u = $_SESSION['user'];
     return [

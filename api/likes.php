@@ -57,6 +57,7 @@ if ($method === 'GET') {
 // ── POST: Toggle like ─────────────────────────────────────────
 if ($method === 'POST') {
     $user = requireAuth();
+    $isLearner = ($user['role'] ?? '') === 'student';
 
     $db->beginTransaction();
     try {
@@ -71,9 +72,12 @@ if ($method === 'POST') {
             $db->prepare("UPDATE resources SET like_count = GREATEST(like_count - 1, 0) WHERE id = ?")->execute([$resourceId]);
             $action = 'unliked';
         } else {
-            // Like
+            // Like. De quien está aprendiendo (rol student: puede ser menor)
+            // NO se guarda el nombre: acababa en «Actividad reciente» y en la
+            // campana del autor, que es cualquiera que diga «Doy clase», y en
+            // su correo [revisión 2026-09]. El recuento no cambia.
             $db->prepare("INSERT INTO resource_likes (resource_id, user_id, user_name) VALUES (?, ?, ?)")
-               ->execute([$resourceId, $user['user_id'], $user['name']]);
+               ->execute([$resourceId, $user['user_id'], $isLearner ? null : $user['name']]);
             $db->prepare("UPDATE resources SET like_count = like_count + 1 WHERE id = ?")->execute([$resourceId]);
             $action = 'liked';
         }
@@ -87,7 +91,7 @@ if ($method === 'POST') {
 
         // Notify the author on a new like (best-effort, never blocks).
         if ($action === 'liked') {
-            notifyResourceAuthor($db, $resourceId, (int) $user['user_id'], (string) $user['name'], 'like');
+            notifyResourceAuthor($db, $resourceId, (int) $user['user_id'], $isLearner ? '' : (string) $user['name'], 'like');
         }
 
         json_ok([

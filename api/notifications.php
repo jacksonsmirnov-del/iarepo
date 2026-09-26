@@ -44,9 +44,13 @@ $seenStmt = $db->prepare("SELECT notifications_seen_at FROM users WHERE id = ?")
 $seenStmt->execute([$uid]);
 $seenAt = $seenStmt->fetchColumn() ?: '1970-01-01 00:00:00';
 
+// actor = NULL si el «Me gusta» es de alguien que está aprendiendo (rol
+// student: puede ser menor). api/likes.php ya no guarda su nombre; el JOIN
+// cubre las filas de antes. El cliente pinta «Alguien que está aprendiendo».
 $likes = $db->prepare("
-    SELECT 'like' AS type, rl.user_name AS actor, r.title AS resource_title, r.id AS resource_id, rl.created_at
+    SELECT 'like' AS type, IF(u.role = 'student', NULL, rl.user_name) AS actor, r.title AS resource_title, r.id AS resource_id, rl.created_at
     FROM resource_likes rl JOIN resources r ON r.id = rl.resource_id
+    LEFT JOIN users u ON u.id = rl.user_id
     WHERE rl.resource_id IN ($in) AND rl.user_id != ?
     ORDER BY rl.created_at DESC LIMIT 15");
 $likes->execute([$uid]);

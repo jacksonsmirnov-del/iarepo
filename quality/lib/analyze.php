@@ -239,7 +239,7 @@ if ($cmd === 'html-pages') {
             "pagina HTML que carga shared/helpers.php" . $via
             . ". helpers.php registra manejadores que hacen echo json_encode()+exit; "
             . "en una pagina HTML eso emite un blob JSON dentro del markup. "
-            . "Solucion: no cargar helpers.php y definir h() local (ver index.php:14, 404.php:9)."
+            . "Solucion: no cargar helpers.php y definir h() local (ver function h en index.php o 404.php)."
         );
         $found = true;
     }
@@ -328,7 +328,7 @@ if ($cmd === 'i18n') {
 // ~1.900 líneas de JS viven inline dentro de .php y hoy no las valida nada:
 // `node --check` solo cubre los 3 .js de assets/. Un error de sintaxis en el
 // bloque de index.php rompe favoritos, búsqueda y filtros de la portada, y el
-// smoke test no lo ve (sigue habiendo 'class="fcard"' en el HTML).
+// smoke test no lo ve (el HTML del servidor sigue llevando sus marcadores).
 //
 // Las interpolaciones PHP de tipo «echo corto» se sustituyen por el literal
 // neutro `null`, válido en posición de expresión —que es donde aparecen

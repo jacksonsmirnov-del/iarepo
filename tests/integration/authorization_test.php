@@ -175,3 +175,48 @@ function test_comments_respetan_la_visibilidad_y_los_alumnos_no_publican(): void
         it_authz_cleanup($db);
     }
 }
+
+// ── api/collections.php ?id= (integración del rediseño 2026-09) ──
+// La página de una lista (collection/index.php) ya filtraba cada recurso con
+// canView(), pero la API no: un borrador metido en una lista pública salía
+// por GET /api/collections.php?id=N con título y descripción a cualquiera,
+// anónimos incluidos. Además la API la devolvía al revés (added_at DESC)
+// mientras la página la enseña como secuencia: Campus y la web no coincidían
+// en cuál es el «paso 1».
+
+function test_una_lista_publica_no_cuela_borradores_por_la_api(): void
+{
+    if (!($db = it_authz_ready()))
+        return;
+    $t   = IT_RENDER_TEACHER;
+    $cid = 0;
+    try {
+        $db->exec("INSERT INTO collections (user_id, title, description, is_public, item_count)
+                   VALUES ($t, 'IT-AUTHZ lista pública', '', 1, 3)");
+        $cid = (int) $db->lastInsertId();
+        // 1031 entra PRIMERO aunque tenga un id mayor que 1000: el orden es
+        // el de llegada, no el del id. El borrador del profesor, en medio.
+        $db->exec("INSERT INTO collection_items (collection_id, resource_id, added_at) VALUES
+                   ($cid, 1031, '2026-01-01 10:00:00'),
+                   ($cid, " . IT_RENDER_RES . ", '2026-01-02 10:00:00'),
+                   ($cid, 1000, '2026-01-03 10:00:00')");
+
+        $url = it_render_state()['base'] . "/api/collections.php?id=$cid";
+        foreach (['anónimo' => [null, null], 'otro profesor' => ['teacher', IT_AUTHZ_OTHER], 'alumno' => ['student', null]] as $who => [$role, $id]) {
+            [$code, , $body] = it_render_request('GET', $url, $role ? it_render_cookie($role, $id) : null, []);
+            it_eq(200, $code, "la lista pública se lee ($who)");
+            $ids = array_map('intval', array_column(it_authz_json($body)['collection']['items'] ?? [], 'id'));
+            it_eq([1031, 1000], $ids, "$who: solo lo que puede ver, en el orden en que se añadió");
+            it_true(!str_contains($body, 'Recurso de pruebas del panel'), "$who: el título del borrador no sale");
+            it_true(!str_contains($body, 'author_user_id'), "$who: la API no añade campos internos al contrato");
+        }
+
+        [$code, , $body] = it_render_request('GET', $url, it_render_cookie('teacher'), []);
+        $ids = array_map('intval', array_column(it_authz_json($body)['collection']['items'] ?? [], 'id'));
+        it_eq([1031, IT_RENDER_RES, 1000], $ids, 'el autor del borrador sí lo ve, en su sitio de la secuencia');
+    } finally {
+        if ($cid)
+            $db->exec("DELETE FROM collections WHERE id = $cid");   // collection_items cae en cascada
+        it_authz_cleanup($db);
+    }
+}

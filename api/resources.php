@@ -14,6 +14,15 @@
 //
 // Auth: JWT required for all write operations.
 //       Read operations check visibility rules.
+//
+// Crear y editar (POST / PUT) aceptan también la fuente original:
+//   source_name  texto de una línea, ≤ 150
+//   source_url   solo http(s) absoluta, ≤ 500 (INVALID_SOURCE_URL si no)
+// En un recurso code_type='url', code_content tiene que ser una dirección
+// http(s) (INVALID_URL) y, si no se manda source_url, ella es la fuente. La
+// lista negra de URLs retiradas se aplica al crear y al editar. Cada rechazo
+// lleva su código: dashboard/editor.php traduce por código, no por texto
+// (tests/unit/account_pages_test.php exige que cada código tenga su texto).
 // ================================================================
 
 require_once __DIR__ . '/../shared/db.php';
@@ -27,6 +36,18 @@ require_once __DIR__ . '/../shared/access.php';
 require_once __DIR__ . '/../shared/labels.php';
 
 cors();
+
+// ── ?lang= aquí es el FILTRO, no el idioma de la interfaz ─────
+// En esta API '?lang=' filtra el catálogo por idioma del RECURSO (lo mandan
+// así la portada y Campus). Pero shared/i18n.php::lang() lee $_GET['lang']
+// como IDIOMA DE LA INTERFAZ y, si lo ve, planta una cookie `lang` de un año.
+// Desde que iarepo_with_labels() traduce con t() [2026-09], pulsar «Inglés»
+// en los filtros de la portada pasaba la web entera a inglés en la siguiente
+// carga y mandaba las etiquetas en inglés. Se aparta el filtro ANTES de que
+// nada llame a t(): las etiquetas siguen la cookie o Accept-Language, como
+// las páginas. tests/integration/api_lang_test.php lo prueba por HTTP.
+$filterLang = iarepo_get_str('lang');
+unset($_GET['lang']);
 
 $method = request_method();
 $db = getResourcesDB();
@@ -124,9 +145,9 @@ if ($method === 'GET') {
         $where[] = 'r.category_id = ?';
         $params[] = (int) iarepo_get_str('category');
     }
-    if (iarepo_get_str('lang') !== '') {
+    if ($filterLang !== '') {   // apartado arriba, antes de cualquier t()
         $where[] = 'r.lang = ?';
-        $params[] = sanitize(iarepo_get_str('lang'), 5);
+        $params[] = sanitize($filterLang, 5);
     }
     if (iarepo_get_str('level') !== '') {
         $where[] = 'r.level = ?';
@@ -227,6 +248,7 @@ if ($method === 'GET') {
                r.author_display_name, r.author_tenant_name, r.visibility,
                r.current_version, r.use_count, r.fork_count, r.fork_of,
                r.source_name, r.source_url,
+               IF(r.code_type = 'url', r.code_content, NULL) AS link_url,   -- fuente de los enlaces sin source_url (labels.php)
                r.created_at, r.updated_at,
                c.name AS category_name, c.slug AS category_slug, c.icon AS category_icon,
                (SELECT COUNT(*) FROM resource_likes rl WHERE rl.resource_id = r.id) AS like_count,
@@ -247,6 +269,7 @@ if ($method === 'GET') {
         // Etiquetas ya calculadas y traducidas (shared/labels.php): campos
         // NUEVOS, así que Campus no nota nada; la portada no duplica lógica.
         $res = iarepo_with_labels($res);
+        unset($res['link_url']); // solo servía para deducir la fuente: el contrato no cambia
     }
     unset($res);
 
@@ -438,18 +461,45 @@ if ($method === 'POST') {
     }
 
     // Create new resource
+    //
+    // Cada rechazo lleva su CÓDIGO: el editor (dashboard/editor.php) traduce
+    // por código, nunca por el texto, que es para Campus y los logs.
     $data = json_body();
-    $title = sanitize($data['title'] ?? '', 255);
+    $title = is_string($data['title'] ?? null) ? sanitize($data['title'], 255) : '';
     if (!$title)
-        json_error('Title is required');
+        json_error('Title is required', 400, 'MISSING_TITLE');
 
-    $codeContent = $data['code_content'] ?? '';
+    $codeContent = is_string($data['code_content'] ?? null) ? $data['code_content'] : '';
     $categoryId = !empty($data['category_id']) ? (int) $data['category_id'] : null;
     $validTypes = ['html', 'url', 'embed', 'python', 'prompt', 'other'];
+    $codeType = in_array($data['code_type'] ?? '', $validTypes, true) ? $data['code_type'] : 'html';
+
+    // ── Fuente original (source_name / source_url) ──
+    // Lo que acredita a PhET, NASA… en la ficha («Creado por …») y de lo que
+    // depende la lista negra de URLs de abajo. Solo http(s): un javascript:
+    // aquí acabaría en un href de la ficha.
+    $sourceName = iarepo_clean_source_name($data['source_name'] ?? null);
+    $sourceUrl  = iarepo_clean_source_url($data['source_url'] ?? null);
+    if ($sourceName === null)
+        json_error('source_name must be a string', 400, 'INVALID_SOURCE_NAME');
+    if ($sourceUrl === null)
+        json_error('source_url must be an http(s) URL', 400, 'INVALID_SOURCE_URL');
+
+    // Un recurso 'url' ES una dirección: se exige http(s) y, si no se dio
+    // otra fuente, esa dirección es la fuente. Así la lista negra funciona
+    // aunque el cliente no mande source_url.
+    if ($codeType === 'url') {
+        $link = iarepo_clean_source_url($codeContent);
+        if ($link === null || $link === '')
+            json_error('A url resource needs an http(s) address in code_content', 400, 'INVALID_URL');
+        $codeContent = $link;
+        if ($sourceUrl === '')
+            $sourceUrl = $link;
+    }
 
     // ── Moderation checks (only when OPEN_REGISTRATION is enabled) ──
     if (!checkRateLimit($db, $user['user_id']))
-        json_error('Rate limit: máximo 5 recursos por día', 429);
+        json_error('Daily limit reached: 5 new resources per day', 429, 'DAILY_LIMIT');
 
     $hash = $codeContent ? contentHash($codeContent) : null;
 
@@ -474,40 +524,12 @@ if ($method === 'POST') {
         $dup->execute([$hash]);
         $existing = $dup->fetch();
         if ($existing)
-            json_error("Contenido duplicado del recurso \"{$existing['title']}\" (ID: {$existing['id']})", 409);
+            json_error("Contenido duplicado del recurso \"{$existing['title']}\" (ID: {$existing['id']})", 409, 'DUPLICATE_CONTENT');
     }
 
     // ── Blacklist check: prevent re-uploading broken/retired URLs ──
-    $sourceUrl = $data['source_url'] ?? '';
-    if ($sourceUrl && ($data['code_type'] ?? '') === 'url') {
-        // Check exact URL
-        $blStmt = $db->prepare("SELECT url, original_title, reason FROM url_blacklist WHERE url = ? LIMIT 1");
-        $blStmt->execute([$sourceUrl]);
-        $blocked = $blStmt->fetch();
-        if ($blocked) {
-            json_error(
-                "URL retirada: \"{$blocked['original_title']}\" fue eliminada por {$blocked['reason']}. Usa otra fuente.",
-                409,
-                'BLACKLISTED_URL'
-            );
-        }
-
-        // Check if domain is heavily blacklisted (3+ URLs from same domain)
-        $parsed = parse_url($sourceUrl);
-        $domain = $parsed['host'] ?? '';
-        if ($domain) {
-            $domStmt = $db->prepare("SELECT COUNT(*) FROM url_blacklist WHERE domain = ?");
-            $domStmt->execute([$domain]);
-            $domCount = (int) $domStmt->fetchColumn();
-            if ($domCount >= 3) {
-                json_error(
-                    "Dominio bloqueado: {$domain} tiene {$domCount} URLs retiradas. Este sitio dejó de funcionar.",
-                    409,
-                    'BLACKLISTED_DOMAIN'
-                );
-            }
-        }
-    }
+    if ($sourceUrl !== '' && $codeType === 'url')
+        iarepo_reject_blacklisted_url($db, $sourceUrl);
 
     // Heavy similarity check is deferred to cron (setup/cron_moderation.php)
     $moderationStatus = isModerationEnabled() ? 'pending_review' : 'approved';
@@ -516,27 +538,29 @@ if ($method === 'POST') {
         INSERT INTO resources (title, description, code_content, code_type, subject_area, topic_tag,
             lang, level, category_id, source_prompt,
             author_tenant_id, author_user_id, author_display_name, author_tenant_name,
-            visibility, content_hash, moderation_status)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            visibility, content_hash, moderation_status, source_name, source_url)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ");
     $stmt->execute([
         $title,
-        sanitize($data['description'] ?? '', 2000),
+        sanitize(iarepo_body_str($data, 'description'), 2000),
         $codeContent,
-        in_array($data['code_type'] ?? '', $validTypes) ? $data['code_type'] : 'html',
-        sanitize($data['subject_area'] ?? '', 100),
-        sanitize($data['topic_tag'] ?? '', 100),
-        in_array($data['lang'] ?? '', ['es', 'en', 'pt']) ? $data['lang'] : 'es',
-        sanitize($data['level'] ?? 'general', 50),
+        $codeType,
+        sanitize(iarepo_body_str($data, 'subject_area'), 100),
+        sanitize(iarepo_body_str($data, 'topic_tag'), 100),
+        in_array($data['lang'] ?? '', ['es', 'en', 'pt'], true) ? $data['lang'] : 'es',
+        sanitize(iarepo_body_str($data, 'level') ?: 'general', 50),
         $categoryId,
-        $data['source_prompt'] ?? null,
+        is_string($data['source_prompt'] ?? null) ? $data['source_prompt'] : null,
         $user['tenant_id'],
         $user['user_id'],
         $user['name'],
         $user['tenant_name'],
-        in_array($data['visibility'] ?? '', ['draft', 'area', 'school', 'community']) ? $data['visibility'] : 'draft',
+        in_array($data['visibility'] ?? '', ['draft', 'area', 'school', 'community'], true) ? $data['visibility'] : 'draft',
         $hash,
         $moderationStatus,
+        $sourceName !== '' ? $sourceName : null,
+        $sourceUrl !== '' ? $sourceUrl : null,
     ]);
 
     $newId = (int) $db->lastInsertId();
@@ -545,6 +569,8 @@ if ($method === 'POST') {
     if (!empty($data['tags']) && is_array($data['tags'])) {
         $tagStmt = $db->prepare("INSERT IGNORE INTO resource_tags (resource_id, tag) VALUES (?, ?)");
         foreach (array_slice($data['tags'], 0, 20) as $tag) {
+            if (!is_string($tag))
+                continue;   // un [ ] o un número aquí era un TypeError → 500
             $tag = sanitize(trim($tag), 50);
             if ($tag) {
                 $tagStmt->execute([$newId, strtolower($tag)]);
@@ -584,10 +610,62 @@ if ($method === 'PUT') {
     $isAuthor = ($res['author_user_id'] == $user['user_id'] && $res['author_tenant_id'] == $user['tenant_id']);
     $isSuperadmin = (($user['role'] ?? '') === 'superadmin');
     if (!$isAuthor && !$isSuperadmin)
-        json_error('Solo el autor puede editar este recurso. Usa "Fork" para crear tu propia versión.', 403, 'NOT_AUTHOR');
+        json_error('Only the author can edit this resource (make your own version instead)', 403, 'NOT_AUTHOR');
 
     $data = json_body();
     $newVersion = (int) $res['current_version'] + 1;
+
+    // ── Entrada saneada ──
+    // Tipos, idioma y visibilidad son ENUM: un valor inventado llegaba tal
+    // cual al UPDATE, MariaDB lo rechazaba (ERROR 1265) y la persona veía un
+    // «no se pudo guardar» genérico. Ahora un valor no válido se ignora
+    // ('' = no cambiar, la regla de siempre de este PUT).
+    $validTypes = ['html', 'url', 'embed', 'python', 'prompt', 'other'];
+    $putType = in_array($data['code_type'] ?? '', $validTypes, true) ? $data['code_type'] : '';
+    $putLang = in_array($data['lang'] ?? '', ['es', 'en', 'pt'], true) ? $data['lang'] : '';
+    $putVis  = in_array($data['visibility'] ?? '', ['draft', 'area', 'school', 'community'], true) ? $data['visibility'] : '';
+    $putCode = is_string($data['code_content'] ?? null) ? $data['code_content'] : null;
+    $effectiveType = $putType !== '' ? $putType : (string) $res['code_type'];
+
+    // Un recurso 'url' ES una dirección: solo http(s) (misma regla que al crear).
+    if ($effectiveType === 'url' && $putCode !== null) {
+        $link = iarepo_clean_source_url($putCode);
+        if ($link === null || $link === '')
+            json_error('A url resource needs an http(s) address in code_content', 400, 'INVALID_URL');
+        $putCode = $link;
+    }
+    // …también cuando solo cambia el TIPO: un PUT {"code_type":"url"} sobre un
+    // recurso html dejaba su contenido («javascript:…», una URL retirada)
+    // como dirección sin pasar por ninguna de las dos reglas; Campus la
+    // recibe en ?id= y el cron de enlaces se la pasa a curl [revisión 2026-09].
+    $typeBecomesUrl = $effectiveType === 'url' && (string) $res['code_type'] !== 'url';
+    if ($typeBecomesUrl && $putCode === null) {
+        $link = iarepo_clean_source_url((string) $res['code_content']);
+        if ($link === null || $link === '')
+            json_error('A url resource needs an http(s) address in code_content', 400, 'INVALID_URL');
+        $putCode = $link;   // se guarda ya limpia (y pasa por la lista negra, abajo)
+    }
+
+    // Fuente original: solo se toca si la clave viene en el cuerpo (así un
+    // cliente que no la conoce —Campus— no la borra). Vacía = quitarla.
+    $putSourceName = array_key_exists('source_name', $data) ? iarepo_clean_source_name($data['source_name']) : false;
+    $putSourceUrl  = array_key_exists('source_url', $data) ? iarepo_clean_source_url($data['source_url']) : false;
+    if ($putSourceName === null)
+        json_error('source_name must be a string', 400, 'INVALID_SOURCE_NAME');
+    if ($putSourceUrl === null)
+        json_error('source_url must be an http(s) URL', 400, 'INVALID_SOURCE_URL');
+
+    // Lista negra: también al EDITAR. Si no, bastaba crear con una dirección
+    // válida y cambiarla después por una retirada. Una dirección que no cambia
+    // no se vuelve a mirar (un recurso ya publicado no se bloquea al editar
+    // su título)… salvo si el recurso PASA a ser un enlace: entonces su
+    // contenido es una dirección nueva a efectos de la lista.
+    if ($effectiveType === 'url') {
+        foreach ([$putCode, $putSourceUrl] as $u)
+            if (is_string($u) && $u !== '' && ($typeBecomesUrl
+                    || ($u !== (string) $res['code_content'] && $u !== (string) $res['source_url'])))
+                iarepo_reject_blacklisted_url($db, $u);
+    }
 
     $db->beginTransaction();
     try {
@@ -609,20 +687,28 @@ if ($method === 'PUT') {
             WHERE id = ?
         ");
         $stmt->execute([
-            sanitize($data['title'] ?? '', 255),
-            $data['description'] ?? null,
-            $data['code_content'] ?? null,
-            $data['code_type'] ?? '',
-            sanitize($data['subject_area'] ?? '', 100),
-            sanitize($data['topic_tag'] ?? '', 100),
-            $data['lang'] ?? '',
-            sanitize($data['level'] ?? '', 50),
+            sanitize(iarepo_body_str($data, 'title'), 255),
+            is_string($data['description'] ?? null) ? sanitize($data['description'], 2000) : null,
+            $putCode,
+            $putType,
+            sanitize(iarepo_body_str($data, 'subject_area'), 100),
+            sanitize(iarepo_body_str($data, 'topic_tag'), 100),
+            $putLang,
+            sanitize(iarepo_body_str($data, 'level'), 50),
             !empty($data['category_id']) ? (int) $data['category_id'] : null,
-            $data['source_prompt'] ?? null,
-            $data['visibility'] ?? '',
+            is_string($data['source_prompt'] ?? null) ? $data['source_prompt'] : null,
+            $putVis,
             $newVersion,
             $id,
         ]);
+
+        // Fuente original, solo si vino en el cuerpo ('' → NULL: se quita).
+        if (is_string($putSourceName))
+            $db->prepare("UPDATE resources SET source_name = ? WHERE id = ?")
+               ->execute([$putSourceName !== '' ? $putSourceName : null, $id]);
+        if (is_string($putSourceUrl))
+            $db->prepare("UPDATE resources SET source_url = ? WHERE id = ?")
+               ->execute([$putSourceUrl !== '' ? $putSourceUrl : null, $id]);
 
         // Save version snapshot
         $db->prepare("
@@ -631,11 +717,11 @@ if ($method === 'PUT') {
         ")->execute([
                     $id,
                     $newVersion,
-                    $data['code_content'] ?? $res['code_content'],
+                    $putCode ?? $res['code_content'],
                     $user['user_id'],
                     $user['name'],
                     $user['tenant_name'],
-                    sanitize($data['change_description'] ?? "Version $newVersion", 500),
+                    sanitize(iarepo_body_str($data, 'change_description') ?: "Version $newVersion", 500),
                 ]);
 
         // Update tags if provided (replace strategy)
@@ -643,7 +729,9 @@ if ($method === 'PUT') {
             $db->prepare("DELETE FROM resource_tags WHERE resource_id = ?")->execute([$id]);
             $tagStmt = $db->prepare("INSERT IGNORE INTO resource_tags (resource_id, tag) VALUES (?, ?)");
             foreach (array_slice($data['tags'], 0, 20) as $tag) {
-                $tag = strtolower(trim((string) $tag));
+                if (!is_string($tag) && !is_int($tag))
+                    continue;
+                $tag = mb_substr(strtolower(trim((string) $tag)), 0, 50);
                 if ($tag !== '') $tagStmt->execute([$id, $tag]);
             }
         }
@@ -704,4 +792,94 @@ function iarepo_get_str(string $key): string
 {
     $v = $_GET[$key] ?? '';
     return is_scalar($v) ? (string) $v : '';
+}
+
+/**
+ * Lo mismo para el cuerpo JSON de POST/PUT: '' si falta o no es texto. Un
+ * {"title": ["x"]} llegaba a sanitize(string) y era un TypeError → 500.
+ */
+function iarepo_body_str(array $data, string $key): string
+{
+    $v = $data[$key] ?? '';
+    return is_string($v) || is_int($v) || is_float($v) ? (string) $v : '';
+}
+
+// ══════════════════════════════════════════════════════════════
+// Fuente original de un recurso (source_name / source_url)
+//
+// Funciones PURAS a propósito (sin BD, sin json_error): así
+// tests/unit/account_pages_test.php las ejecuta de verdad, en un
+// subproceso, con las entradas hostiles.
+//
+// Devuelven '' si el valor falta o viene vacío y null si no es válido; el
+// llamador responde 400 con su código.
+// ══════════════════════════════════════════════════════════════
+
+/** Nombre de la fuente: texto de una línea, ≤ 150 (VARCHAR(150)). */
+function iarepo_clean_source_name(mixed $v): ?string
+{
+    if ($v === null)
+        return '';
+    if (!is_string($v))
+        return null;
+    $v = trim((string) preg_replace('/[\x00-\x1F\x7F]+/u', ' ', $v));
+    return mb_substr($v, 0, 150);
+}
+
+/**
+ * Dirección http(s) absoluta, ≤ 500 (VARCHAR(500)), sin espacios ni
+ * caracteres de control y con host. Nada de javascript:, data:, //host ni
+ * rutas relativas: este valor acaba en el href de «Ver fuente» de la ficha
+ * y, en un recurso 'url', en el src del visor.
+ * El host lo decide iarepo_http_host() (shared/labels.php): ni «\» ni
+ * «usuario@», que PHP y el navegador leían distinto y dejaban firmar como
+ * PhET un iframe de otra web y saltarse la lista negra [revisión 2026-09].
+ */
+function iarepo_clean_source_url(mixed $v): ?string
+{
+    if ($v === null)
+        return '';
+    if (!is_string($v))
+        return null;
+    $v = trim($v);
+    if ($v === '')
+        return '';
+    if (mb_strlen($v) > 500 || preg_match('/[\x00-\x20\x7F]/', $v))
+        return null;
+    return iarepo_http_host($v) !== null ? $v : null;
+}
+
+/**
+ * Lista negra de URLs retiradas (tabla url_blacklist, la llena el cron de
+ * enlaces rotos). Corta con 409 si la dirección —o su dominio, con 3+
+ * retiradas— está en ella. Se usa al crear Y al editar.
+ */
+function iarepo_reject_blacklisted_url(PDO $db, string $url): void
+{
+    // Check exact URL
+    $blStmt = $db->prepare("SELECT url, original_title, reason FROM url_blacklist WHERE url = ? LIMIT 1");
+    $blStmt->execute([$url]);
+    $blocked = $blStmt->fetch();
+    if ($blocked) {
+        json_error(
+            "URL retirada: \"{$blocked['original_title']}\" fue eliminada por {$blocked['reason']}. Usa otra fuente.",
+            409,
+            'BLACKLISTED_URL'
+        );
+    }
+
+    // Check if domain is heavily blacklisted (3+ URLs from same domain)
+    $domain = (string) (parse_url($url, PHP_URL_HOST) ?? '');
+    if ($domain !== '') {
+        $domStmt = $db->prepare("SELECT COUNT(*) FROM url_blacklist WHERE domain = ?");
+        $domStmt->execute([$domain]);
+        $domCount = (int) $domStmt->fetchColumn();
+        if ($domCount >= 3) {
+            json_error(
+                "Dominio bloqueado: {$domain} tiene {$domCount} URLs retiradas. Este sitio dejó de funcionar.",
+                409,
+                'BLACKLISTED_DOMAIN'
+            );
+        }
+    }
 }

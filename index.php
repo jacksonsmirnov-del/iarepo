@@ -1,9 +1,37 @@
 <?php
 // ================================================================
-// index.php — iarepo.com Landing Page + Health Check
+// index.php — Portada de iarepo.com (+ health check en JSON)
 //
-// Browser request (Accept: text/html) → renders landing page
-// API request (Accept: application/json) → returns JSON health check
+// Navegador (Accept: text/html)          → la portada.
+// API (Accept: application/json sin html) → JSON de salud. Lo consultan
+//   monitores externos: no cambies su forma ({status, service, version,
+//   database, time}).
+//
+// ── QUÉ HAY EN LA PORTADA (rediseño 2026-09) ──────────────────
+//   1. Hero para los tres públicos (docentes, estudiantes, autodidactas):
+//      posicionamiento, buscador con «Prueba:» y dos entradas, «Doy clase»
+//      (→ #listos) y «Estoy aprendiendo» (→ #para-empezar).
+//   2. Filtros ARRIBA, visibles en la primera pantalla del móvil: materia,
+//      curso y edad, idioma del recurso y —solo al buscar— orden.
+//   3. Dos secciones calculadas AQUÍ, deterministas y sin popularidad:
+//      #listos («Listos para clase») y #para-empezar. Sustituyen a «Más
+//      usados», que ordenaba por view_count, un contador CONGELADO desde
+//      2026-08-06 (CLAUDE.md §6.3): la portada destacaba para siempre lo que
+//      más se cargó antes de esa fecha.
+//   4. El catálogo (#catalogo), que pinta el JS desde /api/resources.php.
+//
+// ── LO QUE NO SE PUEDE ROMPER ─────────────────────────────────
+//   · Ninguna sección ordena por popularidad (ni view_count, congelado, ni
+//     use_count/unique_views, que aún no tienen datos). Lo fija
+//     tests/unit/landing_test.php.
+//   · ?lang= es el IDIOMA DE LA INTERFAZ; el filtro de idioma del catálogo
+//     en la URL de esta página es ?rlang= (a la API se le manda 'lang').
+//   · Deep-links ?search ?category ?rlang ?level ?sort y /?focus=search (lo
+//     usa el 404), atrás/adelante (pushState/popstate), «Cargar más», estado
+//     vacío con sugerencias y estado de error con «Reintentar».
+//   · Sin terceros: ni Google Fonts ni el script de Google Sign-In. «Entrar»
+//     lleva a /auth/signin.php; la portada la abren menores y no tiene por
+//     qué avisar a nadie de cada visita.
 // ================================================================
 
 // Primero de todo: los errores de esta página se registran y se ven (y nunca
@@ -13,52 +41,17 @@ require_once __DIR__ . '/shared/page_errors.php';
 require_once __DIR__ . '/shared/auth.php';
 require_once __DIR__ . '/shared/db.php';
 require_once __DIR__ . '/shared/i18n.php';
-lang(); // resolve + persist ES/EN before any output
+require_once __DIR__ . '/shared/ui.php';
+lang(); // resuelve y guarda ES/EN antes de cualquier salida
 
-// h() local — no cargamos helpers.php porque su error_handler registra
-// manejadores de excepción que outputan JSON, rompiendo páginas HTML.
-function h(string $s): string {
-    return htmlspecialchars($s, ENT_QUOTES | ENT_HTML5, 'UTF-8');
-}
-
-$sessionUser = getSessionUser();
-$isStudent   = ($sessionUser['role'] ?? '') === 'student';
-// Estudiantes: "Mis favoritos" en el nav; profesores: "Mis Recursos".
-$navHome      = $isStudent ? '/favorites/' : '/dashboard/';
-$navHomeLabel = $isStudent ? t('Mis favoritos') : t('Mis Recursos');
-$env = require __DIR__ . '/.env.php';
-$googleClientId = $env['GOOGLE_CLIENT_ID'] ?? '';
-
-// Featured: top 8 por popularidad — falla silenciosamente si hay error DB
-$featured = [];
-$levelLabels = ['primary'=>'Primaria','secondary'=>'Secundaria','ib'=>'IB','university'=>'Universidad','general'=>'General'];
-try {
-    $db = getResourcesDB();
-    $featuredStmt = $db->query("
-        SELECT r.id, r.title, r.code_type,
-               r.view_count, r.like_count,
-               c.name AS category_name, c.icon AS category_icon
-        FROM resources r
-        LEFT JOIN categories c ON c.id = r.category_id
-        WHERE r.is_active = 1
-          AND r.visibility = 'community'
-          AND r.moderation_status = 'approved'
-        ORDER BY (r.use_count * 3 + r.view_count + r.like_count * 2) DESC
-        LIMIT 8
-    ");
-    $featured = $featuredStmt->fetchAll(PDO::FETCH_ASSOC);
-} catch (Throwable $e) {
-    $featured = [];
-}
-
+// ── Health check en JSON ───────────────────────────────────────
+// Antes que nada caro: un monitor no necesita sesión ni consultas.
 $accept = $_SERVER['HTTP_ACCEPT'] ?? '';
 if (str_contains($accept, 'application/json') && !str_contains($accept, 'text/html')) {
     header('Content-Type: application/json; charset=utf-8');
     $status = ['status' => 'ok', 'service' => 'iarepo', 'version' => '1.0.0'];
     try {
-        require_once __DIR__ . '/shared/db.php';
-        $db = getResourcesDB();
-        $db->query('SELECT 1');
+        getResourcesDB()->query('SELECT 1');
         $status['database'] = 'connected';
     } catch (Throwable $e) {
         $status['database'] = 'error';
@@ -69,521 +62,486 @@ if (str_contains($accept, 'application/json') && !str_contains($accept, 'text/ht
     exit;
 }
 
-// ── Orden inicial del <select id="sort"> ──────────────────────
-// El defecto del servidor NO es fijo: api/resources.php ordena por RELEVANCIA
-// cuando hay texto de búsqueda y el cliente no manda ?sort= (ver su bloque
-// "── Sort ──"). Replicamos esa misma decisión aquí para que el desplegable ya
-// llegue pintado con el orden real: sin esto mostraría "Más recientes" mientras
-// la API devuelve relevancia, y el usuario leería una mentira.
-// La relevancia sin términos que puntuar no significa nada → se descarta.
-// La lista blanca y su regla ("un sort desconocido cuenta como ausente, no
-// como elección explícita") son las de api/resources.php, bloque "── Sort ──":
-// esa es la pieza que manda. Aquí sólo se replica para pintar el <select>.
-$sortOptions = ['relevance', 'recent', 'popular', 'views', 'title'];
+// h() local: las páginas HTML no cargan shared/helpers.php (CLAUDE.md §2.1).
+if (!function_exists('h')) {
+    function h(string $s): string
+    {
+        return htmlspecialchars($s, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+    }
+}
+
+$sessionUser = getSessionUser();
+$isStudent   = ($sessionUser['role'] ?? '') === 'student';
+
+// ── Secciones de la portada ────────────────────────────────────
+// Filtros comunes: lo que ve cualquiera (comunidad, activo, aprobado, enlace
+// no roto) y solo Primaria y Secundaria. `level` es texto libre en la BD
+// (shared/labels.php): se aceptan también las claves antiguas en español.
+const IAREPO_HOME_WHERE = "r.is_active = 1 AND r.visibility = 'community'"
+    . " AND r.moderation_status = 'approved'"
+    . " AND (r.link_status IS NULL OR r.link_status != 'broken')"
+    . " AND r.level IN ('primary', 'secondary', 'primaria', 'secundaria', 'eso')";
+// Orden: aleatorio con la FECHA como semilla. Es el mismo para todos durante
+// el día y cambia al siguiente: rota sin premiar a nadie y sin depender de
+// contadores (view_count está congelado; use_count y unique_views aún no
+// tienen datos, CLAUDE.md §8). No metas aquí ninguna métrica de popularidad.
+const IAREPO_HOME_ORDER = 'RAND(TO_DAYS(CURDATE()))';
+// «Para empezar»: títulos de introducción. Principio de palabra (como los
+// sinónimos de shared/search.php): 'intro' casa «Intro», «Introducción» e
+// «Introduction», pero no «Superintro». REGEXP ya es insensible a mayúsculas
+// con la collation de la tabla; los acentos se cubren a mano (b[aá]sic).
+const IAREPO_HOME_BASICS_RX = '(?<![\p{L}\p{N}])(intro|b[aá]sic|fundament)';
+
+/**
+ * Hasta 8 recursos para una sección de la portada, con sus etiquetas.
+ * $excludeIds: los que ya salen en otra sección (no repetir en la misma página).
+ */
+function iarepo_home_pick(PDO $db, string $extraWhere = '', array $params = [], array $excludeIds = []): array
+{
+    $excludeIds = array_values(array_filter(array_map('intval', $excludeIds)));
+    if ($excludeIds) {
+        $extraWhere .= ' AND r.id NOT IN (' . implode(',', array_fill(0, count($excludeIds), '?')) . ')';
+        $params = array_merge($params, $excludeIds);
+    }
+    $st = $db->prepare('
+        SELECT r.id, r.title, r.code_type, r.lang, r.level, r.topic_tag,
+               r.source_name, r.source_url,
+               IF(r.code_type = \'url\', r.code_content, NULL) AS link_url,
+               c.name AS category_name, c.slug AS category_slug, c.icon AS category_icon
+        FROM resources r
+        LEFT JOIN categories c ON c.id = r.category_id
+        WHERE ' . IAREPO_HOME_WHERE . $extraWhere . '
+        ORDER BY ' . IAREPO_HOME_ORDER . '
+        LIMIT 8
+    ');
+    $st->execute($params);
+    return array_map('iarepo_with_labels', $st->fetchAll(PDO::FETCH_ASSOC));
+}
+
+/**
+ * Una sección que no se puede calcular no rompe la portada: se omite. Pero
+ * no en silencio (la regla del proyecto es que todo error se sepa): queda en
+ * el log de PHP y en client_error_log, y api/health.php lo cuenta.
+ */
+function iarepo_home_degrade(string $what, Throwable $e): void
+{
+    $msg = "portada: sin «{$what}» — " . get_class($e) . ': ' . $e->getMessage();
+    if (function_exists('iarepo_page_error_record'))
+        iarepo_page_error_record('Warning', $msg, $e->getFile(), $e->getLine());
+    else
+        error_log($msg);
+}
+
+$catalogTotal = 0;
+$basics = [];
+$ready  = [];
+try {
+    $db = getResourcesDB();
+    try {
+        // El mismo universo que el listado anónimo de api/resources.php.
+        $catalogTotal = (int) $db->query("SELECT COUNT(*) FROM resources r
+            WHERE r.is_active = 1 AND r.visibility = 'community'
+              AND (r.link_status IS NULL OR r.link_status != 'broken')")->fetchColumn();
+    } catch (Throwable $e) {
+        iarepo_home_degrade('total del catálogo', $e);
+    }
+    try {
+        $basics = iarepo_home_pick($db, ' AND r.title REGEXP ?', [IAREPO_HOME_BASICS_RX]);
+    } catch (Throwable $e) {
+        iarepo_home_degrade('Para empezar', $e);
+    }
+    try {
+        $ready = iarepo_home_pick($db, '', [], array_column($basics, 'id'));
+    } catch (Throwable $e) {
+        iarepo_home_degrade('Listos para clase', $e);
+    }
+} catch (Throwable $e) {
+    iarepo_home_degrade('conexión a la BD', $e);
+}
+
+// ── Estado inicial de filtros y orden (deep-links) ─────────────
+// Se pintan ya marcados para que la primera imagen coincida con lo que el JS
+// va a pedir; el JS los vuelve a leer de la URL al arrancar.
+$levelLabels = iarepo_level_options() + ['general' => iarepo_level_label('general')];
+$rlangLabels = ['es' => t('Español'), 'en' => t('Inglés')];
 $querySearch = trim((string) ($_GET['search'] ?? ''));
+$qLevel      = (string) ($_GET['level'] ?? '');
+$qLevel      = isset($levelLabels[$qLevel]) ? $qLevel : '';
+$qRlang      = (string) ($_GET['rlang'] ?? '');
+$qRlang      = isset($rlangLabels[$qRlang]) ? $qRlang : '';
+$qCategory   = (int) ($_GET['category'] ?? 0);
+$browsing    = $querySearch !== '' || $qLevel !== '' || $qRlang !== '' || $qCategory > 0;
+
+// Orden. La portada solo OFRECE «Más relevantes» (con búsqueda) y «Más
+// recientes»: ordenar por uso o por visitas sería ordenar por ceros o por un
+// contador congelado. La regla la manda api/resources.php (bloque "── Sort ──"):
+// un sort desconocido cuenta como AUSENTE. Aquí 'popular', 'views' y 'title'
+// —válidos en la API, que sigue aceptándolos para enlaces viejos— cuentan
+// también como ausentes: la portada pinta y pide su orden por defecto.
+$sortOptions = ['relevance', 'recent'];
 $sortParam   = (string) ($_GET['sort'] ?? '');
-if (!in_array($sortParam, $sortOptions, true)) $sortParam = '';       // desconocido ≡ ausente (igual que la API)
+if (!in_array($sortParam, $sortOptions, true)) $sortParam = '';
 if ($sortParam === 'relevance' && $querySearch === '') $sortParam = '';
 $sortSelected = $sortParam !== '' ? $sortParam : ($querySearch !== '' ? 'relevance' : 'recent');
 /** Marca la <option> del orden vigente (el JS vuelve a normalizarlo al arrancar). */
 $sortSel = static fn(string $v): string => $v === $sortSelected ? ' selected' : '';
+$pressed = static fn(bool $on): string => $on ? 'true' : 'false';
+
+// ── SEO: una URL por idioma (la versión inglesa es ?lang=en) ───
+$siteUrl   = 'https://iarepo.com/';
+$canonical = lang() === 'en' ? $siteUrl . '?lang=en' : $siteUrl;
+$pageTitle = t('iarepo — Ciencias y matemáticas que se entienden tocándolas');
+$pageDesc  = t('Simulaciones gratuitas de PhET, NASA, GeoGebra y otras fuentes, clasificadas por curso y con su autor original citado. Proyéctalas en clase, pásaselas a tus alumnos con un enlace o úsalas por tu cuenta: sin instalar y sin registrarte.');
+$jsonLd = [
+    '@context'    => 'https://schema.org',
+    '@type'       => 'WebSite',
+    'name'        => 'iarepo',
+    'url'         => $siteUrl,
+    'inLanguage'  => lang(),
+    'description' => $pageDesc,
+    'audience'    => [
+        ['@type' => 'EducationalAudience', 'educationalRole' => 'teacher'],
+        ['@type' => 'EducationalAudience', 'educationalRole' => 'student'],
+    ],
+    'potentialAction' => [
+        '@type'       => 'SearchAction',
+        'target'      => $siteUrl . '?search={search_term_string}',
+        'query-input' => 'required name=search_term_string',
+    ],
+];
+
+/** Filas compactas de una sección: portada pequeña, título, fuente · curso y «Abrir». */
+function iarepo_home_rows(array $rows): void
+{
+    foreach ($rows as $r) {
+        // «Fuente · Curso · Idioma», sin las edades: la fila es estrecha (las
+        // edades están en la tarjeta del catálogo y en la ficha). El idioma
+        // SÍ: la mitad de lo que se ofrece a quien empieza está en inglés, y
+        // la fila no enseña el sello «En inglés» de la portada (.ia-row lo
+        // oculta) [revisión 2026-09]. El español, en verde, como en la tarjeta.
+        $bits = array_filter([$r['source_label'] ?? $r['category_label'], iarepo_level_label($r['level'] ?? null, false)]);
+        $meta = h(implode(' · ', $bits));
+        if ((string) ($r['lang_label'] ?? '') !== '')
+            $meta .= ($bits ? ' · ' : '') . '<span class="home-row-lang' . (($r['lang'] ?? '') === 'es' ? ' ia-lang-es' : '') . '">' . h((string) $r['lang_label']) . '</span>';
+        ?>
+        <li><a class="ia-row" href="/resource/<?= (int) $r['id'] ?>">
+          <?= iarepo_cover($r) ?>
+          <div class="ia-row-body">
+            <div class="ia-row-title"><?= h((string) $r['title']) ?></div>
+            <div class="ia-row-meta"><?= $meta ?></div>
+          </div>
+          <span class="ia-btn ia-btn-secondary ia-btn-sm home-open" aria-hidden="true"><?= h(t('Abrir')) ?></span>
+        </a></li>
+<?php
+    }
+}
 ?>
 <!DOCTYPE html>
 <html lang="<?= lang() ?>">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title><?= h(t('iarepo — Repositorio abierto de recursos educativos interactivos')) ?></title>
-<meta name="description" content="<?= h(t('Descubre, comparte y ejecuta simulaciones, herramientas y recursos educativos interactivos. El GitHub para profesores.')) ?>">
-<meta property="og:title" content="<?= h(t('iarepo — Recursos educativos interactivos')) ?>">
-<meta property="og:description" content="<?= h(t('Repositorio abierto de simulaciones, herramientas y recursos interactivos para la enseñanza.')) ?>">
+<title><?= h($pageTitle) ?></title>
+<meta name="description" content="<?= h($pageDesc) ?>">
+<link rel="canonical" href="<?= h($canonical) ?>">
+<link rel="alternate" hreflang="es" href="<?= h($siteUrl) ?>">
+<link rel="alternate" hreflang="en" href="<?= h($siteUrl . '?lang=en') ?>">
+<link rel="alternate" hreflang="x-default" href="<?= h($siteUrl) ?>">
+<meta property="og:title" content="<?= h($pageTitle) ?>">
+<meta property="og:description" content="<?= h($pageDesc) ?>">
 <meta property="og:type" content="website">
-<meta property="og:url" content="https://iarepo.com">
+<meta property="og:url" content="<?= h($canonical) ?>">
 <meta property="og:site_name" content="iarepo">
+<meta property="og:locale" content="<?= lang() === 'en' ? 'en_GB' : 'es_ES' ?>">
 <meta property="og:image" content="https://iarepo.com/assets/img/og-default.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="<?= h(t('iarepo — Recursos educativos interactivos')) ?>">
-<meta name="twitter:description" content="<?= h(t('Repositorio abierto de simulaciones, herramientas y recursos interactivos para la enseñanza.')) ?>">
+<meta name="twitter:title" content="<?= h($pageTitle) ?>">
+<meta name="twitter:description" content="<?= h($pageDesc) ?>">
 <meta name="twitter:image" content="https://iarepo.com/assets/img/og-default.png">
-<link rel="canonical" href="https://iarepo.com">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="icon" href="/favicon.ico" sizes="any">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
-<link rel="manifest" href="/manifest.webmanifest">
-<meta name="theme-color" content="#7c3aed">
-<script src="/assets/js/pwa.js" defer></script>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<script src="/assets/js/lucide.min.js"></script>
-<script src="https://accounts.google.com/gsi/client" async defer></script>
-
-<!-- AI Crawlers: JSON-LD Structured Data -->
-<script type="application/ld+json">
-{
-  "@context": "https://schema.org",
-  "@type": "WebApplication",
-  "name": "iarepo",
-  "url": "https://iarepo.com",
-  "description": "Repositorio abierto de recursos educativos interactivos. Simulaciones de física, química, biología y matemáticas para profesores.",
-  "applicationCategory": "EducationalApplication",
-  "operatingSystem": "Web",
-  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
-  "author": { "@type": "Organization", "name": "iarepo", "url": "https://iarepo.com" },
-  "audience": { "@type": "EducationalAudience", "educationalRole": "teacher" }
-}
-</script>
-
+<link rel="manifest" href="<?= h(iarepo_asset('/manifest.webmanifest')) ?>">
+<meta name="theme-color" content="#F6F7F9">
+<?= iarepo_head_assets() ?>
+<?= iarepo_pwa_script() ?>
+<script type="application/ld+json"><?= json_encode($jsonLd, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_HEX_TAG) ?></script>
 <style>
-*{margin:0;padding:0;box-sizing:border-box}
+/* ── Portada: SOLO lo propio de esta página; lo común vive en app.css ── */
 
-/* ── Light Mode (default) ── */
-:root{
-  --bg:#f8fafc;--bg2:#ffffff;--bg3:#f1f5f9;
-  --text:#1e293b;--text2:#475569;--text3:#94a3b8;
-  --accent:#7c3aed;--accent2:#0891b2;
-  --grad:linear-gradient(135deg,#7c3aed 0%,#06b6d4 100%);
-  --card:#ffffff;--border:#e2e8f0;
-  --radius:12px;
-  --shadow:0 1px 3px rgba(0,0,0,.06),0 1px 2px rgba(0,0,0,.04);
-  --shadow-hover:0 8px 32px rgba(124,58,237,.12);
-  --hero-glow:rgba(124,58,237,.08);
-  --badge-bg:rgba(124,58,237,.08);--badge-border:rgba(124,58,237,.2);--badge-text:#7c3aed;
-  --source-bg:rgba(8,145,178,.06);--source-border:rgba(8,145,178,.15);
+/* El encabezado fijo taparía el título al saltar a #listos / #catalogo. */
+.home-anchor { scroll-margin-top: 76px; }
+
+/* Hero: texto y buscador a la izquierda; las dos entradas a la derecha. */
+.home-hero { padding: 18px 0 16px; }
+.home-hero-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
+.home-hero h1 { margin: 0 0 10px; text-wrap: balance; }
+.home-lead { color: var(--ia-ink-2); font-size: 1.05rem; max-width: 62ch; margin: 0 0 16px; text-wrap: pretty; }
+.home-search { max-width: 640px; }
+.home-search input::-webkit-search-cancel-button { -webkit-appearance: none; appearance: none; }  /* ya hay botón de limpiar */
+.home-try { display: flex; align-items: center; gap: 6px; margin-top: 10px; overflow-x: auto; scrollbar-width: none; font-size: .875rem; color: var(--ia-ink-3); padding: 2px; }
+.home-try::-webkit-scrollbar { display: none; }
+.home-try .ia-chip { min-height: 34px; padding: 4px 12px; font-size: .875rem; border-width: 1px; }
+.home-who { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.home-who > :only-child { grid-column: 1 / -1; }
+.home-who a { display: grid; grid-template-columns: 36px minmax(0, 1fr); gap: 2px 10px; align-content: start; padding: 12px;
+  border: 1px solid var(--ia-line); border-radius: var(--ia-radius); background: var(--ia-surface); color: var(--ia-ink); text-decoration: none; }
+.home-who a:hover { border-color: var(--ia-accent); color: var(--ia-ink); }
+.home-who-icon { grid-row: span 2; width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center; background: var(--ia-accent-soft); color: var(--ia-accent); }
+.home-who-icon svg { width: 20px; height: 20px; }
+.home-who strong { font-size: 1rem; line-height: 1.25; overflow-wrap: anywhere; hyphens: auto; }   /* «aprendiendo» no cabía a 320 px y ensanchaba la página */
+.home-who-text { font-size: .875rem; line-height: 1.35; color: var(--ia-ink-3); }
+.home-total { margin: 10px 0 0; }
+@media (max-width: 559px) {
+  .home-hero h1 { font-size: 1.8rem; }
+  .home-lead { font-size: .98rem; margin-bottom: 12px; }
+  .home-lead-more { display: none; }          /* lo cuentan ya las dos entradas */
+  /* En el móvil, las dos entradas se quedan en una línea (icono + título):
+     así los filtros entran en la primera pantalla. */
+  .home-who a { grid-template-columns: 28px minmax(0, 1fr); align-items: center; align-content: center; padding: 8px 10px; }
+  .home-who-icon { grid-row: auto; width: 28px; height: 28px; border-radius: 8px; }
+  .home-who-icon svg { width: 17px; height: 17px; }
+  .home-who strong { font-size: .95rem; }
+  .home-who-text { display: none; }
+}
+@media (min-width: 960px) {
+  .home-hero { padding: 40px 0 28px; }
+  .home-hero-grid { grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); align-items: end; gap: 48px; }
+  .home-who { grid-template-columns: 1fr; }
 }
 
-/* ── Dark Mode ── */
-[data-theme="dark"]{
-  --bg:#0a0e1a;--bg2:#111827;--bg3:#1e293b;
-  --text:#e2e8f0;--text2:#94a3b8;--text3:#64748b;
-  --accent:#7c3aed;--accent2:#06b6d4;
-  --card:#151c2e;--border:#1e293b;
-  --shadow:0 1px 3px rgba(0,0,0,.3);
-  --shadow-hover:0 8px 32px rgba(124,58,237,.2);
-  --hero-glow:rgba(124,58,237,.15);
-  --badge-bg:rgba(124,58,237,.15);--badge-border:rgba(124,58,237,.3);--badge-text:#a78bfa;
-  --source-bg:rgba(6,182,212,.08);--source-border:rgba(6,182,212,.2);
+/* Filtros: una fila por criterio; en móvil cada fila se desliza en horizontal. */
+.home-filters { border-block: 1px solid var(--ia-line); background: var(--ia-surface); padding: 10px 0; }
+/* minmax(0, 1fr): sin él, la columna de la rejilla crece hasta el ancho de
+   todos los chips en fila y la página entera se desborda en el móvil. */
+.home-filters .ia-filters { grid-template-columns: minmax(0, 1fr); }
+.home-filters .ia-filter-row { flex-wrap: nowrap; min-width: 0; }
+.home-filters .ia-filter-label { flex: none; width: 6.4em; min-width: 0; line-height: 1.2; }
+.home-chips { flex: 1; min-width: 0; min-height: 44px; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; padding: 2px; align-items: center; }
+.home-chips::-webkit-scrollbar { display: none; }
+@media (max-width: 899px) {
+  /* La fila se desliza hasta el borde de la pantalla: el chip cortado avisa de que hay más. */
+  .home-chips { margin-right: calc(-1 * var(--ia-gutter)); padding-right: var(--ia-gutter); }
+}
+@media (min-width: 900px) { .home-chips { flex-wrap: wrap; overflow: visible; } }
+
+/* Secciones «Listos para clase» y «Para empezar»: filas compactas. */
+.home-picks { padding: 24px 0 4px; }
+.home-picks .ia-section-head p { margin: 2px 0 0; }
+.home-rows { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.home-rows .ia-row { height: 100%; color: var(--ia-ink); text-decoration: none; transition: border-color .15s; }
+.home-rows .ia-row:hover { color: var(--ia-ink); border-color: var(--ia-line-strong); }
+.home-rows .ia-row .ia-cover { width: 56px; }
+.home-rows .ia-row-title { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.home-open { flex: none; pointer-events: none; }
+@media (max-width: 719px) {
+  /* Tres filas que se deslizan en horizontal: 8 recursos en ~250 px de alto. */
+  .home-rows { grid-auto-flow: column; grid-template-rows: repeat(3, auto); grid-auto-columns: 86%;
+    overflow-x: auto; scroll-snap-type: x mandatory; scrollbar-width: none;
+    margin: 0 calc(-1 * var(--ia-gutter)); padding: 2px var(--ia-gutter) 6px; scroll-padding: 0 var(--ia-gutter); }
+  .home-rows::-webkit-scrollbar { display: none; }
+  .home-rows > li { scroll-snap-align: start; min-width: 0; }
+}
+@media (min-width: 720px) { .home-rows { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+/* Catálogo */
+.home-catalog-head { align-items: baseline; }
+.home-count { font-size: .9rem; color: var(--ia-ink-3); }
+.home-active { margin: 0 0 14px; }
+.home-active:empty { display: none; }
+.home-active .ia-chip { min-height: 36px; font-size: .85rem; }
+#grid > .home-state { grid-column: 1 / -1; }
+.home-state h3 { margin-bottom: 8px; }
+.home-state p { max-width: 460px; margin: 0 auto 14px; }
+.home-state .ia-chips { justify-content: center; margin-bottom: 16px; }
+.home-spinner { width: 32px; height: 32px; margin: 0 auto 12px; border: 3px solid var(--ia-line); border-top-color: var(--ia-accent);
+  border-radius: 50%; animation: home-spin .8s linear infinite; }
+@keyframes home-spin { to { transform: rotate(360deg); } }
+.home-more { text-align: center; padding-top: 20px; }
+.home-more .ia-count { color: var(--ia-ink-3); font-weight: 500; }
+#grid .ia-card-meta { display: block; }       /* texto corrido: al partir línea no queda un «·» colgando */
+.home-meta-item { white-space: nowrap; }
+#categories.home-counts-off .ia-count { display: none; }   /* ver renderActiveFilters() */
+.ia-row-meta .ia-lang-es { color: var(--ia-ok); font-weight: 600; }   /* «En español» en las filas, como en la tarjeta */
+@media (max-width: 379px) { .home-meta-item { white-space: normal; } }   /* 360 px en inglés: una etiqueta larga ensanchaba la página */
+#grid .ia-card-body { min-width: 0; }            /* en la tarjeta-fila del móvil (flex en fila) el texto no empuja la tarjeta más allá de la pantalla */
+/* La fuente: en escritorio la enseña el sello de la portada (aria-hidden), así
+   que aquí queda solo para lectores de pantalla; en la tarjeta-fila del móvil
+   la portada no la lleva y se ve al final de la línea. */
+.home-rows-only { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
+/* Estrella de Guardados sobre la portada de la tarjeta */
+.fav-btn { background: var(--ia-surface); border-color: var(--ia-line); color: var(--ia-ink-3); box-shadow: var(--ia-shadow); }
+.fav-btn:hover { color: var(--ia-warn-ink); background: var(--ia-surface); }
+.fav-btn.is-fav { color: var(--ia-warn-ink); }
+.fav-btn.is-fav svg { fill: currentColor; }
+@media (max-width: 559px) {
+  #grid .ia-card-title { padding-right: 40px; }   /* en fila, la estrella queda sobre el texto */
+  #grid .fav-btn { width: 38px; min-height: 38px; top: 8px; right: 8px; }
+  .home-rows-only { position: static; width: auto; height: auto; margin: 0; overflow: visible; clip: auto; white-space: normal; }
+  .home-rows-hide { display: none; }
 }
 
-body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden;transition:background .3s,color .3s}
-a{color:var(--accent2);text-decoration:none;transition:.2s}
-a:hover{opacity:.8}
-
-/* Top nav bar */
-.topnav{position:fixed;top:0;right:0;left:0;z-index:1001;display:flex;align-items:center;justify-content:flex-end;gap:8px;padding:12px 20px;pointer-events:none}
-.topnav>*{pointer-events:auto}
-.topnav-logo{margin-right:auto;display:flex;align-items:center;text-decoration:none}
-.topnav-logo img{height:24px;width:auto;display:block}
-
-/* Theme toggle */
-.theme-toggle{width:36px;height:36px;border-radius:50%;border:1px solid var(--border);background:var(--bg2);color:var(--text2);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:.2s;box-shadow:var(--shadow);flex-shrink:0}
-.theme-toggle:hover{border-color:var(--accent);color:var(--accent)}
-
-/* Fullscreen present button */
-.present-btn{display:flex;align-items:center;gap:6px;padding:8px 14px;border-radius:20px;border:1px solid var(--border);background:var(--bg2);color:var(--text2);cursor:pointer;font-family:inherit;font-size:.8rem;transition:.2s;box-shadow:var(--shadow)}
-.present-btn:hover{border-color:var(--accent);color:var(--accent)}
-
-/* Presentation mode */
-.present-overlay{display:none;position:fixed;inset:0;z-index:9999;background:var(--bg)}
-.present-overlay.active{display:flex;flex-direction:column}
-.present-overlay .present-content{flex:1;overflow-y:auto;padding:24px}
-.present-esc{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);padding:8px 20px;border-radius:20px;background:rgba(0,0,0,.7);color:#fff;font-size:.8rem;z-index:10000;opacity:0;transition:opacity .3s;pointer-events:none}
-.present-overlay:hover .present-esc{opacity:1}
-
-/* Hero */
-.hero{text-align:center;padding:80px 24px 40px;position:relative;overflow:hidden}
-.hero::before{content:'';position:absolute;top:-260px;left:50%;transform:translateX(-50%);width:1000px;height:900px;background:radial-gradient(circle at 40% 35%,var(--hero-glow) 0%,transparent 58%),radial-gradient(circle at 66% 18%,rgba(6,182,212,.07) 0%,transparent 52%);pointer-events:none;z-index:0}
-.hero>*{position:relative;z-index:1}
-.hero-badge{display:inline-flex;align-items:center;gap:6px;padding:6px 16px;border-radius:20px;background:var(--badge-bg);border:1px solid var(--badge-border);color:var(--badge-text);font-size:13px;font-weight:500;margin-bottom:20px}
-.hero-logo{display:inline-block;margin-bottom:18px}
-.hero-logo img{height:32px;width:auto;display:block}
-.hero-title{font-size:clamp(2.1rem,5.2vw,3.7rem);font-weight:800;color:var(--text);margin:0 auto 16px;line-height:1.12;letter-spacing:-.02em;max-width:820px}
-.grad-text{background:var(--grad);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
-.hero-sub{font-size:clamp(1rem,2vw,1.18rem);color:var(--text2);max-width:600px;margin:0 auto 30px;line-height:1.6}
-.hero-stats{display:flex;gap:32px;justify-content:center;flex-wrap:wrap;margin-bottom:24px}
-.hero-stat{text-align:center}
-.hero-stat strong{font-size:1.5rem;background:var(--grad);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
-.hero-stat span{display:block;font-size:.8rem;color:var(--text3)}
-
-/* Sólo para lectores de pantalla (label del buscador, h1 en modo búsqueda) */
-.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
-
-/* Search */
-.search-wrap{max-width:600px;margin:0 auto 40px;position:relative}
-.search-wrap input{width:100%;padding:14px 46px 14px 48px;border-radius:50px;border:1px solid var(--border);background:var(--bg2);color:var(--text);font-size:1rem;font-family:inherit;outline:none;transition:.3s;box-shadow:var(--shadow)}
-.search-wrap input:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(124,58,237,.15)}
-/* La ✕ nativa de WebKit duplicaría nuestro botón de limpiar */
-.search-wrap input::-webkit-search-cancel-button{-webkit-appearance:none;appearance:none}
-.search-wrap .search-icon{position:absolute;left:16px;top:50%;transform:translateY(-50%);color:var(--text3)}
-.search-clear{position:absolute;right:7px;top:50%;transform:translateY(-50%);width:36px;height:36px;display:flex;align-items:center;justify-content:center;border:none;background:none;color:var(--text3);cursor:pointer;border-radius:50%;transition:.15s}
-.search-clear:hover{color:var(--accent);background:var(--bg3)}
-.search-clear i,.search-clear svg{width:17px;height:17px}
-/* display:flex ganaría al atributo [hidden]: hay que anularlo explícitamente */
-.search-clear[hidden]{display:none}
-
-/* Categories */
-.cats{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;padding:0 24px;margin-bottom:40px}
-.cat-pill{display:inline-flex;align-items:center;gap:6px;padding:8px 16px;min-height:38px;border-radius:20px;border:1px solid var(--border);background:var(--bg2);color:var(--text2);font-size:.85rem;cursor:pointer;transition:.2s;font-family:inherit;box-shadow:var(--shadow)}
-.cat-pill:hover,.cat-pill.active{border-color:var(--accent);color:var(--accent);background:var(--badge-bg)}
-.cat-pill .count{font-size:.75rem;color:var(--text3);margin-left:2px}
-
-/* Grid */
-.container{max-width:1200px;margin:0 auto;padding:0 24px 80px}
-.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:18px}
-/* La tarjeta es un <a> real (foco de teclado, abrir en pestaña nueva, SEO);
-   el botón ⭐ vive FUERA del enlace porque <button> dentro de <a> es inválido. */
-.card-wrap{position:relative;display:flex}
-.card{background:var(--card);border:1px solid var(--border);border-radius:14px;overflow:hidden;transition:transform .2s,box-shadow .2s,border-color .2s;cursor:pointer;position:relative;box-shadow:var(--shadow);display:flex;flex-direction:column;width:100%;color:inherit;text-decoration:none}
-.card:hover{border-color:var(--accent);transform:translateY(-3px);box-shadow:var(--shadow-hover);opacity:1}
-.card:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-.card-thumb{position:relative;aspect-ratio:1200/630;background:linear-gradient(135deg,rgba(124,58,237,.10),rgba(6,182,212,.10));overflow:hidden;display:flex;align-items:center;justify-content:center}
-.card-thumb img{width:100%;height:100%;object-fit:cover;display:block;transition:transform .35s}
-.card:hover .card-thumb img{transform:scale(1.045)}
-.thumb-fallback{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--accent)}
-.thumb-fallback i,.thumb-fallback svg{width:36px;height:36px;opacity:.45}
-.thumb-ia{position:absolute;top:9px;left:9px;z-index:2;display:inline-flex;align-items:center;gap:3px;padding:3px 8px;border-radius:7px;font-size:.65rem;font-weight:800;background:rgba(255,255,255,.94);color:var(--accent);box-shadow:0 1px 5px rgba(0,0,0,.14)}
-[data-theme="dark"] .thumb-ia{background:rgba(21,28,46,.92);color:#a78bfa}
-.card-fav{position:absolute;top:7px;right:7px;z-index:2;background:rgba(255,255,255,.94);box-shadow:0 1px 5px rgba(0,0,0,.14)}
-[data-theme="dark"] .card-fav{background:rgba(21,28,46,.92)}
-.card-content{padding:13px 15px 13px;display:flex;flex-direction:column;gap:7px;flex:1}
-.card-title{font-size:.95rem;font-weight:700;line-height:1.32;color:var(--text);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
-.card-desc{font-size:.82rem;color:var(--text2);line-height:1.5;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
-.card-footer{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:auto;padding-top:4px;font-size:.76rem;color:var(--text3)}
-.card-tags{display:flex;gap:5px;flex-wrap:wrap;align-items:center}
-.tag{padding:2px 7px;border-radius:5px;background:var(--source-bg);color:var(--accent2);font-size:.7rem;font-weight:500}
-.card-meta{display:flex;align-items:center;gap:10px;flex-shrink:0}
-.card-meta span{display:flex;align-items:center;gap:4px}
-.source-badge{display:none}
-/* ⭐ Guardar (favorito rápido) */
-.fav-btn{display:inline-flex;align-items:center;justify-content:center;background:none;border:none;cursor:pointer;color:var(--text3);padding:3px;margin:-3px;border-radius:6px;transition:.15s}
-.fav-btn:hover{color:#f59e0b;background:var(--bg3)}
-.fav-btn i{width:15px;height:15px}
-.fav-btn.is-fav{color:#f59e0b}
-.fav-btn.is-fav i{fill:#f59e0b}
-.fav-toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--text);color:var(--bg);padding:10px 18px;border-radius:10px;font-size:.85rem;font-weight:600;opacity:0;pointer-events:none;transition:.25s;z-index:2000;box-shadow:0 8px 24px rgba(0,0,0,.2)}
-.fav-toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
-.badge-level{padding:2px 8px;border-radius:4px;font-size:.7rem;font-weight:500}
-.badge-level.primary{background:rgba(34,197,94,.1);color:#16a34a}
-.badge-level.secondary{background:rgba(59,130,246,.1);color:#2563eb}
-.badge-level.ib{background:rgba(251,191,36,.1);color:#d97706}
-.badge-level.university{background:rgba(168,85,247,.1);color:#7c3aed}
-[data-theme="dark"] .badge-level.primary{color:#4ade80}
-[data-theme="dark"] .badge-level.secondary{color:#60a5fa}
-[data-theme="dark"] .badge-level.ib{color:#fbbf24}
-[data-theme="dark"] .badge-level.university{color:#c084fc}
-
-/* Loading/Empty */
-.loading,.empty{text-align:center;padding:80px 24px;color:var(--text3)}
-/* Sin esto, el mensaje es una celda más del grid y se comprime a ~270px */
-.grid>.loading,.grid>.empty{grid-column:1/-1}
-.loading .spinner{width:32px;height:32px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite;margin:0 auto 12px}
-@keyframes spin{to{transform:rotate(360deg)}}
-/* El vacío y el error dejan de ser callejones sin salida: dicen qué pasó y ofrecen salida */
-.state-icon{font-size:2rem;line-height:1;margin-bottom:12px}
-.state-title{font-size:1.05rem;font-weight:700;color:var(--text);margin-bottom:8px}
-.state-hint{max-width:460px;margin:0 auto 18px;line-height:1.55;font-size:.9rem}
-.state-label{font-size:.82rem;margin-bottom:8px}
-.state-chips{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-bottom:18px}
-.btn-more{display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:10px 20px;min-height:40px;border-radius:22px;border:1px solid var(--border);background:var(--bg2);color:var(--text2);font-family:inherit;font-size:.88rem;cursor:pointer;transition:.2s;box-shadow:var(--shadow)}
-.btn-more:hover{border-color:var(--accent);color:var(--accent)}
-.btn-more[disabled]{opacity:.6;cursor:default}
-.btn-more .count{font-size:.78rem;color:var(--text3)}
-.more-wrap{text-align:center;padding:24px 0 0}
-/* Filtros activos: qué está recortando los resultados, y cómo quitarlo */
-.active-filters{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 14px}
-.active-filters:empty{display:none}
-.chip{display:inline-flex;align-items:center;gap:6px;padding:6px 12px;min-height:34px;border-radius:17px;border:1px solid var(--badge-border);background:var(--badge-bg);color:var(--badge-text);font-family:inherit;font-size:.8rem;cursor:pointer;transition:.15s}
-.chip:hover{border-color:var(--accent);background:var(--card)}
-.chip-clear{background:none;border-color:var(--border);color:var(--text2)}
-
-/* Auth bar */
-.auth-bar{display:flex;align-items:center;gap:10px}
-.auth-user{display:flex;align-items:center;gap:8px;background:var(--card);border:1px solid var(--border);padding:6px 14px;border-radius:24px;text-decoration:none;color:var(--text);font-size:.85rem;font-weight:500;transition:all .2s}
-.auth-user:hover{box-shadow:var(--shadow-hover);border-color:var(--accent)}
-.auth-avatar{width:28px;height:28px;border-radius:50%;object-fit:cover}
-.auth-logout{font-size:.78rem;color:var(--text3);text-decoration:none;padding:4px 10px;border-radius:12px;transition:all .2s}
-.auth-logout:hover{color:var(--accent);background:var(--bg3)}
-
-/* Footer */
-.footer{text-align:center;padding:40px 24px;border-top:1px solid var(--border);color:var(--text3);font-size:.85rem}
-.footer a{color:var(--accent2)}
-
-/* Toolbar */
-.toolbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;flex-wrap:wrap;gap:12px}
-.result-count{font-size:.9rem;color:var(--text2)}
-.sort-select{padding:8px 12px;min-height:38px;border-radius:8px;border:1px solid var(--border);background:var(--bg2);color:var(--text);font-family:inherit;font-size:.85rem;cursor:pointer}
-
-/* Featured section */
-.featured{max-width:1100px;margin:0 auto 8px;padding:0 24px}
-.featured-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px}
-.featured-header h2{font-size:1.05rem;font-weight:700;display:flex;align-items:center;gap:8px}
-.featured-header a{font-size:.82rem;color:var(--accent2);text-decoration:none;font-weight:500}
-.featured-header a:hover{text-decoration:underline}
-.featured-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
-@media(max-width:900px){.featured-grid{grid-template-columns:repeat(2,1fr)}}
-@media(max-width:540px){.featured-grid{grid-template-columns:1fr 1fr;gap:10px}}
-.fcard{background:var(--card);border:1px solid var(--border);border-radius:13px;overflow:hidden;box-shadow:var(--shadow);transition:transform .2s,box-shadow .2s,border-color .2s;text-decoration:none;display:flex;flex-direction:column;height:100%}
-.fcard:hover{transform:translateY(-3px);box-shadow:var(--shadow-hover);border-color:var(--accent)}
-.fcard-thumb{position:relative;aspect-ratio:1200/630;background:linear-gradient(135deg,rgba(124,58,237,.10),rgba(6,182,212,.10));overflow:hidden;display:flex;align-items:center;justify-content:center}
-.fcard-thumb img{width:100%;height:100%;object-fit:cover;display:block;transition:transform .35s}
-.fcard:hover .fcard-thumb img{transform:scale(1.045)}
-.fcard-body{padding:10px 12px 11px;display:flex;flex-direction:column;gap:5px;flex:1}
-.fcard-wrap{position:relative}
-.fav-corner{position:absolute;top:7px;right:7px;z-index:2;background:rgba(255,255,255,.94);box-shadow:0 1px 5px rgba(0,0,0,.14)}
-[data-theme="dark"] .fav-corner{background:rgba(21,28,46,.92)}
-
-/* ── Modo búsqueda: al filtrar/buscar, colapsa la portada y muestra
-   resultados de inmediato (la barra de búsqueda queda fija arriba) ── */
-/* overflow:visible es LA clave: un ancestro con overflow:hidden se convierte en
-   el scrollport del position:sticky y la barra se despega a los ~130px de scroll.
-   El glow de .hero::before (único motivo del hidden) ya está oculto aquí. */
-body.searching .hero{padding:70px 24px 8px;overflow:visible}
-body.searching .hero::before,
-body.searching .hero > :not(.search-wrap):not(.hero-title),
-body.searching .featured,
-body.searching .how-it-works{display:none}
-/* El h1 no se oculta con display:none: la página no puede quedarse sin
-   encabezado accesible al entrar por deep-link (/?search=…, /?sort=popular). */
-body.searching .hero-title{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
-body.searching .topnav{background:var(--bg);border-bottom:1px solid var(--border)}
-body.searching .search-wrap{position:sticky;top:58px;z-index:90;background:var(--bg);padding:10px 0;margin-bottom:0}
-.fcard:hover{box-shadow:var(--shadow-hover);border-color:var(--accent);transform:translateY(-2px)}
-.fcard-type{display:inline-flex;align-items:center;gap:4px;font-size:.68rem;font-weight:700;padding:2px 7px;border-radius:5px;background:var(--bg3);color:var(--text3);width:fit-content}
-.fcard-title{font-size:.85rem;font-weight:600;color:var(--text);line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
-.fcard-meta{font-size:.72rem;color:var(--text3);margin-top:auto;display:flex;gap:8px}
-
-/* How it works */
-.how-it-works{max-width:800px;margin:0 auto 16px;padding:32px 24px;background:var(--card);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow)}
-.hiw-steps{display:flex;align-items:flex-start;gap:8px;justify-content:center;flex-wrap:wrap}
-.hiw-step{flex:1;min-width:160px;max-width:220px;text-align:center;padding:0 8px}
-.hiw-icon{width:56px;height:56px;border-radius:50%;background:var(--grad);display:flex;align-items:center;justify-content:center;margin:0 auto 12px;box-shadow:0 4px 16px rgba(124,58,237,.25)}
-.hiw-step h3{font-size:.95rem;font-weight:700;margin-bottom:6px;color:var(--text)}
-.hiw-step p{font-size:.8rem;color:var(--text2);line-height:1.5}
-.hiw-arrow{font-size:1.4rem;color:var(--text3);padding-top:28px;flex-shrink:0}
-@media(max-width:640px){.hiw-arrow{display:none}.hiw-step{min-width:120px}}
-
-/* IA badge on cards */
-.badge-ia{display:inline-flex;align-items:center;gap:3px;padding:2px 7px;border-radius:5px;font-size:.68rem;font-weight:700;background:linear-gradient(135deg,rgba(124,58,237,.12),rgba(6,182,212,.12));color:var(--accent);border:1px solid rgba(124,58,237,.2)}
-
-@media(max-width:640px){
-  .hero{padding:48px 16px 24px}
-  .grid{grid-template-columns:1fr}
-  .hero-stats{gap:20px}
-  .present-btn:not(.lang-btn){display:none}
-}
+/* Modo búsqueda: al buscar o filtrar, el hero se recoge y los resultados suben. */
+body.searching .home-hero { padding-bottom: 12px; }
+body.searching .home-hero .ia-eyebrow,
+body.searching .home-lead,
+body.searching .home-try,
+body.searching .home-aside,
+body.searching .home-picks { display: none; }
+body.searching .home-hero-grid { grid-template-columns: minmax(0, 1fr); }
+/* El h1 no se quita con display:none: la página no puede quedarse sin
+   encabezado accesible al entrar por deep-link (/?search=…). */
+body.searching .home-hero h1 { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+.home-when-browsing, body.searching .home-when-idle { display: none; }
+body.searching .home-when-browsing { display: inline; }
 </style>
 <?php require_once __DIR__ . '/shared/error_tracker.php'; ?>
 </head>
-<body>
+<body class="ia-page<?= $browsing ? ' searching' : '' ?>">
+<?php iarepo_header($sessionUser, 'explore'); ?>
 
-<div class="fav-toast" id="favToast"></div>
-
-<div class="topnav">
-
-<a href="/" class="topnav-logo" aria-label="iarepo"><img src="/assets/img/logo.svg" alt="iarepo"></a>
-
-<!-- User auth bar -->
-<div class="auth-bar">
-<?php if ($sessionUser): ?>
-  <a href="<?= $navHome ?>" class="auth-user" title="<?= h($navHomeLabel) ?>">
-    <?php if ($sessionUser['avatar_url']): ?>
-      <img src="<?= htmlspecialchars($sessionUser['avatar_url']) ?>" alt="" class="auth-avatar">
-    <?php endif; ?>
-    <span><?= htmlspecialchars($sessionUser['name']) ?></span>
-  </a>
-  <a href="/auth/logout.php" class="auth-logout" title="<?= h(t('Salir')) ?>"><?= h(t('Salir')) ?></a>
-<?php else: ?>
-  <div id="g_id_onload"
-       data-client_id="<?= htmlspecialchars($googleClientId) ?>"
-       data-login_uri="https://iarepo.com/auth/google.php"
-       data-auto_prompt="false"></div>
-  <div class="g_id_signin"
-       data-type="standard"
-       data-shape="pill"
-       data-theme="outline"
-       data-text="signin_with"
-       data-size="medium"
-       data-locale="es"></div>
-<?php endif; ?>
-</div>
-
-<!-- Present mode button -->
-<button class="present-btn" id="presentBtn" title="<?= h(t('Modo presentación')) ?>">
-  <i data-lucide="maximize" style="width:14px;height:14px"></i> <?= h(t('Presentar')) ?>
-</button>
-
-<!-- Language switcher -->
-<!-- Visible también en móvil: es la única forma de cambiar de idioma. Solo
-     cambia la interfaz; el filtro de idioma del catálogo va en ?rlang=. -->
-<a class="present-btn lang-btn" id="lang-switch" href="<?= h(langSwitchUrl(lang()==='en'?'es':'en')) ?>" title="<?= lang()==='en'?'Cambiar a español':'Switch to English' ?>" style="text-decoration:none;font-weight:700"><?= lang()==='en'?'ES':'EN' ?></a>
-
-<!-- Theme toggle -->
-<button class="theme-toggle" aria-label="<?= h(t('Cambiar tema')) ?>" title="<?= h(t('Cambiar tema')) ?>" id="theme-btn">
-  <i data-lucide="moon" style="width:18px;height:18px" id="theme-icon-dark"></i>
-  <i data-lucide="sun" style="width:18px;height:18px" id="theme-icon-light" style="display:none"></i>
-</button>
-
-</div><!-- /topnav -->
-
-<!-- Presentation overlay -->
-<div class="present-overlay" id="present-overlay">
-  <div class="present-content" id="present-content"></div>
-  <div class="present-esc"><?= h(t('Presiona ESC para salir')) ?></div>
-</div>
-
-<section class="hero">
-  <div class="hero-badge"><i data-lucide="sparkles" style="width:14px;height:14px"></i> Open Educational Resources</div>
-  <h1 class="hero-title"><?= h(t('Aprende y enseña con')) ?> <span class="grad-text"><?= h(t('simulaciones interactivas')) ?></span></h1>
-  <p class="hero-sub"><?= h(t('Cientos de recursos abiertos —simulaciones, herramientas y modelos con IA— listos para usar. Gratis y sin instalar.')) ?></p>
-  <div class="search-wrap">
-    <label for="search" class="sr-only"><?= h(t('Buscar recursos')) ?></label>
-    <i data-lucide="search" class="search-icon" aria-hidden="true" style="width:20px;height:20px"></i>
-    <input type="search" id="search" enterkeyhint="search" autocomplete="off" autocapitalize="off"
-           spellcheck="false" aria-describedby="result-count"
-           placeholder="<?= h(t('Buscar por tema: ondas, fracciones, circuitos…')) ?>">
-    <button type="button" id="search-clear" class="search-clear" hidden
-            title="<?= h(t('Limpiar búsqueda')) ?>" aria-label="<?= h(t('Limpiar búsqueda')) ?>"><i data-lucide="x" aria-hidden="true"></i></button>
-  </div>
-  <div class="hero-stats">
-    <div class="hero-stat"><strong id="stat-total">—</strong><span><?= h(t('Recursos')) ?></span></div>
-    <div class="hero-stat"><strong id="stat-cats">—</strong><span><?= h(t('Categorías')) ?></span></div>
-  </div>
-</section>
-
-<?php if ($featured): ?>
-<section class="featured">
-  <div class="featured-header">
-    <h2><i data-lucide="flame" style="width:18px;height:18px;color:#f97316"></i> <?= h(t('Más usados')) ?></h2>
-    <a href="/?sort=popular"><?= h(t('Ver todos →')) ?></a>
-  </div>
-  <div class="featured-grid">
-    <?php foreach ($featured as $f): ?>
-    <div class="fcard-wrap">
-    <a href="/resource/<?= (int)$f['id'] ?>" class="fcard">
-      <div class="fcard-thumb">
-        <span class="thumb-fallback"><i data-lucide="<?= h($f['category_icon'] ?: 'file-code') ?>"></i></span>
-        <img src="/thumbnails/og-<?= (int)$f['id'] ?>.png" loading="lazy" alt="" onerror="this.remove()">
-        <?php if ($f['code_type'] === 'html'): ?><span class="thumb-ia">✦ IA</span><?php endif; ?>
+<main id="main">
+<section class="home-hero">
+  <div class="ia-container home-hero-grid">
+    <div>
+      <p class="ia-eyebrow"><?= h(t('Gratis · sin instalar · sin registro')) ?></p>
+      <h1><?= h(t('Ciencias y matemáticas que se entienden tocándolas')) ?></h1>
+      <p class="home-lead"><?= h(t('Simulaciones gratuitas de PhET, NASA, GeoGebra y otras fuentes, clasificadas por curso y con su autor original citado.')) ?>
+        <span class="home-lead-more"><?= h(t('Proyéctalas en clase, pásaselas a tus alumnos con un enlace o úsalas por tu cuenta: sin instalar y sin registrarte.')) ?></span></p>
+      <form class="ia-search home-search" id="search-form" role="search" action="/" method="get">
+        <i data-lucide="search" aria-hidden="true"></i>
+        <label for="search" class="ia-sr-only"><?= h(t('Buscar recursos')) ?></label>
+        <input type="search" id="search" name="search" enterkeyhint="search" autocomplete="off" autocapitalize="off"
+               spellcheck="false" aria-describedby="result-count" value="<?= h($querySearch) ?>"
+               placeholder="<?= h(t('Tema de la clase o lo que quieres entender: fuerzas, fracciones, el átomo…')) ?>">
+        <button type="button" id="search-clear" class="ia-btn ia-btn-ghost ia-btn-icon"<?= $querySearch === '' ? ' hidden' : '' ?>
+                title="<?= h(t('Limpiar búsqueda')) ?>" aria-label="<?= h(t('Limpiar búsqueda')) ?>"><i data-lucide="x" aria-hidden="true"></i></button>
+        <button type="submit" class="ia-btn ia-btn-primary ia-hide-xs"><?= h(t('Buscar')) ?></button>
+      </form>
+      <div class="home-try">
+        <span><?= h(t('Prueba:')) ?></span>
+        <?php foreach (array_filter(array_map('trim', explode(',', t('ondas,fracciones,circuitos,álgebra,sistema solar')))) as $sg): ?>
+        <button type="button" class="ia-chip" data-suggest="<?= h($sg) ?>"><?= h($sg) ?></button>
+        <?php endforeach; ?>
       </div>
-      <div class="fcard-body">
-        <div class="fcard-title"><?= h($f['title']) ?></div>
-        <div class="fcard-meta">
-          <span>👁 <?= (int)$f['view_count'] ?></span>
-          <span>❤ <?= (int)$f['like_count'] ?></span>
-          <?php if ($f['category_name']): ?><span><?= h($f['category_name']) ?></span><?php endif; ?>
-        </div>
+    </div>
+    <div class="home-aside">
+      <nav class="home-who" aria-label="<?= h(t('Por dónde empezar')) ?>">
+        <?php if (!$isStudent): ?>
+        <a href="<?= $ready ? '#listos' : '#catalogo' ?>">
+          <span class="home-who-icon"><i data-lucide="presentation" aria-hidden="true"></i></span>
+          <strong><?= h(t('Doy clase')) ?></strong>
+          <span class="home-who-text"><?= h(t('Proyéctalo, mándalo con un QR o insértalo en tu aula virtual')) ?></span>
+        </a>
+        <?php endif; ?>
+        <a href="<?= $basics ? '#para-empezar' : '#catalogo' ?>">
+          <span class="home-who-icon"><i data-lucide="sprout" aria-hidden="true"></i></span>
+          <strong><?= h(t('Estoy aprendiendo')) ?></strong>
+          <span class="home-who-text"><?= h(t('Empieza por lo básico y avanza a tu ritmo')) ?></span>
+        </a>
+      </nav>
+      <?php if ($catalogTotal > 0): ?>
+      <p class="home-total ia-muted ia-small"><?= h(str_replace('%s', (lang() === 'en' ? number_format($catalogTotal) : number_format($catalogTotal, 0, ',', '.')), t('%s recursos en el catálogo, todos gratuitos'))) ?></p>
+      <?php endif; ?>
+    </div>
+  </div>
+</section>
+
+<section class="home-filters" aria-label="<?= h(t('Filtrar el catálogo')) ?>">
+  <div class="ia-container ia-filters">
+    <div class="ia-filter-row">
+      <span class="ia-filter-label" id="lbl-cat"><?= h(t('Materia')) ?></span>
+      <div id="categories" class="ia-chips home-chips" role="group" aria-labelledby="lbl-cat"></div>
+    </div>
+    <div class="ia-filter-row">
+      <span class="ia-filter-label" id="lbl-level"><?= h(t('Curso y edad')) ?></span>
+      <div id="levels" class="ia-chips home-chips" role="group" aria-labelledby="lbl-level">
+        <button type="button" class="ia-chip" data-level="" aria-pressed="<?= $pressed($qLevel === '') ?>"><?= h(t('Todos')) ?></button>
+        <?php foreach (iarepo_level_options() as $k => $label): ?>
+        <button type="button" class="ia-chip" data-level="<?= h($k) ?>" aria-pressed="<?= $pressed($qLevel === $k) ?>"><?= h($label) ?></button>
+        <?php endforeach; ?>
       </div>
-    </a>
-    <button class="fav-btn fav-corner" type="button" data-fid="<?= (int)$f['id'] ?>" title="<?= h(t('Guardar')) ?>" aria-label="<?= h(t('Guardar')) ?>" onclick="toggleFavorite(<?= (int)$f['id'] ?>,this)"><i data-lucide="star"></i></button>
     </div>
-    <?php endforeach; ?>
-  </div>
-</section>
-<?php endif; ?>
-
-<?php if (!$sessionUser): ?>
-<section class="how-it-works">
-  <div class="hiw-steps">
-    <div class="hiw-step">
-      <div class="hiw-icon"><i data-lucide="sparkles" style="width:24px;height:24px;color:#fff"></i></div>
-      <h3><?= h(t('Genera con IA')) ?></h3>
-      <p><?= h(t('Pídele a Gemini o ChatGPT una simulación interactiva en HTML para tu clase.')) ?></p>
+    <div class="ia-filter-row">
+      <span class="ia-filter-label" id="lbl-rlang"><?= h(t('Idioma del recurso')) ?></span>
+      <div id="rlangs" class="ia-chips home-chips" role="group" aria-labelledby="lbl-rlang">
+        <button type="button" class="ia-chip" data-rlang="" aria-pressed="<?= $pressed($qRlang === '') ?>"><?= h(t('Todos')) ?></button>
+        <?php foreach ($rlangLabels as $k => $label): ?>
+        <button type="button" class="ia-chip" data-rlang="<?= h($k) ?>" aria-pressed="<?= $pressed($qRlang === $k) ?>"><?= h($label) ?></button>
+        <?php endforeach; ?>
+      </div>
     </div>
-    <div class="hiw-arrow">→</div>
-    <div class="hiw-step">
-      <div class="hiw-icon"><i data-lucide="upload" style="width:24px;height:24px;color:#fff"></i></div>
-      <h3><?= h(t('Súbela en 30s')) ?></h3>
-      <p><?= h(t('Pega el código, elige la materia y publícala. Sin instalación, sin cuenta de pago.')) ?></p>
-    </div>
-    <div class="hiw-arrow">→</div>
-    <div class="hiw-step">
-      <div class="hiw-icon"><i data-lucide="globe" style="width:24px;height:24px;color:#fff"></i></div>
-      <h3><?= h(t('Profesores la usan')) ?></h3>
-      <p><?= h(t('Cualquier profesor del mundo puede encontrarla, usarla o adaptarla para su curso.')) ?></p>
-    </div>
-  </div>
-  <div style="text-align:center;margin-top:28px">
-    <div id="g_id_onload_hiw"
-         data-client_id="<?= htmlspecialchars($googleClientId) ?>"
-         data-login_uri="https://iarepo.com/auth/google.php"
-         data-auto_prompt="false"></div>
-    <div class="g_id_signin"
-         data-type="standard"
-         data-shape="pill"
-         data-theme="filled_blue"
-         data-text="signup_with"
-         data-size="large"
-         data-logo_alignment="left">
-    </div>
-    <p style="margin-top:10px;font-size:.78rem;color:var(--text3)"><?= h(t('Gratis · Sin tarjeta · Solo con Google')) ?></p>
-  </div>
-</section>
-<?php endif; ?>
-
-<div id="categories" class="cats"></div>
-
-<div class="container">
-  <div class="toolbar">
-    <span class="result-count" id="result-count" role="status" aria-live="polite" aria-atomic="true"></span>
-    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-      <select class="sort-select" id="filter-lang" title="<?= h(t('Idioma')) ?>">
-        <option value=""><?= h(t('🌐 Idioma')) ?></option>
-        <option value="es"><?= h(t('🇪🇸 Español')) ?></option>
-        <option value="en"><?= h(t('🇬🇧 English')) ?></option>
-        <!-- 'pt' retirado: 0 recursos en catálogo, era un estado vacío garantizado -->
-      </select>
-      <select class="sort-select" id="filter-level" title="<?= h(t('Nivel')) ?>">
-        <option value=""><?= h(t('📚 Nivel')) ?></option>
-        <option value="primary"><?= h(t('Primaria')) ?></option>
-        <option value="secondary"><?= h(t('Secundaria')) ?></option>
-        <option value="ib"><?= h(t('IB')) ?></option>
-        <option value="university"><?= h(t('Universidad')) ?></option>
-        <option value="general"><?= h(t('General')) ?></option>
-      </select>
-      <select class="sort-select" id="sort" title="<?= h(t('Orden')) ?>">
-        <!-- Relevancia: sólo existe mientras haya texto que puntuar. Fuera de
-             ese caso va hidden+disabled (así el navegador tampoco la elige como
-             primera opción al resetear el formulario); syncSortOptions() la
-             muestra al buscar y la retira al vaciar la búsqueda. -->
+    <!-- Orden: solo tiene sentido con texto que puntuar. syncSortOptions()
+         enseña la fila al buscar y la retira al vaciar la búsqueda. -->
+    <div class="ia-filter-row" id="sort-row"<?= $querySearch === '' ? ' hidden' : '' ?>>
+      <label class="ia-filter-label" for="sort"><?= h(t('Orden')) ?></label>
+      <select class="ia-select" id="sort">
         <option value="relevance" id="sort-relevance"<?= $querySearch !== '' ? '' : ' hidden disabled' ?><?= $sortSel('relevance') ?>><?= h(t('Más relevantes')) ?></option>
         <option value="recent"<?= $sortSel('recent') ?>><?= h(t('Más recientes')) ?></option>
-        <option value="popular"<?= $sortSel('popular') ?>><?= h(t('Más usados')) ?></option>
-        <option value="views"<?= $sortSel('views') ?>><?= h(t('Más vistos')) ?></option>
-        <option value="title"<?= $sortSel('title') ?>><?= h(t('Alfabético')) ?></option>
       </select>
     </div>
   </div>
-  <div id="active-filters" class="active-filters" aria-label="<?= h(t('Filtros activos')) ?>"></div>
-  <div id="grid" class="grid">
-    <div class="loading"><div class="spinner"></div><?= h(t('Cargando recursos...')) ?></div>
+</section>
+
+<?php if ($ready): ?>
+<section class="home-picks home-anchor" id="listos" aria-labelledby="listos-title">
+  <div class="ia-container">
+    <div class="ia-section-head">
+      <div>
+        <h2 id="listos-title"><?= h(t('Listos para clase · Primaria y Secundaria')) ?></h2>
+        <p class="ia-muted ia-small"><?= h(t('Se abren en el navegador, sin instalar nada. La selección cambia cada día.')) ?></p>
+      </div>
+    </div>
+    <ul class="home-rows"><?php iarepo_home_rows($ready); ?></ul>
   </div>
-  <div id="more-wrap" class="more-wrap"></div>
-</div>
+</section>
+<?php endif; ?>
 
-<footer class="footer">
-  <p><strong>iarepo.com</strong> — <?= h(t('Repositorio abierto de recursos educativos interactivos')) ?></p>
-  <p style="margin-top:8px">
-    <a href="/legal/terms.php"><?= h(t('Términos de uso')) ?></a> ·
-    <a href="https://github.com/claseprivada/iarepo" target="_blank">GitHub (MIT)</a> ·
-    <a href="https://claseprivada.com">Clase Privada</a>
-  </p>
-  <p style="margin-top:6px;font-size:.78rem;color:var(--text3)"><?= h(t('Los recursos externos pertenecen a sus respectivos autores. iarepo solo enlaza y cataloga.')) ?></p>
-</footer>
+<?php if ($basics): ?>
+<section class="home-picks home-anchor" id="para-empezar" aria-labelledby="para-empezar-title">
+  <div class="ia-container">
+    <div class="ia-section-head">
+      <div>
+        <h2 id="para-empezar-title"><?= h(t('Para empezar')) ?></h2>
+        <p class="ia-muted ia-small"><?= h(t('Introducciones y fundamentos: lo básico de cada tema, para ir a tu ritmo.')) ?></p>
+      </div>
+    </div>
+    <ul class="home-rows"><?php iarepo_home_rows($basics); ?></ul>
+  </div>
+</section>
+<?php endif; ?>
 
+<section class="ia-section home-anchor" id="catalogo" aria-labelledby="catalogo-title">
+  <div class="ia-container">
+    <div class="ia-section-head home-catalog-head">
+      <h2 id="catalogo-title"><span class="home-when-idle"><?= h(t('Todo el catálogo')) ?></span><span class="home-when-browsing"><?= h(t('Resultados')) ?></span></h2>
+      <span class="home-count" id="result-count" role="status" aria-live="polite" aria-atomic="true"></span>
+    </div>
+    <div id="active-filters" class="ia-chips home-active" aria-label="<?= h(t('Filtros activos')) ?>"></div>
+    <div id="grid" class="ia-grid ia-grid-rows-mobile">
+      <div class="home-state ia-empty"><div class="home-spinner"></div><?= h(t('Cargando recursos...')) ?></div>
+    </div>
+    <div id="more-wrap" class="home-more"></div>
+  </div>
+</section>
+</main>
+
+<?php iarepo_footer($sessionUser); ?>
+<?= iarepo_body_assets() ?>
 <script>
-// i18n strings for dynamic content
+// Textos para el contenido dinámico: todos pasan por t() (CLAUDE.md §2.3).
 const T = {
   noResults: <?= json_encode(t('No se encontraron recursos')) ?>,
   connError: <?= json_encode(t('Error de conexión')) ?>,
   loadError: <?= json_encode(t('Error al cargar recursos')) ?>,
-  resource: <?= json_encode(lang()==='en'?'resource':'recurso') ?>,
-  resources: <?= json_encode(lang()==='en'?'resources':'recursos') ?>,
-  levels: <?= json_encode(['primary'=>t('Primaria'),'secondary'=>t('Secundaria'),'ib'=>t('IB'),'university'=>t('Universidad'),'general'=>t('General')], JSON_UNESCAPED_UNICODE) ?>,
-  save: <?= json_encode(t('Guardar')) ?>,
-  favSaved: <?= json_encode(t('Guardado en tus favoritos ⭐')) ?>,
-  favRemoved: <?= json_encode(t('Quitado de favoritos')) ?>,
-  loginToSave: <?= json_encode(t('Regístrate para guardar tus favoritos ⭐')) ?>,
+  resource: <?= json_encode(t('recurso')) ?>,
+  resources: <?= json_encode(t('recursos')) ?>,
+  save: <?= json_encode(t('Guardar (solo tú lo ves)')) ?>,
+  favSaved: <?= json_encode(t('Guardado. Lo tienes en «Guardados» y solo tú lo ves.')) ?>,
+  favRemoved: <?= json_encode(t('Quitado de Guardados')) ?>,
+  loginToSave: <?= json_encode(t('Entra para guardarlo: solo tú verás tus guardados')) ?>,
   // ── Buscador ──
   searching: <?= json_encode(t('Buscando…')) ?>,
   loadMore: <?= json_encode(t('Cargar más')) ?>,
@@ -595,143 +553,94 @@ const T = {
   retry: <?= json_encode(t('Reintentar')) ?>,
   rateLimited: <?= json_encode(t('Demasiadas búsquedas seguidas. Espera unos segundos y reinténtalo.')) ?>,
   fSearch: <?= json_encode(t('Búsqueda')) ?>,
-  fLang: <?= json_encode(t('Idioma')) ?>,
-  fLevel: <?= json_encode(t('Nivel')) ?>,
-  fCategory: <?= json_encode(t('Categoría')) ?>,
+  fLang: <?= json_encode(t('Idioma del recurso')) ?>,
+  fLevel: <?= json_encode(t('Curso')) ?>,
+  fCategory: <?= json_encode(t('Materia')) ?>,
   removeFilter: <?= json_encode(t('Quitar filtro: %s')) ?>,
-  allCats: <?= json_encode(t('Todos')) ?>,
+  allCats: <?= json_encode(t('Todas')) ?>,
   suggestions: <?= json_encode(t('Prueba con:')) ?>,
-  // Lista de sugerencias del estado vacío: términos VERIFICADOS contra el
-  // catálogo real (ES 9/6/5/10/7 · EN 19/9/2/14/3 resultados). Se separan por coma.
-  suggestList: <?= json_encode(t('ondas,fracciones,circuitos,algebra,sistema solar')) ?>,
+  // Lista de sugerencias del estado vacío (y del «Prueba:» del hero): términos
+  // VERIFICADOS contra el catálogo real (ES 9/6/5/10/7 · EN 19/9/2/14/3
+  // resultados). Se separan por coma.
+  suggestList: <?= json_encode(t('ondas,fracciones,circuitos,álgebra,sistema solar')) ?>,
 };
+// Etiquetas de los filtros (las mismas que pinta el servidor en los chips).
+const LEVEL_LABELS = <?= json_encode($levelLabels, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG) ?>;
+const RLANG_LABELS = <?= json_encode($rlangLabels, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG) ?>;
+const has = (o, k) => Object.prototype.hasOwnProperty.call(o, k);   // '__proto__' o 'constructor' en la URL no son un filtro
 
-// ── Favoritos (⭐ guardado rápido) ──
+// ── Guardados (⭐ favorito rápido, privado) ──
+// NO se unifica con las listas (CLAUDE.md §6.1): es el guardado de un clic.
 const FAV_AUTH = <?= $sessionUser ? 'true' : 'false' ?>;
 let favSet = new Set();
-function showFavToast(msg){const el=document.getElementById('favToast');el.textContent=msg;el.classList.add('show');clearTimeout(el._t);el._t=setTimeout(()=>el.classList.remove('show'),2300);}
-function setFavBtn(btn,on){btn.classList.toggle('is-fav',!!on);btn.setAttribute('aria-pressed',on?'true':'false');}
+function setFavBtn(btn, on){ btn.classList.toggle('is-fav', !!on); btn.setAttribute('aria-pressed', on ? 'true' : 'false'); }
+function applyFavs(){ document.querySelectorAll('.fav-btn[data-id]').forEach(b => setFavBtn(b, favSet.has(Number(b.dataset.id)))); }
 async function loadFavorites(){
-  if(!FAV_AUTH) return;
-  try{const res=await fetch('/api/favorites.php');const data=await res.json();if(data.ok)favSet=new Set((data.favorite_ids||[]).map(Number));}catch(e){}
+  if (!FAV_AUTH) return;
+  try {
+    const res = await fetch('/api/favorites.php');
+    const data = await res.json();
+    if (data.ok) favSet = new Set((data.favorite_ids || []).map(Number));
+  } catch (e) { /* sin guardados no se rompe nada: las estrellas salen vacías */ }
 }
-async function toggleFavorite(id,btn){
-  id=Number(id);
-  if(!FAV_AUTH){startSaveFlow(id);return;}
-  btn.disabled=true;
-  try{
-    const res=await fetch(`/api/favorites.php?id=${id}`,{method:'POST'});
-    const data=await res.json();
-    if(!data.ok) throw new Error(data.error);
-    data.favorited?favSet.add(id):favSet.delete(id);
-    setFavBtn(btn,data.favorited);
-    showFavToast(data.favorited?T.favSaved:T.favRemoved);
-  }catch(e){showFavToast(e.message||T.connError);}
-  finally{btn.disabled=false;}
+async function toggleFavorite(id, btn){
+  id = Number(id);
+  if (!FAV_AUTH) { startSaveFlow(id); return; }
+  btn.disabled = true;
+  try {
+    const res = await fetch(`/api/favorites.php?id=${id}`, {method: 'POST'});
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error);
+    data.favorited ? favSet.add(id) : favSet.delete(id);
+    setFavBtn(btn, data.favorited);
+    IA.toast(data.favorited ? T.favSaved : T.favRemoved);
+  } catch (e) { IA.toast(e.message || T.connError); }
+  finally { btn.disabled = false; }
 }
 // Invitado: lleva la intención (?save + return_url) a la pantalla de registro;
 // tras autenticarse se aplica el favorito y se vuelve aquí.
 function startSaveFlow(id){
   // localStorage sobrevive el redirect de Google (el query/cookie no): aquí
   // va la intención + a dónde volver, y pwa.js la aplica tras el login.
-  try{localStorage.setItem('iarepo_pending_fav',JSON.stringify({id:id,ret:location.pathname+location.search}))}catch(e){}
-  showFavToast(T.loginToSave);
-  const ret=encodeURIComponent(location.pathname+location.search);
-  location.href=`/auth/signin.php?save=${id}&return_url=${ret}`;
+  try { localStorage.setItem('iarepo_pending_fav', JSON.stringify({id: id, ret: location.pathname + location.search})); } catch (e) {}
+  IA.toast(T.loginToSave);
+  const ret = encodeURIComponent(location.pathname + location.search);
+  location.href = `/auth/signin.php?save=${id}&return_url=${ret}`;
 }
-
-// ── Theme ──
-function initTheme() {
-  const saved = localStorage.getItem('iarepo-theme');
-  if (saved === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
-  updateThemeIcons();
-}
-function toggleTheme() {
-  const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
-  if (isDark) {
-    document.documentElement.removeAttribute('data-theme');
-    localStorage.setItem('iarepo-theme', 'light');
-  } else {
-    document.documentElement.setAttribute('data-theme', 'dark');
-    localStorage.setItem('iarepo-theme', 'dark');
-  }
-  updateThemeIcons();
-}
-function updateThemeIcons() {
-  const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
-  document.getElementById('theme-icon-dark').style.display = isDark ? 'none' : 'block';
-  document.getElementById('theme-icon-light').style.display = isDark ? 'block' : 'none';
-}
-initTheme();
-document.getElementById('theme-btn').addEventListener('click', toggleTheme);
-
-// ── Presentation Mode ──
-function enterPresent() {
-  const overlay = document.getElementById('present-overlay');
-  const content = document.getElementById('present-content');
-  content.innerHTML = document.querySelector('.container').innerHTML;
-  overlay.classList.add('active');
-  document.body.style.overflow = 'hidden';
-  if (document.documentElement.requestFullscreen) document.documentElement.requestFullscreen();
-  lucide.createIcons();
-}
-document.getElementById('presentBtn').addEventListener('click', enterPresent);
-// Close overlay when fullscreen exits (browser handles ESC → fullscreen exit)
-function exitPresent() {
-  const overlay = document.getElementById('present-overlay');
-  if (overlay.classList.contains('active')) {
-    overlay.classList.remove('active');
-    document.body.style.overflow = '';
-  }
-  // Vaciar el clon SIEMPRE: si se queda en el DOM duplica los id (#grid,
-  // #result-count, #more-wrap…) y, como el overlay va antes en el documento,
-  // getElementById devolvería el clon muerto y el buscador dejaría de pintar.
-  document.getElementById('present-content').innerHTML = '';
-}
-document.addEventListener('fullscreenchange', () => {
-  if (!document.fullscreenElement) exitPresent();
-});
-document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') exitPresent();
-});
 
 // ── API ──
 const API = '/api/resources.php';
 const $ = id => document.getElementById(id);
-let currentCat = null;
+let currentCat = null;    // id de categoría (texto de la URL: nunca va a un selector CSS)
+let currentLevel = '';    // clave de LEVEL_LABELS o ''
+let currentRlang = '';    // 'es' | 'en' | '' — idioma del RECURSO, no de la interfaz
 let debounceTimer = null;
 let reqSeq = 0;           // token de secuencia: descarta respuestas tardías
 let inflight = null;      // AbortController de la petición en vuelo
 let page = 1;             // página actual ("Cargar más")
 let shown = 0;            // tarjetas pintadas ahora mismo
 let lastTotal = 0;        // total devuelto para la consulta actual
-let catalogTotal = null;  // total SIN filtros (contador del hero); se fija una vez
 let sortExplicit = false; // ¿el orden lo eligió el usuario (o un deep-link ?sort=)?
 
-// Lista blanca: r.level es VARCHAR(50) libre, llega de BD sin validar y no
-// puede acabar dentro de una clase CSS ni de HTML sin escapar (XSS almacenado).
-const LEVEL_CLASSES = {primary:1, secondary:1, ib:1, university:1, general:1};
-
-function esc(s){ const d = document.createElement('div'); d.textContent = (s === null || s === undefined) ? '' : String(s); return d.innerHTML; }
-// esc() NO escapa comillas → nunca vale para un valor de atributo.
-function escAttr(s){ return esc(s).replace(/"/g, '&quot;').replace(/'/g, '&#39;'); }
+const SUBJ_RE = /^s-[a-z-]{2,30}$/;
 // String.replace con reemplazo de texto interpreta $&, $` y $': siempre función.
 function fill(tpl, token, value){ return String(tpl).replace(token, () => value); }
 
-// ¿El usuario está buscando/filtrando? (entonces colapsamos la portada)
+// ¿El usuario está buscando/filtrando? (entonces se recoge la portada)
 function hasQuery(){ return $('search').value.trim() !== ''; }
-function hasFilters(){ return !!(currentCat || $('filter-lang').value || $('filter-level').value); }
+function hasFilters(){ return !!(currentCat || currentRlang || currentLevel); }
 function isBrowsing(){ return hasQuery() || hasFilters() || $('sort').value !== 'recent'; }
 function updateBrowseMode(){ document.body.classList.toggle('searching', isBrowsing()); }
 
 // El orden por relevancia sólo tiene sentido con términos que puntuar: la opción
-// aparece al buscar y pasa a ser el defecto (que es justo lo que hace la API si
-// no le mandamos 'sort'), y se retira al vaciar la búsqueda devolviendo el select
-// a 'recent'. Una elección deliberada —del usuario o de un ?sort= en la URL— se
-// respeta y NO se pisa al seguir tecleando.
+// (y la fila «Orden») aparece al buscar y pasa a ser el defecto —que es justo lo
+// que hace la API si no le mandamos 'sort'—, y se retira al vaciar la búsqueda
+// devolviendo el select a 'recent'. Una elección deliberada —del usuario o de un
+// ?sort= en la URL— se respeta y NO se pisa al seguir tecleando.
 function syncSortOptions(){
   const s = $('sort'), opt = $('sort-relevance'), on = hasQuery();
   opt.hidden = !on; opt.disabled = !on;
+  $('sort-row').hidden = !on;
   if (on) { if (!sortExplicit) s.value = 'relevance'; }
   else if (s.value === 'relevance') { s.value = 'recent'; sortExplicit = false; }
 }
@@ -747,8 +656,8 @@ function buildParams(forUrl){
   const q = $('search').value.trim();
   if (q) p.set('search', q);
   if (currentCat) p.set('category', currentCat);
-  const lg = $('filter-lang').value;  if (lg) p.set(forUrl ? 'rlang' : 'lang', lg);
-  const lv = $('filter-level').value; if (lv) p.set('level', lv);
+  if (currentRlang) p.set(forUrl ? 'rlang' : 'lang', currentRlang);
+  if (currentLevel) p.set('level', currentLevel);
   // 'recent' YA NO es el defecto universal: con búsqueda, el defecto de la API
   // es 'relevance'. Mandamos 'sort' sólo cuando difiere de ese defecto, así la
   // URL sigue siendo corta y '?search=ondas' significa lo mismo aquí y allí.
@@ -766,7 +675,7 @@ function syncURL(push){
   if (push) history.pushState(null, '', url); else history.replaceState(null, '', url);
 }
 // Cambiar de idioma no debe tirar la búsqueda que tienes delante: el enlace
-// ES/EN arrastra el estado actual (que ya no incluye ningún '?lang=').
+// ES/EN de la cabecera arrastra el estado actual (que no incluye ningún '?lang=').
 function syncLangSwitch(qs){
   const a = $('lang-switch');
   if (!a) return;
@@ -776,23 +685,25 @@ function syncLangSwitch(qs){
 function applyStateFromURL(){
   const p = new URLSearchParams(location.search);
   $('search').value = p.get('search') || '';
-  // Un valor que no existe entre las <option> deja el select en '': lo devolvemos
-  // a su defecto. Un ?sort= válido cuenta como elección explícita y bloquea el
-  // salto automático a relevancia (deep-link y botón atrás mandan sobre él).
+  // Un valor que no existe entre las <option> ('popular', 'views', 'title' de un
+  // enlace viejo) deja el select en '': lo devolvemos a su defecto. Un ?sort=
+  // válido cuenta como elección explícita y bloquea el salto automático a
+  // relevancia (deep-link y botón atrás mandan sobre él).
   $('sort').value = p.get('sort') || '';
   sortExplicit = $('sort').value !== '';
   if (!sortExplicit) $('sort').value = 'recent';
-  $('filter-lang').value  = p.get('rlang') || '';
-  $('filter-level').value = p.get('level') || '';
+  const rl = p.get('rlang') || '', lv = p.get('level') || '';
+  currentRlang = has(RLANG_LABELS, rl) ? rl : '';
+  currentLevel = has(LEVEL_LABELS, lv) ? lv : '';
   currentCat = p.get('category') || null;
   syncSortOptions();
   syncClearBtn();
-  markActivePill();
+  markChips();
   syncLangSwitch(buildParams(true).toString());
 }
 window.addEventListener('popstate', () => { applyStateFromURL(); loadResources({push:false}); });
 
-function showState(html){ $('grid').innerHTML = html; lucide.createIcons(); }
+function showState(html){ $('grid').innerHTML = html; IA.icons(); }
 function clearCount(){ $('result-count').textContent = ''; }
 function setCount(){
   const el = $('result-count');
@@ -810,11 +721,11 @@ async function loadResources(opt) {
   const grid = $('grid');
   if (!opt.append) { page = 1; shown = 0; }
   // Al teclear, replaceState (no ensuciar el historial con una entrada por letra);
-  // en acciones deliberadas (Enter, select, píldora, chip), pushState.
+  // en acciones deliberadas (Enter, select, chip), pushState.
   if (!opt.append && opt.push !== false) syncURL(opt.push === true);
 
   const p = buildParams();
-  p.set('limit', '50');
+  p.set('limit', '48');   // múltiplo de 2, 3 y 4 columnas: la última fila no queda coja
   p.set('page', String(page));
 
   // Doble red contra la carrera del debounce: abortamos la petición vieja Y
@@ -827,7 +738,7 @@ async function loadResources(opt) {
   grid.setAttribute('aria-busy', 'true');
   renderActiveFilters();
   if (opt.append) setMoreBusy(true);
-  else showState('<div class="loading"><div class="spinner"></div>' + esc(T.searching) + '</div>');
+  else showState('<div class="home-state ia-empty"><div class="home-spinner"></div>' + IA.esc(T.searching) + '</div>');
 
   try {
     const res = await fetch(API + '?' + p.toString(), {signal: signal});
@@ -854,27 +765,21 @@ async function loadResources(opt) {
 // con "Reintentar") y sin contador obsoleto encima. Si lo que falla es un
 // "Cargar más" no borramos lo ya pintado: avisamos y dejamos reintentar.
 function fail(msg, append){
-  if (append) { page = Math.max(1, page - 1); renderMore(); showFavToast(msg); return; }
+  if (append) { page = Math.max(1, page - 1); renderMore(); IA.toast(msg); return; }
   lastTotal = 0; shown = 0;
   clearCount();
   $('more-wrap').innerHTML = '';
-  showState('<div class="empty">' +
-    '<div class="state-icon" aria-hidden="true">⚠️</div>' +
-    '<h2 class="state-title">' + esc(msg) + '</h2>' +
-    '<div><button class="btn-more" type="button" data-retry="1">' + esc(T.retry) + '</button></div>' +
+  showState('<div class="home-state ia-empty">' +
+    '<p aria-hidden="true"><i data-lucide="triangle-alert"></i></p>' +
+    '<h3>' + IA.esc(msg) + '</h3>' +
+    '<button class="ia-btn ia-btn-secondary" type="button" data-retry="1">' + IA.esc(T.retry) + '</button>' +
   '</div>');
 }
 
 function renderResults(data, append) {
   const grid = $('grid');
   lastTotal = Number(data.total) || 0;
-  if (data.categories && !document.querySelector('#categories .cat-pill')) renderCategories(data.categories);
-  // El contador del hero mide el CATÁLOGO, no la búsqueda: se fija una sola vez
-  // (primera carga sin filtros) y no se vuelve a tocar.
-  if (catalogTotal === null && !hasQuery() && !hasFilters()) {
-    catalogTotal = lastTotal;
-    $('stat-total').textContent = lastTotal;
-  }
+  if (data.categories && !document.querySelector('#categories [data-cat-id]')) renderCategories(data.categories);
   const list = Array.isArray(data.resources) ? data.resources : [];
   if (!append && list.length === 0) {
     shown = 0; setCount(); showState(emptyHTML()); renderMore(); renderActiveFilters();
@@ -884,13 +789,13 @@ function renderResults(data, append) {
   if (append) grid.insertAdjacentHTML('beforeend', html); else grid.innerHTML = html;
   shown += list.length;
   setCount(); renderMore(); renderActiveFilters();
-  lucide.createIcons();
+  IA.icons();
 }
 
-// "546 recursos" y 50 tarjetas era mentira: o se pintan todos, o hay cómo pedir más.
+// "546 recursos" y 48 tarjetas era mentira: o se pintan todos, o hay cómo pedir más.
 function renderMore(){
   $('more-wrap').innerHTML = (shown > 0 && shown < lastTotal)
-    ? '<button class="btn-more" type="button" id="more-btn">' + esc(T.loadMore) + ' <span class="count">(' + (lastTotal - shown) + ')</span></button>'
+    ? '<button class="ia-btn ia-btn-secondary" type="button" id="more-btn">' + IA.esc(T.loadMore) + ' <span class="ia-count">(' + (lastTotal - shown) + ')</span></button>'
     : '';
 }
 function setMoreBusy(on){
@@ -901,20 +806,21 @@ function setMoreBusy(on){
 }
 
 // Estado vacío accionable: qué se buscó, qué está filtrando y por dónde salir.
+function suggestChips(){
+  return String(T.suggestList).split(',').map(s => s.trim()).filter(Boolean)
+    .map(s => '<button class="ia-chip" type="button" data-suggest="' + IA.esc(s) + '">' + IA.esc(s) + '</button>')
+    .join('');
+}
 function emptyHTML(){
   const q = $('search').value.trim();
-  const chips = String(T.suggestList).split(',').map(s => s.trim()).filter(Boolean)
-    .map(s => '<button class="cat-pill" type="button" data-suggest="' + escAttr(s) + '">' + esc(s) + '</button>')
-    .join('');
-  const title = q ? fill(T.noResultsFor, '%s', esc(q)) : esc(T.noResults);
-  const hint  = hasFilters() ? fill(T.noResultsFilters, '%s', esc(filterSummary())) : esc(T.noResultsHint);
-  return '<div class="empty">' +
-    '<div class="state-icon" aria-hidden="true">🔍</div>' +
-    '<h2 class="state-title">' + title + '</h2>' +
-    '<p class="state-hint">' + hint + '</p>' +
-    '<p class="state-label">' + esc(T.suggestions) + '</p>' +
-    '<div class="state-chips">' + chips + '</div>' +
-    ((q || hasFilters()) ? '<button class="btn-more" type="button" data-clear="all">' + esc(T.clearFilters) + '</button>' : '') +
+  const title = q ? fill(T.noResultsFor, '%s', IA.esc(q)) : IA.esc(T.noResults);
+  const hint  = hasFilters() ? fill(T.noResultsFilters, '%s', IA.esc(filterSummary())) : IA.esc(T.noResultsHint);
+  return '<div class="home-state ia-empty">' +
+    '<h3>' + title + '</h3>' +
+    '<p>' + hint + '</p>' +
+    '<p class="ia-small">' + IA.esc(T.suggestions) + '</p>' +
+    '<div class="ia-chips">' + suggestChips() + '</div>' +
+    ((q || hasFilters()) ? '<button class="ia-btn ia-btn-secondary" type="button" data-clear="all">' + IA.esc(T.clearFilters) + '</button>' : '') +
   '</div>';
 }
 
@@ -922,25 +828,26 @@ function emptyHTML(){
 // lanzaría con un valor arbitrario). Comparamos leyendo el dataset.
 function pillFor(id){
   let found = null;
-  document.querySelectorAll('#categories .cat-pill').forEach(p => {
+  document.querySelectorAll('#categories [data-cat-id]').forEach(p => {
     if ((p.dataset.catId || '') === String(id)) found = p;
   });
   return found;
 }
-function markActivePill(){
-  document.querySelectorAll('#categories .cat-pill').forEach(p =>
-    p.classList.toggle('active', (p.dataset.catId || '') === (currentCat || '')));
+function markChips(){
+  const mark = (sel, key, val) => document.querySelectorAll(sel).forEach(b =>
+    b.setAttribute('aria-pressed', (b.dataset[key] || '') === (val || '') ? 'true' : 'false'));
+  mark('#categories [data-cat-id]', 'catId', currentCat);
+  mark('#levels [data-level]', 'level', currentLevel);
+  mark('#rlangs [data-rlang]', 'rlang', currentRlang);
 }
 function activeFilterList(){
   const out = [];
   if (currentCat) {
     const pill = pillFor(currentCat);
-    out.push({k:'category', label: pill ? pill.textContent.replace(/\s+/g, ' ').trim() : T.fCategory});
+    out.push({k:'category', label: T.fCategory + (pill ? ': ' + pill.dataset.label : '')});
   }
-  const lg = $('filter-lang');
-  if (lg.value) out.push({k:'lang', label: T.fLang + ': ' + lg.options[lg.selectedIndex].text});
-  const lv = $('filter-level');
-  if (lv.value) out.push({k:'level', label: T.fLevel + ': ' + lv.options[lv.selectedIndex].text});
+  if (currentRlang) out.push({k:'lang', label: T.fLang + ': ' + RLANG_LABELS[currentRlang]});
+  if (currentLevel) out.push({k:'level', label: T.fLevel + ': ' + LEVEL_LABELS[currentLevel]});
   return out;
 }
 function filterSummary(){ return activeFilterList().map(f => f.label).join(' · '); }
@@ -949,10 +856,14 @@ function renderActiveFilters(){
   const q = $('search').value.trim();
   if (q) items.unshift({k:'search', label: T.fSearch + ': ' + q});
   let html = items.map(f =>
-    '<button class="chip" type="button" data-clear="' + escAttr(f.k) + '" aria-label="' + escAttr(fill(T.removeFilter, '%s', f.label)) + '">' +
-    esc(f.label) + ' <span aria-hidden="true">✕</span></button>').join('');
-  if (items.length > 1) html += '<button class="chip chip-clear" type="button" data-clear="all">' + esc(T.clearFilters) + '</button>';
+    '<button class="ia-chip" type="button" data-clear="' + IA.esc(f.k) + '" aria-label="' + IA.esc(fill(T.removeFilter, '%s', f.label)) + '">' +
+    IA.esc(f.label) + ' <span aria-hidden="true">✕</span></button>').join('');
+  if (items.length > 1) html += '<button class="ia-chip" type="button" data-clear="all">' + IA.esc(T.clearFilters) + '</button>';
   $('active-filters').innerHTML = html;
+  // Los recuentos de los chips de materia son del catálogo ENTERO: con una
+  // búsqueda, un curso o un idioma activos mentían («Física 207» con 0
+  // resultados). Entonces se ocultan [revisión 2026-09].
+  $('categories').classList.toggle('home-counts-off', !!(q || currentLevel || currentRlang));
 }
 
 function syncClearBtn(){ $('search-clear').hidden = !$('search').value; }
@@ -970,71 +881,63 @@ function clearSearch(){
 }
 function clearFilters(){
   $('search').value = '';
-  $('filter-lang').value = '';
-  $('filter-level').value = '';
   $('sort').value = 'recent';
   sortExplicit = false;
-  currentCat = null;
-  markActivePill(); syncClearBtn();
+  currentCat = null; currentLevel = ''; currentRlang = '';
+  markChips(); syncClearBtn();
   clearTimeout(debounceTimer);
   loadResources({push:true});
   $('search').focus();
 }
 
+// Chips de materia: etiqueta y color ya calculados por la API (shared/labels.php).
 function renderCategories(cats) {
-  const activeCats = cats.filter(c => parseInt(c.resource_count, 10) > 0);
-  $('stat-cats').textContent = activeCats.length;
-  let html = '<button class="cat-pill" type="button" data-cat-id="">' + esc(T.allCats) + '</button>';
-  activeCats.forEach(c => {
-    html += '<button class="cat-pill" type="button" data-cat-id="' + escAttr(c.id) + '">' +
-      '<i data-lucide="' + escAttr(c.icon || 'folder') + '" style="width:14px;height:14px" aria-hidden="true"></i> ' +
-      esc(c.name) + ' <span class="count">' + esc(c.resource_count) + '</span></button>';
+  let html = '<button class="ia-chip" type="button" data-cat-id="" data-label="' + IA.esc(T.allCats) + '" aria-pressed="false">' + IA.esc(T.allCats) + '</button>';
+  cats.filter(c => parseInt(c.resource_count, 10) > 0).forEach(c => {
+    const subj = SUBJ_RE.test(c.subject_class || '') ? c.subject_class : 's-general';
+    const label = c.label || c.name || '';
+    html += '<button class="ia-chip ' + subj + '" type="button" data-cat-id="' + IA.esc(c.id) + '" data-label="' + IA.esc(label) + '" aria-pressed="false">' +
+      '<span class="ia-dot" aria-hidden="true"></span>' + IA.esc(label) +
+      ' <span class="ia-count">' + IA.esc(c.resource_count) + '</span></button>';
   });
   $('categories').innerHTML = html;
-  markActivePill();
-  lucide.createIcons();
+  markChips();
 }
 
-
-// TODO valor de BD es hostil: title/description ya se escapaban, pero level y
-// code_type no, y level es texto libre de 50 chars → XSS almacenado en portada.
+// Tarjeta del catálogo: portada generativa (IA.cover), título, descripción y
+// curso · idioma · cómo se abre. Sin contadores (👁/❤): view_count está
+// congelado y un «0» en portada no le dice nada a nadie. Todo valor de la BD
+// pasa por IA.esc (también las etiquetas: level es texto libre).
+// La tarjeta entera es clicable con .ia-card-link (un <a> real, con nombre:
+// el título); la estrella va FUERA del enlace (un <button> dentro de un <a>
+// es inválido) y por encima (z-index de .ia-card-fav).
 function renderCard(r) {
   const rid = Number(r.id) || 0;
-  const icon = escAttr(r.category_icon || 'file-code');
-  const lvRaw = r.level || 'general';
-  const levelKey = LEVEL_CLASSES[lvRaw] ? lvRaw : 'general';   // clase CSS: sólo lista blanca
-  // La etiqueta sale de la clave YA filtrada, no del texto de BD: un level
-  // inventado se muestra como "General" en vez de escupir 50 chars arbitrarios.
-  const levelLabel = esc(T.levels[levelKey] || levelKey);
-  const typeLabel = r.code_type === 'html' ? 'HTML' : esc(r.code_type || '');
-  const langFlag = {'es':'🇪🇸','en':'🇬🇧','pt':'🇧🇷'}[r.lang] || '🌐';
   const fav = favSet.has(rid);
-  const iaBadge = r.code_type==='html'
-    ? '<span class="thumb-ia"><svg xmlns="http://www.w3.org/2000/svg" width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/></svg> IA</span>'
-    : '';
-  // <a> real: alcanzable con teclado, abrible en pestaña nueva y rastreable.
-  // El botón ⭐ va FUERA del enlace (un <button> dentro de un <a> es inválido).
-  return `<div class="card-wrap">
-    <a class="card" href="/resource/${rid}">
-      <div class="card-thumb">
-        <span class="thumb-fallback"><i data-lucide="${icon}" aria-hidden="true"></i></span>
-        <img src="/thumbnails/og-${rid}.png" loading="lazy" alt="" onerror="this.remove()">
-        ${iaBadge}
-      </div>
-      <div class="card-content">
-        <div class="card-title">${esc(r.title)}</div>
-        <div class="card-desc">${esc(r.description || '')}</div>
-        <div class="card-footer">
-          <div class="card-tags"><span class="badge-level ${levelKey}">${levelLabel}</span><span class="tag">${typeLabel}</span><span class="tag">${langFlag}</span></div>
-          <div class="card-meta">
-            <span><i data-lucide="eye" style="width:12px;height:12px" aria-hidden="true"></i> ${Number(r.view_count) || 0}</span>
-            <span><i data-lucide="heart" style="width:12px;height:12px" aria-hidden="true"></i> ${Number(r.like_count) || 0}</span>
-          </div>
-        </div>
-      </div>
-    </a>
-    <button class="fav-btn card-fav${fav?' is-fav':''}" type="button" title="${escAttr(T.save)}" aria-label="${escAttr(T.save)}" aria-pressed="${fav?'true':'false'}" onclick="toggleFavorite(${rid},this)"><i data-lucide="star" aria-hidden="true"></i></button>
-  </div>`;
+  // Cada dato es un bloque que no se parte («12–16 años», «En español»); la
+  // línea solo se corta entre datos, por el separador.
+  const item = (txt, cls) => '<span class="home-meta-item' + (cls ? ' ' + cls : '') + '">' + IA.esc(txt) + '</span>';
+  const SEP = '<span aria-hidden="true"> · </span>';
+  const meta = [];
+  if (r.level_label) meta.push(item(r.level_label));
+  if (r.lang_label)  meta.push(item(r.lang_label, r.lang === 'es' ? 'ia-lang-es' : ''));
+  // «Cómo se abre» se omite en la tarjeta-fila del móvil (ahorra una línea por
+  // tarjeta; lo dice la ficha). La fuente la lleva el sello de la portada; en
+  // la tarjeta-fila la portada es pequeña y no lo enseña: ahí va al final.
+  const opens = r.opens_label ? '<span class="home-rows-hide">' + SEP + item(r.opens_label) + '</span>' : '';
+  const src = r.source_label ? '<span class="home-rows-only">' + SEP + item(r.source_label) + '</span>' : '';
+  return '<article class="ia-card">' +
+      IA.cover(r) +
+      '<div class="ia-card-body">' +
+        '<h3 class="ia-card-title" id="ct-' + rid + '">' + IA.esc(r.title) + '</h3>' +
+        (r.description ? '<p class="ia-card-desc">' + IA.esc(r.description) + '</p>' : '') +
+        '<div class="ia-card-meta">' + meta.join(SEP) + opens + src + '</div>' +
+      '</div>' +
+      '<a class="ia-card-link" href="/resource/' + rid + '" aria-labelledby="ct-' + rid + '"></a>' +
+      '<button class="ia-btn ia-btn-icon ia-card-fav fav-btn' + (fav ? ' is-fav' : '') + '" type="button" data-id="' + rid + '"' +
+        ' title="' + IA.esc(T.save) + '" aria-label="' + IA.esc(T.save) + '" aria-pressed="' + (fav ? 'true' : 'false') + '">' +
+        '<i data-lucide="star" aria-hidden="true"></i></button>' +
+    '</article>';
 }
 
 // ── Listeners ──
@@ -1044,38 +947,46 @@ $search.addEventListener('input', () => {
   clearTimeout(debounceTimer);
   debounceTimer = setTimeout(() => loadResources(), 300);
 });
+// Enter (o la lupa del teclado del móvil) busca YA, sin esperar el debounce;
+// blur cierra el teclado en móvil. Sin JS el formulario hace un GET normal.
+$('search-form').addEventListener('submit', e => {
+  e.preventDefault();
+  clearTimeout(debounceTimer);
+  loadResources({push:true});
+  $search.blur();
+});
 $search.addEventListener('keydown', e => {
-  if (e.key === 'Enter') {
-    // Enter busca YA, sin esperar el debounce; blur cierra el teclado en móvil.
-    e.preventDefault();
-    clearTimeout(debounceTimer);
-    loadResources({push:true});
-    $search.blur();
-  } else if (e.key === 'Escape') {
-    e.stopPropagation();   // que no llegue al handler global (salir de presentación)
-    if ($search.value) { e.preventDefault(); clearSearch(); }
-  }
+  if (e.key === 'Escape' && $search.value) { e.preventDefault(); clearSearch(); }
 });
 $('search-clear').addEventListener('click', () => { clearSearch(); $search.focus(); });
-['filter-lang','filter-level','sort'].forEach(id => $(id).addEventListener('change', () => {
+$('sort').addEventListener('change', () => {
   // Elegir el orden a mano lo congela: al seguir tecleando no saltará a relevancia.
-  if (id === 'sort') sortExplicit = true;
-  clearTimeout(debounceTimer);
-  loadResources({push:true});
-}));
-
-// Píldoras de categoría (el contenedor existe siempre: se delega una sola vez)
-$('categories').addEventListener('click', e => {
-  const pill = e.target.closest('.cat-pill');
-  if (!pill) return;
-  currentCat = pill.dataset.catId || null;
-  markActivePill();
+  sortExplicit = true;
   clearTimeout(debounceTimer);
   loadResources({push:true});
 });
 
-// Controles de los estados vacío/error y de los chips de filtros activos
+// Chips de filtro (los contenedores existen siempre: se delega una sola vez).
+// Pulsar el chip ya marcado lo desmarca (vuelve a «Todos»).
+function onChip(sel, get, set){
+  return e => {
+    const b = e.target.closest(sel);
+    if (!b) return;
+    const v = get(b);
+    set(v && b.getAttribute('aria-pressed') === 'true' ? '' : v);
+    markChips();
+    clearTimeout(debounceTimer);
+    loadResources({push:true});
+  };
+}
+$('categories').addEventListener('click', onChip('[data-cat-id]', b => b.dataset.catId || '', v => { currentCat = v || null; }));
+$('levels').addEventListener('click', onChip('[data-level]', b => b.dataset.level || '', v => { currentLevel = v; }));
+$('rlangs').addEventListener('click', onChip('[data-rlang]', b => b.dataset.rlang || '', v => { currentRlang = v; }));
+
+// Controles de los estados vacío/error, chips de filtros activos, sugerencias y ⭐
 function onControlClick(e){
+  const fb = e.target.closest('.fav-btn[data-id]');
+  if (fb) { toggleFavorite(fb.dataset.id, fb); return; }
   const sg = e.target.closest('[data-suggest]');
   if (sg) { searchFor(sg.dataset.suggest); return; }
   if (e.target.closest('[data-retry]')) { loadResources({push:false}); return; }
@@ -1084,26 +995,25 @@ function onControlClick(e){
   const k = cl.dataset.clear;
   if (k === 'all') { clearFilters(); return; }
   if (k === 'search') { $('search').value = ''; syncClearBtn(); }
-  else if (k === 'category') { currentCat = null; markActivePill(); }
-  else if (k === 'lang')  $('filter-lang').value = '';
-  else if (k === 'level') $('filter-level').value = '';
+  else if (k === 'category') currentCat = null;
+  else if (k === 'lang')  currentRlang = '';
+  else if (k === 'level') currentLevel = '';
+  markChips();
   clearTimeout(debounceTimer);
   loadResources({push:true});
 }
 $('grid').addEventListener('click', onControlClick);
 $('active-filters').addEventListener('click', onControlClick);
+document.querySelector('.home-try').addEventListener('click', onControlClick);
 $('more-wrap').addEventListener('click', e => {
   if (!e.target.closest('#more-btn')) return;
   page++;
   loadResources({append:true, push:false});
 });
 
-function applyFeaturedFavs(){
-  document.querySelectorAll('.fav-corner').forEach(btn=>setFavBtn(btn,favSet.has(Number(btn.dataset.fid))));
-}
-
 // Deep-link: search, sort, category, rlang y level se leen de la URL — así
-// funcionan "Ver todos → /?sort=popular" y cualquier enlace compartido.
+// funciona cualquier enlace compartido (y los viejos /?sort=popular: la API
+// sigue aceptándolos, la portada los trata como su orden por defecto).
 applyStateFromURL();
 // El 404 enlaza a /?focus=search: con el foco puesto (y el teclado abierto en
 // móvil) el usuario sigue buscando en vez de aterrizar en una portada estática.
@@ -1117,7 +1027,9 @@ applyStateFromURL();
   } catch (err) {}
 })();
 // push:false en el arranque: no reescribimos la URL antes de que el usuario toque nada.
-loadFavorites().finally(()=>{ applyFeaturedFavs(); loadResources({push:false}); });
+// Catálogo y guardados en paralelo: las estrellas se marcan cuando llegan.
+loadResources({push:false});
+loadFavorites().then(applyFavs);
 </script>
 </body>
 </html>

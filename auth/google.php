@@ -10,6 +10,7 @@
 session_start();
 require_once __DIR__ . '/../shared/db.php';
 require_once __DIR__ . '/../shared/helpers.php';
+require_once __DIR__ . '/../shared/local_path.php';
 
 $env = require dirname(__DIR__) . '/.env.php';
 $clientId = $env['GOOGLE_CLIENT_ID'] ?? '';
@@ -79,7 +80,8 @@ $_SESSION['user'] = [
 // Llega por ?save/?return_url en el login_uri y, como respaldo, por cookie
 // (signin.php la fija con SameSite=None para sobrevivir al POST de Google).
 $saveId    = (int) ($_GET['save'] ?? $_COOKIE['fav_intent'] ?? 0);
-$returnUrl = safeLocalPath($_GET['return_url'] ?? $_COOKIE['fav_return'] ?? '');
+// Solo rutas locales, con la regla común (shared/local_path.php).
+$returnUrl = iarepo_safe_local_path($_GET['return_url'] ?? $_COOKIE['fav_return'] ?? '');
 
 // Limpia las cookies de intención (ya consumidas).
 foreach (['fav_intent', 'fav_return'] as $ck) {
@@ -97,7 +99,8 @@ if ($saveId) {
                ->execute([(int) $user['id'], $saveId]);
         }
     } catch (\Throwable $e) {
-        // best-effort: nunca bloquea el login
+        // best-effort: nunca bloquea el login, pero se registra.
+        error_log('iarepo: auth/google.php no pudo aplicar el guardado pendiente: ' . $e->getMessage());
     }
 }
 
@@ -114,14 +117,6 @@ if ($isNew) {
 // Usuario existente → vuelve a donde estaba si guardaba algo, si no al dashboard.
 header('Location: ' . ($returnUrl ?: '/dashboard/'));
 exit;
-
-/**
- * Solo permite rutas locales ("/algo"), nunca URLs absolutas ni protocol-relative.
- */
-function safeLocalPath(string $url): string {
-    $url = urldecode($url);
-    return ($url === '/' || preg_match('#^/[^/\\\\]#', $url)) ? $url : '';
-}
 
 
 // ────────────────────────────────────────────────

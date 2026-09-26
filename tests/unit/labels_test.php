@@ -12,6 +12,7 @@ if (PHP_SAPI !== 'cli') { http_response_code(403); exit('forbidden'); }
 
 require_once IAREPO_ROOT . '/shared/labels.php';
 require_once IAREPO_ROOT . '/shared/asset.php';
+require_once IAREPO_ROOT . '/shared/ui.php';
 
 /** Slugs sembrados por las migraciones: todos deben tener etiqueta propia. */
 function lbl_seeded_slugs(): array
@@ -108,4 +109,97 @@ function test_ia_esc_escapa_comillas_simples_y_dobles(): void
         . 'process.stdout.write(window.IA.esc("Física de 1º d\'ESO <b>\\"x\\"</b> & más"));';
     $out = shell_exec('node -e ' . escapeshellarg($js) . ' 2>&1');
     assert_eq('Física de 1º d&#39;ESO &lt;b&gt;&quot;x&quot;&lt;/b&gt; &amp; más', $out);
+}
+
+// ── Integración del rediseño 2026-09 ─────────────────────────────
+// Defectos que vieron los agentes de la portada, la ficha y las listas en
+// la base común y que se arreglaron en shared/ (no en cada página).
+
+function test_un_enlace_sin_source_url_firma_con_su_propia_direccion(): void
+{
+    // 30 recursos antiguos de PhET: code_type 'url', sin source_name ni source_url.
+    $full = ['code_type' => 'url', 'code_content' => 'https://phet.colorado.edu/sims/html/x/latest/x_es.html'];
+    assert_eq('PhET', iarepo_source_label($full), 'con la fila completa (code_content)');
+    assert_eq('PhET', iarepo_source_label(['code_type' => 'url', 'link_url' => $full['code_content']]),
+        'con link_url (listados que no traen code_content)');
+    assert_null(iarepo_source_label(['code_type' => 'html', 'code_content' => 'https://phet.colorado.edu/']),
+        'un HTML propio no firma con una dirección que aparezca en su código');
+    assert_null(iarepo_source_label(['code_type' => 'url', 'code_content' => 'javascript:alert(1)//phet.colorado.edu']),
+        'de algo que no es http(s) no se deduce ninguna fuente');
+    assert_eq('GeoGebra', iarepo_source_label(['code_type' => 'url', 'source_url' => 'https://www.geogebra.org/m/1',
+        'code_content' => 'https://phet.colorado.edu/x']), 'source_url sigue mandando');
+
+    // Y los listados traen link_url: sin él, la portada y la API no ven la fuente.
+    foreach (['api/resources.php', 'index.php', 'profile/index.php', 'collection/index.php', 'favorites/index.php'] as $rel)
+        assert_contains("code_content, NULL) AS link_url", (string) file_get_contents(IAREPO_ROOT . "/$rel"),
+            "$rel: el SELECT del listado trae link_url para deducir la fuente de los enlaces");
+}
+
+function test_el_sello_de_la_fuente_ignora_los_simbolos_sueltos(): void
+{
+    assert_eq('NS', iarepo_source_mono('NASA / STScI'), 'daba «N/»');
+    assert_eq('PS', iarepo_source_mono('Physics & Simulations'));
+    assert_eq('Ph', iarepo_source_mono('PhET'));
+    assert_eq('ed', iarepo_source_mono('educaplus.org'), 'un dominio es una sola palabra');
+    assert_eq('', iarepo_source_mono(' / '));
+}
+
+function test_la_portada_generativa_pinta_un_solo_tema(): void
+{
+    assert_eq('waves', iarepo_topic_label('waves,introduction'), 'pintaba «WAVES,INTRODU…»');
+    assert_eq('ondas', iarepo_topic_label(' , ondas ,luz'));
+    assert_eq('', iarepo_topic_label(null));
+    assert_eq('waves', iarepo_with_labels(['topic_tag' => 'waves,intro'])['topic_label'] ?? null,
+        'la API y las páginas reciben topic_label ya cortado');
+
+    exec('command -v node 2>/dev/null', $o, $rc);
+    if ($rc !== 0) {
+        echo "    SKIP node no está instalado (IA.cover)\n";
+        return;
+    }
+    $js = 'global.window = {}; global.document = { readyState: "complete", addEventListener(){} };'
+        . 'require(' . json_encode(IAREPO_ROOT . '/assets/js/ui.js') . ');'
+        . 'process.stdout.write(window.IA.cover({topic_tag: "waves,introduction", category_label: "Física"}));';
+    $out = (string) shell_exec('node -e ' . escapeshellarg($js) . ' 2>&1');
+    assert_contains('<span class="ia-cover-topic">waves</span>', $out, 'IA.cover (JS) también corta la lista');
+}
+
+function test_la_hoja_comun_hace_que_hidden_gane_y_pinta_un_solo_foco(): void
+{
+    $css = (string) file_get_contents(IAREPO_ROOT . '/assets/css/app.css');
+    // .ia-btn, .ia-chip… fijan display y anulaban [hidden] sin avisar: el JS
+    // «ocultaba» botones que seguían viéndose. Vivía copiado en 3 páginas.
+    assert_matches('/\.ia-page \[hidden\]\s*\{\s*display:\s*none\s*!important;?\s*\}/', $css, '[hidden] gana en app.css');
+    // Buscador: el :focus-visible general pintaba un segundo anillo dentro de la píldora.
+    assert_matches('/\.ia-search input:focus-visible\s*\{[^}]*outline:\s*none/', $css, 'un solo anillo de foco en .ia-search');
+    foreach (['index.php', '404.php', 'resource/index.php'] as $rel)
+        assert_not_contains('[hidden] { display: none !important; }', (string) file_get_contents(IAREPO_ROOT . "/$rel"),
+            "$rel: la regla de [hidden] vive en app.css, no copiada en la página");
+}
+
+/**
+ * pwa.js es un .js estático: sus textos llegan traducidos por data-* desde
+ * iarepo_pwa_script(). Antes decía «Instalar app» y «Guardado en tus
+ * favoritos ⭐» a quien usaba la web en inglés, con el vocabulario viejo, y
+ * pintaba un theme-color distinto del de theme.js (parpadeo).
+ */
+function test_pwa_js_recibe_sus_textos_traducidos_y_no_pisa_el_tema(): void
+{
+    $pwa = (string) file_get_contents(IAREPO_ROOT . '/assets/js/pwa.js');
+    assert_not_contains('favoritos', $pwa, 'vocabulario nuevo: «Guardados»');
+    assert_not_contains('theme-color', preg_replace('#^\s*//.*$#m', '', $pwa), 'el theme-color es cosa de theme.js');
+    assert_contains('document.currentScript', $pwa, 'lee sus textos del <script> que lo carga');
+
+    $html = iarepo_pwa_script();
+    foreach (['data-install', 'data-hide', 'data-saved'] as $attr)
+        assert_contains($attr . '="', $html, "iarepo_pwa_script() pasa $attr");
+
+    // Todas las páginas que cargan pwa.js lo hacen por el helper (con textos).
+    exec('git -C ' . escapeshellarg(IAREPO_ROOT) . ' ls-files -co --exclude-standard "*.php"', $files);
+    foreach ($files as $rel) {
+        if (str_starts_with($rel, 'tests/') || $rel === 'shared/ui.php')
+            continue;
+        $src = (string) file_get_contents(IAREPO_ROOT . '/' . $rel);
+        assert_not_matches('#<script[^>]+pwa\.js#', $src, "$rel carga pwa.js a mano: usa iarepo_pwa_script()");
+    }
 }

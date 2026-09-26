@@ -585,9 +585,21 @@ echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━�
 echo ""
 
 echo "── Páginas ──────────────────────────────"
-check  "Landing homepage"        "/"                    200  'class="fcard"'
-check  "Landing: 8 featured"     "/"                    200  'class="fcard"'
-check  "Resource detail"         "/resource/3"          200  'class="preview-card"'
+# Marcadores del rediseño 2026-09: la portada ya no tiene tarjetas en el HTML
+# (el catálogo lo pinta el JS), así que se busca el contenedor #catalogo y las
+# dos secciones calculadas en el servidor. Cada una tiene SU SQL y su try: si
+# falla, desaparece ELLA sola y su check lo ve.
+#   · #listos («Listos para clase»): RAND(TO_DAYS(CURDATE())), sin REGEXP.
+#   · #para-empezar: el REGEXP con lookbehind (IAREPO_HOME_BASICS_RX). Es el
+#     que puede no existir en la MariaDB de producción; #listos NO lo detecta
+#     (se decía que sí: la revisión 2026-09 lo desmintió probándolo).
+#     Depende de que haya títulos «intro/básic/fundament» (los hay a decenas).
+# En la ficha, #stage es el recurso funcionando. tests/unit/landing_test.php,
+# resource_page_test.php y smoke_markers_test.php exigen esos ids.
+check  "Landing homepage"        "/"                    200  'id="catalogo"'
+check  "Landing: Listos para clase" "/"                 200  'id="listos"'
+check  "Landing: Para empezar (REGEXP)" "/"             200  'id="para-empezar"'
+check  "Resource detail"         "/resource/3"          200  'id="stage"'
 check  "Resource con JSON-LD"    "/resource/3"          200  'LearningResource'
 check  "Viewer page"             "/view/3"              200  'class="viewer-bar"'
 check  "Viewer noindex"          "/view/3"              200  'noindex'
@@ -617,6 +629,27 @@ check_json "Resource single"           "/api/resources.php?id=3"      "resource"
 check_json "Resource con tags"         "/api/resources.php?id=3"      "resource"
 check      "Comments (público)"        "/api/comments.php?resource_id=3" 200 '"ok"'
 check      "Likes (público)"           "/api/likes.php?id=3"          200 '"ok"'
+
+# El filtro ?lang= de la API es el idioma del RECURSO, no el de la interfaz: no
+# puede plantar la cookie `lang` (AGENTS.md §15.5). Pasó en 2026-09 al empezar
+# la API a traducir etiquetas: 200, JSON válido, y pulsar «Inglés» en los
+# filtros de la portada pasaba la web entera a inglés durante un año.
+check_api_lang_no_cookie() {
+    local desc="API: el filtro ?lang= no cambia el idioma de la web" hdrs code
+    hdrs=$(curl -s -D - -o /dev/null --max-time 15 "${BASE}/api/resources.php?lang=en&limit=10")
+    code=$(printf '%s\n' "$hdrs" | head -1 | awk '{print $2}')
+    case "$code" in
+        200) ;;
+        429) sindet "$desc" "$RL_MSG"; return ;;
+        *)   sfail "$desc" "HTTP ${code:-sin respuesta}"; return ;;
+    esac
+    if printf '%s\n' "$hdrs" | grep -qi '^set-cookie: *lang='; then
+        sfail "$desc" "responde Set-Cookie lang=: un filtro de la portada cambia el idioma de toda la web"
+    else
+        spass "$desc"
+    fi
+}
+check_api_lang_no_cookie
 
 echo ""
 echo "── Despliegue ───────────────────────────"
@@ -895,8 +928,9 @@ check_search_min "Prefijo: 'matem' encuentra algo"  'matem'  1
 
 # ── 3. Token corto: InnoDB descarta tokens < 3 chars (min_token_size=3,
 # global, no tocable en hosting compartido) → sólo alcanzable vía LIKE.
-# 'pH' es literalmente el ejemplo del placeholder del buscador (index.php:376)
-# y hoy devuelve 0 teniendo "pH Scale" y "Escala de pH: Fundamentos".
+# 'pH' fue el ejemplo del placeholder del buscador hasta el rediseño 2026-09
+# (hoy es «fuerzas, fracciones, el átomo…») y llegó a devolver 0 teniendo
+# "pH Scale" y "Escala de pH: Fundamentos".
 check_search_min "Token corto: 'pH' encuentra algo"  'pH'  1
 
 # ── 4. Multi-palabra = AND, no OR ──

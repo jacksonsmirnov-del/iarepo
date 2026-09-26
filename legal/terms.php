@@ -1,93 +1,89 @@
 <?php
 // ================================================================
 // legal/terms.php — Términos de Servicio, Uso y Atribución
+//
+// ⚖️ El TEXTO de esta página es un documento publicado con el nombre del
+// responsable encima, y tests/unit/tracking_test.php y comprehension_test.php
+// lo leen: se toca solo con revisión (CLAUDE.md §8). El rediseño de 2026-09
+// cambió ÚNICAMENTE el aspecto: cabecera y pie comunes, assets/css/app.css,
+// tipografía del sistema (sin Google Fonts: avisaba a un tercero de cada
+// visita) y una medida de línea legible. Ni una palabra del texto.
+//
+// El texto solo existe en español: la página se marca lang="es" en <main>,
+// aunque la cabecera y el pie sigan el idioma elegido de la interfaz.
 // ================================================================
 // Primero de todo: los errores de esta página se registran y se ven (y nunca
 // dejan media página). Ver shared/page_errors.php.
 require_once __DIR__ . '/../shared/page_errors.php';
 
+require_once __DIR__ . '/../shared/auth.php';
+require_once __DIR__ . '/../shared/i18n.php';
+require_once __DIR__ . '/../shared/ui.php';
+if (!function_exists('h')) {
+    function h(string $s): string {
+        return htmlspecialchars($s, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+    }
+}
+lang();
+
+// La sesión solo se lee si YA existe: una página legal no abre sesiones (ni
+// deja cookie) a quien solo viene a leerla.
+$user = isset($_COOKIE[session_name()]) ? getSessionUser() : null;
+
 $pageTitle = 'Términos de Servicio';
 $pageDesc  = 'Términos de uso, política de atribución y licencia de iarepo.com — repositorio abierto de recursos educativos.';
 ?>
 <!DOCTYPE html>
-<html lang="es">
+<html lang="<?= lang() ?>">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title><?= $pageTitle ?> — iarepo</title>
-    <meta name="description" content="<?= $pageDesc ?>">
+    <title><?= h($pageTitle) ?> — iarepo</title>
+    <meta name="description" content="<?= h($pageDesc) ?>">
     <meta name="robots" content="index, follow">
     <link rel="canonical" href="https://iarepo.com/legal/terms.php">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+    <link rel="icon" href="/favicon.ico" sizes="any">
+    <meta name="theme-color" content="#F6F7F9">
+    <?= iarepo_head_assets() ?>
     <style>
-        :root {
-            --bg: #f8fafc; --surface: #ffffff; --text: #1e293b;
-            --muted: #64748b; --accent: #7c3aed; --border: #e2e8f0;
-        }
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
-            font-family: 'Inter', system-ui, sans-serif;
-            background: var(--bg); color: var(--text);
-            line-height: 1.7; font-size: 16px;
-        }
-        .container {
-            max-width: 780px; margin: 0 auto;
-            padding: 40px 24px 80px;
-        }
-        .back-link {
-            display: inline-flex; align-items: center; gap: 6px;
-            color: var(--accent); text-decoration: none; font-size: 14px;
-            margin-bottom: 32px; font-weight: 500;
-        }
-        .back-link:hover { text-decoration: underline; }
-        h1 {
-            font-size: 2rem; font-weight: 700; margin-bottom: 8px;
-            background: linear-gradient(135deg, #7c3aed, #06b6d4);
-            -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-        }
-        .updated { color: var(--muted); font-size: 14px; margin-bottom: 40px; }
-        h2 {
-            font-size: 1.3rem; font-weight: 700; margin-top: 40px;
-            margin-bottom: 12px; color: var(--text);
-            padding-bottom: 8px; border-bottom: 2px solid var(--border);
-        }
-        h3 { font-size: 1.05rem; font-weight: 600; margin-top: 24px; margin-bottom: 8px; }
-        p, li { margin-bottom: 12px; color: #334155; }
-        ul, ol { padding-left: 24px; }
-        li { margin-bottom: 8px; }
-        .highlight {
-            background: linear-gradient(135deg, rgba(124,58,237,.06), rgba(6,182,212,.06));
-            border-left: 4px solid var(--accent);
-            padding: 16px 20px; border-radius: 0 8px 8px 0;
-            margin: 20px 0;
-        }
-        .highlight p { margin-bottom: 0; }
-        a { color: var(--accent); }
-        code {
-            background: #f1f5f9; padding: 2px 6px; border-radius: 4px;
-            font-size: 14px; font-family: 'Fira Code', monospace;
-        }
-        .badge {
-            display: inline-block; padding: 4px 12px; border-radius: 20px;
-            font-size: 12px; font-weight: 600; margin-right: 6px;
-        }
-        .badge-green { background: #dcfce7; color: #166534; }
-        .badge-blue { background: #dbeafe; color: #1e40af; }
-        .badge-purple { background: #ede9fe; color: #5b21b6; }
-        table { width: 100%; border-collapse: collapse; margin: 16px 0; }
-        th, td { padding: 10px 14px; text-align: left; border-bottom: 1px solid var(--border); font-size: 14px; }
-        th { background: #f8fafc; font-weight: 600; }
-        footer {
-            text-align: center; padding: 32px; color: var(--muted);
-            font-size: 13px; border-top: 1px solid var(--border);
-            margin-top: 60px;
-        }
+        /* Solo lo propio de un texto largo; lo común vive en assets/css/app.css.
+           Las clases (.updated, .highlight, .badge-*, table, code) son las que
+           ya usaba el texto: se restilan, no se tocan. */
+        .legal { max-width: 76ch; padding-top: 32px; padding-bottom: 24px; font-size: 1.0625rem; line-height: 1.7; }
+        .legal h1 { font-size: clamp(1.8rem, 1.4rem + 1.6vw, 2.4rem); margin-bottom: 6px; }
+        .legal .updated { color: var(--ia-ink-3); font-size: .9rem; margin-bottom: 28px; }
+        .legal h2 { font-size: 1.3rem; margin: 40px 0 12px; padding-bottom: 8px; border-bottom: 2px solid var(--ia-line); }
+        .legal h3 { font-size: 1.08rem; margin: 24px 0 8px; }
+        .legal p, .legal li { color: var(--ia-ink-2); }
+        .legal li { margin-bottom: 8px; }
+        .legal ul, .legal ol { padding-left: 24px; margin: 0 0 1em; }
+        .legal strong { color: var(--ia-ink); }
+        .legal .highlight { background: var(--ia-accent-soft); border-left: 4px solid var(--ia-accent); padding: 14px 18px; border-radius: 0 10px 10px 0; margin: 20px 0; }
+        .legal .highlight p { margin: 0; color: var(--ia-ink); }
+        .legal code { background: var(--ia-surface-2); padding: 1px 6px; border-radius: 4px; font: .92em var(--ia-mono); }
+        .legal .badge { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: .8125rem; font-weight: 700; white-space: nowrap; }
+        .legal .badge-green { background: var(--ia-ok-soft); color: var(--ia-ok); }
+        .legal .badge-blue { background: var(--ia-surface-2); color: var(--ia-ink); }
+        .legal .badge-purple { background: var(--ia-accent-soft); color: var(--ia-accent); }
+        /* Tablas: en móvil se desplazan dentro de su caja, nunca ensanchan la página. */
+        .legal table { display: block; overflow-x: auto; width: 100%; border-collapse: collapse; margin: 16px 0; font-size: .95rem; }
+        .legal th, .legal td { padding: 10px 12px; text-align: left; vertical-align: top; border-bottom: 1px solid var(--ia-line); }
+        .legal th { background: var(--ia-surface-2); color: var(--ia-ink); font-weight: 700; }
+        .legal-colophon { margin-top: 48px; padding-top: 20px; border-top: 1px solid var(--ia-line); text-align: center; font-size: .9rem; }
+        .legal-colophon p { color: var(--ia-ink-3); margin-bottom: 4px; }
+        .legal-note-wrap { max-width: 76ch; padding-top: 24px; }
+        .legal-lang-note { margin: 0; display: flex; gap: 8px; align-items: center; padding: 10px 14px; border-radius: 10px; background: var(--ia-surface-2); color: var(--ia-ink-2); font-size: .95rem; }
+        .legal-lang-note svg { width: 18px; height: 18px; flex: none; }
     </style>
+    <?php require_once __DIR__ . '/../shared/error_tracker.php'; ?>
 </head>
-<body>
-<div class="container">
-    <a href="/" class="back-link">← Volver a iarepo</a>
-
+<body class="ia-page">
+<?php iarepo_header($user, ''); ?>
+<?php if (lang() !== 'es'): ?>
+<div class="ia-container legal-note-wrap"><p class="legal-lang-note" lang="<?= lang() ?>"><i data-lucide="languages" aria-hidden="true"></i><?= h(t('Este texto legal solo está disponible en español.')) ?></p></div>
+<?php endif; ?>
+<main id="main" class="ia-container legal" lang="es">
     <h1>📜 Términos de Servicio y Uso</h1>
     <p class="updated">Última actualización: 4 de mayo de 2026</p>
 
@@ -342,10 +338,12 @@ $pageDesc  = 'Términos de uso, política de atribución y licencia de iarepo.co
         <li>🌐 <a href="https://iarepo.com">iarepo.com</a></li>
     </ul>
 
-    <footer>
+    <div class="legal-colophon">
         <p>© 2026 iarepo — Proyecto de código abierto por <a href="https://claseprivada.com">claseprivada.com</a></p>
         <p>Hecho con ❤️ para profesores del mundo.</p>
-    </footer>
-</div>
+    </div>
+</main>
+<?php iarepo_footer($user); ?>
+<?= iarepo_body_assets() ?>
 </body>
 </html>

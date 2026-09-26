@@ -1,9 +1,30 @@
 <?php
 // ================================================================
-// dashboard/editor.php — Resource Editor
+// dashboard/editor.php — Publicar un recurso (o editar uno tuyo)
 //
-// Create new resources or edit existing ones.
-// Requires Google Sign-In session.
+// Objetivo: que publicar sea FÁCIL. A la vista solo lo imprescindible:
+//   · qué publicas: HTML generado por una IA, la dirección de una simulación
+//     que ya existe (PhET, GeoGebra…) o un código para insertar;
+//   · título y contenido (obligatorios);
+//   · materia y curso/edad (lo que usa el catálogo para encontrarlo).
+// Todo lo demás —descripción, idioma, visibilidad, etiquetas y la «Fuente
+// original» de un enlace— va plegado en «Más opciones».
+//
+// Decisiones:
+//   · subject_area ya no se escribe a mano (duplicaba la materia y cada cual
+//     la escribía a su manera). Se rellena con la etiqueta de la materia
+//     elegida; el buscador la usa (AGENTS.md §7).
+//   · En un recurso 'url' la dirección es también source_url: con eso la
+//     ficha dice «Creado por …» y la lista negra de URLs retiradas funciona.
+//   · Visibilidad: «Pública» o «Solo tú (borrador)». NO se ofrece «Tu
+//     centro»: en iarepo.com todas las cuentas comparten el tenant 0
+//     (shared/auth.php), así que 'school' significaría «cualquiera con
+//     cuenta», no tu centro. Si un recurso ya la tiene, se conserva.
+//   · Los errores de la API se traducen por CÓDIGO (T.err), nunca por texto.
+//
+// Piezas comunes: shared/ui.php, shared/labels.php y assets/css/app.css. El
+// <style> de abajo es solo lo propio del editor (prefijo .ed-).
+// Antirregresión: tests/unit/account_pages_test.php.
 // ================================================================
 
 // Primero de todo: los errores de esta página se registran y se ven (y nunca
@@ -13,6 +34,7 @@ require_once __DIR__ . '/../shared/page_errors.php';
 session_start();
 require_once __DIR__ . '/../shared/auth.php';
 require_once __DIR__ . '/../shared/db.php';
+require_once __DIR__ . '/../shared/ui.php';
 // h() local — NO se carga shared/helpers.php: su error_handler vuelca JSON y
 // corta la página a medias ante cualquier error (CLAUDE.md §2.1).
 if (!function_exists('h')) {
@@ -20,12 +42,11 @@ if (!function_exists('h')) {
         return htmlspecialchars($s, ENT_QUOTES | ENT_HTML5, 'UTF-8');
     }
 }
-require_once __DIR__ . '/../shared/i18n.php';
 lang();
 
 $user = getSessionUser();
-if (!$user) { header('Location: /'); exit; }
-// Crear/editar recursos es para profesores; el estudiante va a sus favoritos.
+if (!$user) { header('Location: /auth/signin.php?return_url=' . rawurlencode((string) ($_SERVER['REQUEST_URI'] ?? '/dashboard/editor.php'))); exit; }
+// Publicar es para docentes; quien está aprendiendo va a sus Guardados.
 if (($user['role'] ?? '') === 'student') { header('Location: /favorites/'); exit; }
 
 $db = getResourcesDB();
@@ -42,11 +63,50 @@ if ($editId) {
     $tagRows->execute([$editId]);
     $existingTags = $tagRows->fetchAll(PDO::FETCH_COLUMN);
 }
-
-// Fetch categories for dropdown
-$cats = $db->query("SELECT id, name, icon FROM categories ORDER BY name")->fetchAll();
 $isEdit = $resource !== null;
-$pageTitle = $isEdit ? t('Editar Recurso') : t('Nuevo Recurso');
+$v = static fn(string $k, string $default = ''): string => $isEdit ? (string) ($resource[$k] ?? $default) : $default;
+
+// Materias: etiqueta traducida (shared/labels.php), ordenadas por etiqueta.
+// Se incluyen las inactivas solo si es la del recurso que se edita.
+$cats = $db->query("SELECT id, name, slug, is_active FROM categories ORDER BY display_order, name")->fetchAll(PDO::FETCH_ASSOC);
+$cats = array_values(array_filter($cats, static fn($c) => (int) $c['is_active'] === 1 || (int) $c['id'] === (int) $v('category_id', '0')));
+foreach ($cats as &$c)
+    $c['label'] = iarepo_category_label($c['slug'], $c['name']);
+unset($c);
+usort($cats, static fn($a, $b) => strnatcasecmp($a['label'], $b['label']));
+
+// Tipo de contenido. Los tres de siempre a la vista; 'prompt', 'python' y
+// 'other' solo aparecen si el recurso que se edita ya es de ese tipo (no se
+// le cambia el tipo a nadie por no ofrecerlo).
+$types = [
+    'html'  => [t('HTML hecho con IA'), 'sparkles'],
+    'url'   => [t('Enlace a una simulación'), 'link'],
+    'embed' => [t('Código para insertar'), 'code'],
+];
+$legacyTypes = ['prompt' => [t('Prompt para IA'), 'message-square'], 'python' => [t('Código Python'), 'file-code'], 'other' => [t('Otro'), 'file']];
+$currentType = $v('code_type', 'html');
+if (isset($legacyTypes[$currentType]))
+    $types[$currentType] = $legacyTypes[$currentType];
+if (!isset($types[$currentType]))
+    $currentType = 'html';
+
+// Curso y edad: las claves de la API. Un nivel antiguo que no esté entre
+// ellas ('bachillerato', 'eso'…) se conserva como opción para no pisarlo.
+$levels = ['general' => iarepo_level_label('general')] + iarepo_level_options();
+$currentLevel = $v('level', 'general') ?: 'general';
+if (!isset($levels[$currentLevel]))
+    $levels[$currentLevel] = iarepo_level_label($currentLevel);
+
+// Visibilidad (ver la cabecera: sin «Tu centro» para cuentas de iarepo.com).
+$visibilities = ['community' => t('Pública'), 'draft' => t('Solo tú (borrador)')];
+$currentVis = $v('visibility', 'community');
+if (!isset($visibilities[$currentVis]))
+    $visibilities[$currentVis] = t('Con cuenta en iarepo');
+
+$langs = ['es' => t('Español'), 'en' => t('Inglés'), 'pt' => t('Portugués')];
+$currentLang = $v('lang', lang() === 'en' ? 'en' : 'es');
+
+$pageTitle = $isEdit ? t('Editar recurso') : t('Publicar un recurso');
 ?>
 <!DOCTYPE html>
 <html lang="<?= lang() ?>">
@@ -54,358 +114,479 @@ $pageTitle = $isEdit ? t('Editar Recurso') : t('Nuevo Recurso');
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title><?= h($pageTitle) ?> — iarepo</title>
+<meta name="robots" content="noindex">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="icon" href="/favicon.ico" sizes="any">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link rel="manifest" href="/manifest.webmanifest">
-<meta name="theme-color" content="#7c3aed">
-<script src="/assets/js/pwa.js" defer></script>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fira+Code:wght@400&display=swap" rel="stylesheet">
+<meta name="theme-color" content="#F6F7F9">
+<?= iarepo_head_assets() ?>
+<?= iarepo_pwa_script() ?>
 <style>
-*{margin:0;padding:0;box-sizing:border-box}
-:root{--bg:#f8fafc;--bg2:#fff;--bg3:#f1f5f9;--text:#1e293b;--text2:#475569;--text3:#94a3b8;--accent:#7c3aed;--accent2:#06b6d4;--grad:linear-gradient(135deg,#7c3aed,#06b6d4);--card:#fff;--border:#e2e8f0;--radius:12px;--shadow:0 1px 3px rgba(0,0,0,.06)}
-[data-theme="dark"]{--bg:#0a0e1a;--bg2:#111827;--bg3:#1e293b;--text:#e2e8f0;--text2:#94a3b8;--text3:#64748b;--card:#151c2e;--border:#1e293b;--shadow:0 1px 3px rgba(0,0,0,.3)}
-body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
-a{color:var(--accent2);text-decoration:none}
+/* Solo lo propio del editor (.ed-*). Lo común sale de assets/css/app.css. */
+.ed-main { padding-top: 20px; }
+.ed-back { display: inline-flex; align-items: center; gap: 4px; font-weight: 600; font-size: .95rem; margin-bottom: 8px; }
+.ed-back svg { width: 18px; height: 18px; }
+.ed-main h1 { font-size: clamp(1.7rem, 1.35rem + 1.3vw, 2.3rem); margin-bottom: 6px; }
+.ed-intro { max-width: 62ch; margin-bottom: 18px; }
 
-.topbar{display:flex;align-items:center;justify-content:space-between;padding:12px 24px;background:var(--bg2);border-bottom:1px solid var(--border)}
-.topbar a{color:var(--accent);font-weight:600;font-size:.95rem}
-
-.container{max-width:1100px;margin:0 auto;padding:24px}
-h1{font-size:1.4rem;font-weight:700;margin-bottom:24px;display:flex;align-items:center;gap:8px}
-
-.editor-layout{display:grid;grid-template-columns:1fr 1fr;gap:20px;min-height:70vh}
-.mobile-tabs{display:none}
-@media(max-width:900px){
-  .editor-layout{grid-template-columns:1fr;min-height:auto}
-  .mobile-tabs{display:flex;gap:8px;margin-bottom:16px}
-  .mtab{flex:1;padding:11px;border:1px solid var(--border);background:var(--bg2);color:var(--text2);border-radius:10px;font-weight:600;cursor:pointer;font-family:inherit;font-size:.88rem;transition:.15s}
-  .mtab.active{background:var(--accent);color:#fff;border-color:var(--accent)}
-  .editor-layout.show-form .preview-panel{display:none}
-  .editor-layout.show-preview .form-panel{display:none}
-  .preview-panel{min-height:62vh}
+.ed-layout { display: grid; gap: 20px; grid-template-columns: 1fr; }
+@media (min-width: 960px) { .ed-layout { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; } }
+.ed-switch { display: flex; gap: 8px; margin-bottom: 14px; }
+@media (min-width: 960px) { .ed-switch { display: none; } }
+@media (max-width: 959px) {
+  .ed-layout.show-form .ed-preview { display: none; }
+  .ed-layout.show-preview .ed-form { display: none; }
 }
 
-.form-panel{display:flex;flex-direction:column;gap:16px}
-.form-group label{display:block;font-size:.85rem;font-weight:600;margin-bottom:6px;color:var(--text2)}
-.form-control{width:100%;padding:10px 14px;border:1px solid var(--border);border-radius:8px;background:var(--bg2);color:var(--text);font-family:inherit;font-size:.9rem}
-.form-control:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(124,58,237,.1)}
-select.form-control{cursor:pointer}
-textarea.form-control{resize:vertical;min-height:60px}
-.code-editor{font-family:'Fira Code',monospace;font-size:13px;tab-size:2;min-height:300px;flex:1}
-.form-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-@media(max-width:600px){.form-row{grid-template-columns:1fr}}
+.ed-form { display: grid; gap: 16px; min-width: 0; }
+.ed-field label, .ed-legend { display: block; font-weight: 700; font-size: .95rem; margin-bottom: 6px; padding: 0; }
+.ed-field .ia-input, .ed-field .ia-select { width: 100%; }
+.ed-req { color: var(--ia-danger); }
+.ed-hint { font-size: .875rem; color: var(--ia-ink-3); margin: 6px 0 0; }
+.ed-row { display: grid; gap: 16px; grid-template-columns: 1fr; }
+@media (min-width: 560px) { .ed-row { grid-template-columns: 1fr 1fr; } }
+fieldset.ed-types { border: 0; margin: 0; padding: 0; min-width: 0; }
+.ed-types .ia-chips { gap: 8px; }
+/* Radios reales dentro de un chip: el marcado es accesible sin JS y el
+   estado se pinta con :has(), con .is-active como respaldo (lo pone el JS). */
+.ed-types .ia-chip:has(input:checked), .ed-types .ia-chip.is-active { background: var(--ia-ink); border-color: var(--ia-ink); color: var(--ia-bg); }
+.ed-types .ia-chip:has(input:focus-visible) { outline: 3px solid var(--ia-accent); outline-offset: 2px; }
+.ed-types .ia-chip svg { width: 18px; height: 18px; }
+textarea.ed-code { min-height: 280px; font: 13px/1.5 var(--ia-mono); tab-size: 2; resize: vertical; }
+textarea.ed-desc { min-height: 80px; resize: vertical; line-height: 1.45; }
 
-.preview-panel{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;display:flex;flex-direction:column}
-.preview-header{padding:10px 16px;background:var(--bg3);border-bottom:1px solid var(--border);font-size:.85rem;font-weight:600;color:var(--text2);display:flex;justify-content:space-between;align-items:center}
-.preview-frame{flex:1;border:none;background:#fff;min-height:400px}
+.ed-more { border: 1px solid var(--ia-line); border-radius: var(--ia-radius); background: var(--ia-surface); }
+.ed-more > summary { cursor: pointer; padding: 12px 16px; font-weight: 700; list-style: none; display: flex; align-items: center; gap: 8px; min-height: var(--ia-tap); }
+.ed-more > summary::-webkit-details-marker { display: none; }
+.ed-more > summary::before { content: "▸"; color: var(--ia-ink-3); transition: transform .15s; }
+.ed-more[open] > summary::before { transform: rotate(90deg); }
+.ed-more-body { display: grid; gap: 16px; padding: 4px 16px 16px; }
 
-.actions{display:flex;gap:12px;margin-top:20px;justify-content:flex-end}
-.btn{padding:10px 24px;border-radius:10px;border:none;cursor:pointer;font-family:inherit;font-size:.9rem;font-weight:600;transition:all .2s;display:inline-flex;align-items:center;gap:6px}
-.btn-primary{background:var(--grad);color:#fff}
-.btn-primary:hover{transform:translateY(-1px);box-shadow:0 4px 16px rgba(124,58,237,.3)}
-.btn-secondary{background:var(--bg3);color:var(--text2);border:1px solid var(--border)}
-.btn-secondary:hover{border-color:var(--accent);color:var(--accent)}
-.btn:disabled{opacity:.5;cursor:not-allowed;transform:none}
+.ed-tags { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 10px; min-height: var(--ia-tap);
+  background: var(--ia-surface); border: 2px solid var(--ia-line-strong); border-radius: 12px; cursor: text; }
+.ed-tags:focus-within { border-color: var(--ia-accent); }
+.ed-tags input { flex: 1; min-width: 120px; border: 0; outline: 0; background: transparent; font: 500 .95rem/1.2 var(--ia-font); color: var(--ia-ink); padding: 4px 2px; }
+.ed-tag { display: inline-flex; align-items: center; gap: 2px; padding: 2px 4px 2px 10px; border-radius: 999px; background: var(--ia-accent-soft); color: var(--ia-accent); font-weight: 600; font-size: .875rem; }
+.ed-tag button { display: grid; place-items: center; width: 24px; height: 24px; border: 0; border-radius: 50%; background: none; color: inherit; cursor: pointer; font-size: 1rem; line-height: 1; }
+.ed-tag button:hover { background: rgba(0, 0, 0, .08); }
 
-.status-msg{padding:10px 16px;border-radius:8px;font-size:.85rem;margin-top:12px;display:none}
-.status-msg.success{display:block;background:rgba(34,197,94,.1);color:#16a34a;border:1px solid rgba(34,197,94,.2)}
-.status-msg.error{display:block;background:rgba(239,68,68,.1);color:#ef4444;border:1px solid rgba(239,68,68,.2)}
+.ed-actions { display: flex; flex-wrap: wrap; gap: 10px; justify-content: flex-end; }
+.ed-status { margin: 0; padding: 10px 14px; border-radius: 10px; font-weight: 600; }
+.ed-status.is-ok { background: var(--ia-ok-soft); color: var(--ia-ok); }
+.ed-status.is-error { background: color-mix(in srgb, var(--ia-danger) 12%, transparent); color: var(--ia-danger); }
 
-.tag-input-wrap{display:flex;flex-wrap:wrap;gap:4px;align-items:center;padding:6px 8px;border:1px solid var(--border);border-radius:8px;background:var(--bg2);min-height:42px;cursor:text}
-.tag-input-wrap:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px rgba(124,58,237,.1)}
-.tag-chip{display:inline-flex;align-items:center;gap:3px;padding:2px 8px;border-radius:6px;background:rgba(124,58,237,.1);color:var(--accent);font-size:.78rem;font-weight:500}
-.tag-chip-remove{background:none;border:none;cursor:pointer;color:var(--accent);opacity:.6;font-size:.8rem;padding:0;line-height:1}
-.tag-chip-remove:hover{opacity:1}
-.tag-input-field{border:none;outline:none;background:none;font-family:inherit;font-size:.85rem;color:var(--text);min-width:120px;flex:1;padding:2px 4px}
+.ed-preview { background: var(--ia-surface); border: 1px solid var(--ia-line); border-radius: var(--ia-radius); overflow: hidden; display: flex; flex-direction: column; min-height: 60vh; }
+@media (min-width: 960px) { .ed-preview { position: sticky; top: 80px; height: calc(100vh - 100px); } }
+.ed-preview-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 8px 8px 16px; border-bottom: 1px solid var(--ia-line); font-weight: 700; }
+.ed-preview iframe { flex: 1; width: 100%; min-height: 420px; border: 0; background: #fff; }
+.ed-preview-empty { padding: 24px 16px; color: var(--ia-ink-3); margin: 0; }
 </style>
 <?php require_once __DIR__ . '/../shared/error_tracker.php'; ?>
 </head>
-<body>
+<body class="ia-page">
+<?php iarepo_header($user, 'teach'); ?>
 
-<div class="topbar">
-  <a href="/dashboard/" style="display:flex;align-items:center;gap:8px"><img src="/assets/img/logo-icon.svg" alt="iarepo" style="height:22px;width:auto"> Dashboard</a>
-  <span style="font-size:.85rem;color:var(--text2)"><?= h($user['name']) ?></span>
-</div>
-
-<div class="container">
-  <h1><?= $isEdit ? '✏️' : '➕' ?> <?= h($pageTitle) ?></h1>
-
-  <?php if (!$isEdit): ?>
-  <div style="background:rgba(124,58,237,.06);border:1px solid rgba(124,58,237,.2);border-radius:12px;padding:14px 18px;margin-bottom:20px;display:flex;align-items:flex-start;gap:12px">
-    <span style="font-size:1.4rem;flex-shrink:0">🤖</span>
-    <div>
-      <strong style="font-size:.9rem"><?= h(t('¿Tienes un recurso HTML generado con IA?')) ?></strong>
-      <p style="font-size:.82rem;color:var(--text2);margin-top:3px;line-height:1.5"><?= h(t('Pídele a Gemini, ChatGPT o Claude que genere una simulación interactiva en HTML, pega el código aquí y compártela con la comunidad.')) ?> <a href="https://gemini.google.com" target="_blank" rel="noopener" style="color:var(--accent)"><?= h(t('Abrir Gemini →')) ?></a></p>
-    </div>
-  </div>
+<main id="main" class="ia-container ed-main">
+  <a class="ed-back" href="/dashboard/"><i data-lucide="chevron-left"></i><?= h(t('Mi panel')) ?></a>
+  <h1><?= h($pageTitle) ?></h1>
+  <?php if ($isEdit): ?>
+    <p class="ia-muted ed-intro"><?= h(t('Los cambios se guardan como una versión nueva: la anterior no se pierde.')) ?>
+      <a href="/resource/<?= $editId ?>"><?= h(t('Ver la ficha')) ?></a></p>
+  <?php else: ?>
+    <p class="ia-muted ed-intro"><?= h(t('Pega el HTML que te ha hecho una IA o la dirección de una simulación que ya exista. En un minuto está en el catálogo, con tu nombre y citando a su autor.')) ?></p>
   <?php endif; ?>
 
-  <div class="mobile-tabs">
-    <button type="button" class="mtab active" data-panel="form">✏️ <?= h(t('Editar')) ?></button>
-    <button type="button" class="mtab" data-panel="preview">👁 <?= h(t('Vista previa')) ?></button>
+  <div class="ed-switch" role="group" aria-label="<?= h(t('Vista')) ?>">
+    <button type="button" class="ia-chip" data-panel="form" aria-pressed="true"><i data-lucide="pencil"></i><?= h(t('Editar')) ?></button>
+    <button type="button" class="ia-chip" data-panel="preview" aria-pressed="false"><i data-lucide="eye"></i><?= h(t('Vista previa')) ?></button>
   </div>
-  <div class="editor-layout show-form">
-    <div class="form-panel">
-      <div class="form-group">
-        <label><?= h(t('Título *')) ?></label>
-        <input type="text" class="form-control" id="title" placeholder="<?= h(t('ej. Simulador de Caída Libre')) ?>" value="<?= $resource ? h($resource['title']) : '' ?>">
-      </div>
-      <div class="form-group">
-        <label><?= h(t('Descripción')) ?></label>
-        <textarea class="form-control" id="description" rows="2" placeholder="<?= h(t('Breve descripción del recurso...')) ?>"><?= $resource ? h($resource['description']) : '' ?></textarea>
-      </div>
-      <div class="form-row">
-        <div class="form-group">
-          <label><?= h(t('Tipo de contenido')) ?></label>
-          <select class="form-control" id="codeType">
-            <option value="html" <?= ($resource && $resource['code_type']==='html') ? 'selected' : '' ?>>⭐ <?= h(t('HTML generado con IA')) ?></option>
-            <option value="prompt" <?= ($resource && $resource['code_type']==='prompt') ? 'selected' : '' ?>>💡 <?= h(t('Prompt de IA')) ?></option>
-            <option value="url" <?= ($resource && $resource['code_type']==='url') ? 'selected' : '' ?>>🔗 <?= h(t('URL externa')) ?></option>
-            <option value="embed" <?= ($resource && $resource['code_type']==='embed') ? 'selected' : '' ?>>📋 <?= h(t('Embed')) ?></option>
-            <option value="python" <?= ($resource && $resource['code_type']==='python') ? 'selected' : '' ?>>🐍 <?= h(t('Python')) ?></option>
-          </select>
+
+  <div class="ed-layout show-form" id="edLayout">
+    <form class="ed-form" id="edForm" novalidate>
+      <fieldset class="ed-types">
+        <legend class="ed-legend"><?= h(t('¿Qué vas a publicar?')) ?></legend>
+        <div class="ia-chips">
+          <?php foreach ($types as $key => [$label, $icon]): ?>
+          <label class="ia-chip<?= $key === $currentType ? ' is-active' : '' ?>">
+            <input class="ia-sr-only" type="radio" name="codeType" value="<?= h($key) ?>"<?= $key === $currentType ? ' checked' : '' ?>>
+            <i data-lucide="<?= h($icon) ?>"></i><?= h($label) ?>
+          </label>
+          <?php endforeach; ?>
         </div>
-        <div class="form-group">
-          <label><?= h(t('Visibilidad')) ?></label>
-          <select class="form-control" id="visibility">
-            <option value="draft" <?= ($resource && $resource['visibility']==='draft') ? 'selected' : '' ?>>🔒 <?= h(t('Borrador')) ?></option>
-            <option value="community" <?= (!$resource || ($resource && $resource['visibility']==='community')) ? 'selected' : '' ?>>🌍 <?= h(t('Comunidad')) ?></option>
-          </select>
-        </div>
+        <p class="ed-hint" id="typeHint"></p>
+      </fieldset>
+
+      <div class="ed-field">
+        <label for="title"><?= h(t('Título')) ?> <span class="ed-req" aria-hidden="true">*</span></label>
+        <input type="text" class="ia-input" id="title" maxlength="255" required autocomplete="off"
+               placeholder="<?= h(t('Ej.: Caída libre con y sin rozamiento')) ?>" value="<?= h($v('title')) ?>">
       </div>
-      <div class="form-row">
-        <div class="form-group">
-          <label><?= h(t('Área / Materia')) ?></label>
-          <input type="text" class="form-control" id="subjectArea" placeholder="<?= h(t('ej. Physics')) ?>" value="<?= $resource ? h($resource['subject_area'] ?? '') : '' ?>">
-        </div>
-        <div class="form-group">
-          <label><?= h(t('Categoría')) ?></label>
-          <select class="form-control" id="categoryId">
-            <option value=""><?= h(t('— Sin categoría —')) ?></option>
+
+      <div class="ed-field" data-show="url">
+        <label for="codeUrl"><?= h(t('Dirección de la simulación')) ?> <span class="ed-req" aria-hidden="true">*</span></label>
+        <input type="url" class="ia-input" id="codeUrl" maxlength="500" inputmode="url" autocomplete="off"
+               placeholder="https://phet.colorado.edu/sims/html/…" value="<?= $currentType === 'url' ? h($v('code_content')) : '' ?>">
+        <p class="ed-hint"><?= h(t('Se abrirá en su web original y la ficha citará a su autor.')) ?></p>
+      </div>
+
+      <div class="ed-field" data-show="html embed prompt python other">
+        <label for="codeContent" id="codeLabel"><?= h(t('Contenido')) ?> <span class="ed-req" aria-hidden="true">*</span></label>
+        <textarea class="ia-input ed-code" id="codeContent" spellcheck="false" autocomplete="off"><?= $currentType !== 'url' ? h($v('code_content')) : '' ?></textarea>
+      </div>
+
+      <div class="ed-row">
+        <div class="ed-field">
+          <label for="categoryId"><?= h(t('Materia')) ?></label>
+          <select class="ia-select" id="categoryId">
+            <option value=""><?= h(t('Elige la materia')) ?></option>
             <?php foreach ($cats as $c): ?>
-              <option value="<?= (int)$c['id'] ?>" <?= ($resource && $resource['category_id'] == $c['id']) ? 'selected' : '' ?>><?= h($c['name']) ?></option>
+              <option value="<?= (int) $c['id'] ?>" data-label="<?= h($c['label']) ?>"<?= (int) $c['id'] === (int) $v('category_id', '0') ? ' selected' : '' ?>><?= h($c['label']) ?></option>
+            <?php endforeach; ?>
+          </select>
+        </div>
+        <div class="ed-field">
+          <label for="level"><?= h(t('Curso y edad')) ?></label>
+          <select class="ia-select" id="level">
+            <?php foreach ($levels as $key => $label): ?>
+              <option value="<?= h($key) ?>"<?= $key === $currentLevel ? ' selected' : '' ?>><?= h($label) ?></option>
             <?php endforeach; ?>
           </select>
         </div>
       </div>
-      <div class="form-row">
-        <div class="form-group">
-          <label><?= h(t('Nivel educativo')) ?></label>
-          <select class="form-control" id="level">
-            <option value="general"><?= h(t('General')) ?></option>
-            <option value="primary" <?= ($resource && $resource['level']==='primary') ? 'selected' : '' ?>><?= h(t('Primaria')) ?></option>
-            <option value="secondary" <?= ($resource && $resource['level']==='secondary') ? 'selected' : '' ?>><?= h(t('Secundaria')) ?></option>
-            <option value="ib" <?= ($resource && $resource['level']==='ib') ? 'selected' : '' ?>><?= h(t('IB')) ?></option>
-            <option value="university" <?= ($resource && $resource['level']==='university') ? 'selected' : '' ?>><?= h(t('Universidad')) ?></option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label><?= h(t('Idioma')) ?></label>
-          <select class="form-control" id="lang">
-            <option value="es" <?= ($resource && $resource['lang']==='es') ? 'selected' : '' ?>>Español</option>
-            <option value="en" <?= ($resource && $resource['lang']==='en') ? 'selected' : '' ?>>English</option>
-            <option value="pt" <?= ($resource && $resource['lang']==='pt') ? 'selected' : '' ?>>Português</option>
-          </select>
-        </div>
-      </div>
-      <div class="form-group">
-        <label>Tags <span style="font-weight:400;color:var(--text3);font-size:.8rem"><?= h(t('· Enter para agregar · máx. 20')) ?></span></label>
-        <div class="tag-input-wrap" id="tagWrap" onclick="document.getElementById('tagInput').focus()">
-          <input type="text" class="tag-input-field" id="tagInput" placeholder="<?= h(t('ej. gravedad, simulación...')) ?>" maxlength="50" autocomplete="off">
-        </div>
-      </div>
-      <div class="form-group" style="flex:1;display:flex;flex-direction:column">
-        <label><?= h(t('Código / Contenido *')) ?></label>
-        <textarea class="form-control code-editor" id="codeContent" placeholder="<?= h(t('Pega tu código HTML aquí...')) ?>"><?= $resource ? h($resource['code_content']) : '' ?></textarea>
-      </div>
-    </div>
 
-    <div class="preview-panel">
-      <div class="preview-header">
-        <span>👁 <?= h(t('Vista previa')) ?></span>
-        <button class="btn btn-secondary" style="padding:4px 12px;font-size:.78rem" id="refreshPreview">↻ <?= h(t('Actualizar')) ?></button>
+      <details class="ed-more" id="more"<?= $isEdit ? ' open' : '' ?>>
+        <summary><?= h(t('Más opciones')) ?></summary>
+        <div class="ed-more-body">
+          <div class="ed-field">
+            <label for="description"><?= h(t('Descripción')) ?></label>
+            <textarea class="ia-input ed-desc" id="description" maxlength="2000"
+                      placeholder="<?= h(t('Qué se aprende con él y cómo usarlo en clase (opcional)')) ?>"><?= h($v('description')) ?></textarea>
+          </div>
+          <div class="ed-row">
+            <div class="ed-field">
+              <label for="lang"><?= h(t('Idioma del recurso')) ?></label>
+              <select class="ia-select" id="lang">
+                <?php foreach ($langs as $key => $label): ?>
+                  <option value="<?= $key ?>"<?= $key === $currentLang ? ' selected' : '' ?>><?= h($label) ?></option>
+                <?php endforeach; ?>
+              </select>
+            </div>
+            <div class="ed-field">
+              <label for="visibility"><?= h(t('Quién puede verlo')) ?></label>
+              <select class="ia-select" id="visibility">
+                <?php foreach ($visibilities as $key => $label): ?>
+                  <option value="<?= h($key) ?>"<?= $key === $currentVis ? ' selected' : '' ?>><?= h($label) ?></option>
+                <?php endforeach; ?>
+              </select>
+              <p class="ed-hint"><?= h(t('Las públicas aparecen en el catálogo; un borrador solo lo ves tú.')) ?></p>
+            </div>
+          </div>
+          <div class="ed-field" data-show="url">
+            <label for="sourceName"><?= h(t('Fuente original')) ?></label>
+            <input type="text" class="ia-input" id="sourceName" maxlength="150" autocomplete="off"
+                   placeholder="<?= h(t('Ej.: PhET Interactive Simulations')) ?>" value="<?= h($v('source_name')) ?>">
+            <p class="ed-hint"><?= h(t('Quién lo creó. Si lo dejas vacío, se deduce de la dirección (PhET, GeoGebra, NASA…).')) ?></p>
+          </div>
+          <div class="ed-field">
+            <label for="tagInput"><?= h(t('Etiquetas')) ?></label>
+            <div class="ed-tags" id="tagWrap">
+              <input type="text" id="tagInput" maxlength="50" autocomplete="off" placeholder="<?= h(t('Ej.: gravedad, energía')) ?>" aria-describedby="tagHint">
+            </div>
+            <p class="ed-hint" id="tagHint"><?= h(t('Pulsa Intro o coma para añadir cada una. Hasta 20.')) ?></p>
+          </div>
+        </div>
+      </details>
+
+      <p class="ed-status" id="statusMsg" role="status" aria-live="polite" hidden></p>
+      <div class="ed-actions">
+        <a href="/dashboard/" class="ia-btn ia-btn-secondary"><?= h(t('Cancelar')) ?></a>
+        <button type="submit" class="ia-btn ia-btn-primary" id="saveBtn"><i data-lucide="<?= $isEdit ? 'save' : 'upload' ?>"></i><span><?= $isEdit ? h(t('Guardar cambios')) : h(t('Publicar recurso')) ?></span></button>
       </div>
-      <iframe class="preview-frame" id="previewFrame" sandbox="allow-scripts allow-modals allow-popups"></iframe>
-    </div>
+    </form>
+
+    <section class="ed-preview" aria-labelledby="previewTitle">
+      <div class="ed-preview-head">
+        <span id="previewTitle"><?= h(t('Vista previa')) ?></span>
+        <button type="button" class="ia-btn ia-btn-ghost ia-btn-sm" id="refreshPreview"><i data-lucide="refresh-cw"></i><?= h(t('Actualizar')) ?></button>
+      </div>
+      <p class="ed-preview-empty" id="previewEmpty"><?= h(t('Aquí verás tu recurso funcionando en cuanto pegues el contenido.')) ?></p>
+      <!-- Sin allow-same-origin: el código del autor no puede tocar la
+           sesión de quien edita (misma regla que el visor). -->
+      <iframe id="previewFrame" title="<?= h(t('Vista previa')) ?>" sandbox="allow-scripts allow-modals allow-popups" hidden></iframe>
+    </section>
   </div>
+</main>
 
-  <div class="actions">
-    <a href="/dashboard/" class="btn btn-secondary"><?= h(t('Cancelar')) ?></a>
-    <button class="btn btn-primary" id="saveBtn">💾 <?= $isEdit ? h(t('Guardar cambios')) : h(t('Publicar recurso')) ?></button>
-  </div>
-  <div class="status-msg" id="statusMsg"></div>
-</div>
-
+<?php iarepo_footer($user, false); /* sin la banda «Publicar»: ya estás publicando */ ?>
+<?= iarepo_body_assets() ?>
 <script>
 const EDIT_ID = <?= $editId ?: 'null' ?>;
-const tags = new Set(<?= json_encode($existingTags, JSON_UNESCAPED_UNICODE) ?>);
+// JSON_HEX_TAG | JSON_HEX_AMP: un título o una etiqueta con «<!--<script»
+// dentro de un <script> dejaba la página en blanco (el parser HTML se lo tragaba).
+const ORIG = <?= json_encode([
+    'categoryId' => $isEdit ? (string) ($resource['category_id'] ?? '') : '',
+    'subject'    => $v('subject_area'),
+    // Para no pisar la fuente al editar un enlace (ver «Guardar» más abajo).
+    'code'       => $currentType === 'url' ? $v('code_content') : '',
+    'sourceUrl'  => $v('source_url'),
+], JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP) ?>;
+const tags = new Set(<?= json_encode(array_values($existingTags), JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP) ?>);
 const T = {
-  titleReq: <?= json_encode(t('El título es obligatorio')) ?>,
-  contentReq: <?= json_encode(t('El contenido es obligatorio')) ?>,
-  saving: <?= json_encode(t('⏳ Guardando...')) ?>,
-  saveFail: <?= json_encode(t('No se pudo guardar el recurso')) ?>,
-  updated: <?= json_encode(t('¡Recurso actualizado!')) ?>,
+  titleReq: <?= json_encode(t('Ponle un título.')) ?>,
+  contentReq: <?= json_encode(t('Falta el contenido.')) ?>,
+  urlReq: <?= json_encode(t('Pega la dirección de la simulación (empieza por https://).')) ?>,
+  saving: <?= json_encode(t('Guardando...')) ?>,
+  publishing: <?= json_encode(t('Publicando...')) ?>,
   saveChanges: <?= json_encode(t('Guardar cambios')) ?>,
-  published: <?= json_encode(t('✅ ¡Publicado!')) ?>,
-  createdMsg: <?= json_encode(t('¡Recurso creado exitosamente! Redirigiendo...')) ?>,
   publishResource: <?= json_encode(t('Publicar recurso')) ?>,
-  phDefault: <?= json_encode(t('Pega tu contenido aquí...')) ?>,
-  phHtml: <?= json_encode(t('<!-- Pega aquí el HTML generado con Gemini, ChatGPT o Claude -->')) ?> + '\n<!DOCTYPE html>\n<html>...',
-  phPrompt: <?= json_encode(t('Escribe el prompt que usaste para generar el recurso. Otros profesores podrán replicarlo y adaptarlo.')) ?>,
+  updated: <?= json_encode(t('Cambios guardados.')) ?>,
+  published: <?= json_encode(t('¡Publicado! Abriendo tu recurso…')) ?>,
+  pendingReview: <?= json_encode(t('¡Publicado! Lo revisaremos automáticamente en unos minutos. Abriendo tu recurso…')) ?>,
+  unsaved: <?= json_encode(t('Tienes cambios sin guardar.')) ?>,
+  removeTag: <?= json_encode(t('Quitar la etiqueta %s')) ?>,
+  label: {
+    html: <?= json_encode(t('Pega aquí el HTML')) ?>,
+    embed: <?= json_encode(t('Pega aquí el código para insertar')) ?>,
+    prompt: <?= json_encode(t('Escribe aquí el prompt')) ?>,
+    python: <?= json_encode(t('Pega aquí el código Python')) ?>,
+    other: <?= json_encode(t('Contenido')) ?>,
+  },
+  hint: {
+    html: <?= json_encode(t('Pídele a Gemini, ChatGPT o Claude una simulación interactiva en un solo fichero HTML y pega aquí su respuesta completa.')) ?>,
+    url: <?= json_encode(t('La dirección de una simulación que ya existe en otra web (PhET, GeoGebra, NASA…).')) ?>,
+    embed: <?= json_encode(t('El código que da la web original para insertarla en otra página (búscalo como «Insertar» o «Embed»).')) ?>,
+    prompt: <?= json_encode(t('El texto que le pediste a la IA. Otros docentes podrán reutilizarlo.')) ?>,
+    python: <?= json_encode(t('Código Python para leer o copiar.')) ?>,
+    other: '',
+  },
+  placeholder: {
+    html: <?= json_encode(t('<!-- Pega aquí el HTML generado con Gemini, ChatGPT o Claude -->')) ?>,
+    embed: '<iframe src="…" width="100%" height="500"></iframe>',
+    prompt: <?= json_encode(t('Escribe el prompt que usaste para generar el recurso. Otros profesores podrán replicarlo y adaptarlo.')) ?>,
+    python: '# Python',
+    other: '',
+  },
+  // Errores de la API: por CÓDIGO, nunca por el texto (que va en inglés y
+  // es un contrato con Campus, no un mensaje para la persona).
+  err: {
+    MISSING_TITLE: <?= json_encode(t('Ponle un título.')) ?>,
+    INVALID_URL: <?= json_encode(t('La dirección tiene que empezar por http:// o https://.')) ?>,
+    INVALID_SOURCE_URL: <?= json_encode(t('La dirección tiene que empezar por http:// o https://.')) ?>,
+    INVALID_SOURCE_NAME: <?= json_encode(t('Revisa el nombre de la fuente original.')) ?>,
+    DUPLICATE_OWN: <?= json_encode(t('Ya publicaste este mismo contenido. Búscalo en Mi panel y edítalo allí.')) ?>,
+    DUPLICATE_CONTENT: <?= json_encode(t('Ese contenido ya está publicado en iarepo por otra persona.')) ?>,
+    BLACKLISTED_URL: <?= json_encode(t('Esa dirección se retiró del catálogo porque dejó de funcionar. Prueba con otra fuente.')) ?>,
+    BLACKLISTED_DOMAIN: <?= json_encode(t('Esa web dejó de funcionar en varios recursos y está bloqueada. Prueba con otra fuente.')) ?>,
+    DAILY_LIMIT: <?= json_encode(t('Has llegado al máximo de recursos nuevos por hoy. Podrás publicar más mañana.')) ?>,
+    RATE_LIMITED: <?= json_encode(t('Demasiados cambios seguidos. Espera un minuto y vuelve a intentarlo.')) ?>,
+    NOT_AUTHOR: <?= json_encode(t('Solo quien lo publicó puede editar este recurso.')) ?>,
+    NOT_FOUND: <?= json_encode(t('Este recurso ya no existe.')) ?>,
+    UPDATE_FAILED: <?= json_encode(t('No se pudo guardar. Inténtalo de nuevo en un momento.')) ?>,
+    INVALID_JSON: <?= json_encode(t('No se pudo guardar. Inténtalo de nuevo en un momento.')) ?>,
+    NETWORK: <?= json_encode(t('Sin conexión. Revisa la red y vuelve a intentarlo: no has perdido nada.')) ?>,
+  },
+  errStatus: {
+    401: <?= json_encode(t('Tu sesión ha caducado. Entra de nuevo en otra pestaña y vuelve a pulsar el botón: no has perdido nada.')) ?>,
+    403: <?= json_encode(t('Tu cuenta no puede publicar recursos.')) ?>,
+  },
+  errGeneric: <?= json_encode(t('No se pudo guardar el recurso')) ?>,
 };
 
-function esc(s){const d=document.createElement('div');d.textContent=s||'';return d.innerHTML}
+const $ = id => document.getElementById(id);
+const form = $('edForm'), saveBtn = $('saveBtn'), statusMsg = $('statusMsg');
+let dirty = false;   // cambios sin guardar (ver «beforeunload» más abajo)
+const type = () => (form.querySelector('input[name="codeType"]:checked') || {}).value || 'html';
 
-function renderTags(){
-  document.querySelectorAll('.tag-chip').forEach(c=>c.remove());
-  const wrap=document.getElementById('tagWrap');
-  const input=document.getElementById('tagInput');
-  tags.forEach(tag=>{
-    const chip=document.createElement('span');
-    chip.className='tag-chip';
-    chip.innerHTML=`${esc(tag)} <button class="tag-chip-remove" type="button" onclick="removeTag('${esc(tag).replace(/'/g,"\\'")}')">✕</button>`;
-    wrap.insertBefore(chip,input);
-  });
+// ── Errores que nadie avisaría: al registro (/api/log-error.php) ──
+function report(msg) {
+  try {
+    const body = JSON.stringify({ message: String(msg).slice(0, 500), source: 'editor', lineno: 0, page: location.pathname });
+    if (!(navigator.sendBeacon && navigator.sendBeacon('/api/log-error.php', body)))
+      fetch('/api/log-error.php', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body, keepalive: true }).catch(() => {});
+  } catch (e) { /* registrar un fallo no puede provocar otro */ }
 }
 
-function addTag(val){
-  const tag=val.toLowerCase().trim().replace(/[,]+$/,'').slice(0,50);
-  if(tag && tags.size<20) tags.add(tag);
+function showStatus(kind, msg) {
+  statusMsg.hidden = !msg;
+  statusMsg.className = 'ed-status ' + (kind === 'error' ? 'is-error' : 'is-ok');
+  statusMsg.textContent = msg || '';
+}
+
+// ── Tipo de contenido: qué campo se ve y qué ayuda sale ──────────
+function applyType() {
+  const t = type();
+  form.querySelectorAll('.ed-types .ia-chip').forEach(l => l.classList.toggle('is-active', l.querySelector('input').checked));
+  document.querySelectorAll('[data-show]').forEach(el => { el.hidden = !el.dataset.show.split(' ').includes(t); });
+  $('typeHint').textContent = T.hint[t] || '';
+  if (t !== 'url') {
+    $('codeLabel').firstChild.textContent = (T.label[t] || T.label.other) + ' ';
+    $('codeContent').placeholder = T.placeholder[t] || '';
+  }
+}
+form.querySelectorAll('input[name="codeType"]').forEach(r => r.addEventListener('change', () => { applyType(); updatePreview(); }));
+applyType();
+
+// ── Etiquetas (chips con DOM, nada de onclick con texto interpolado) ──
+const tagWrap = $('tagWrap'), tagInput = $('tagInput');
+function renderTags() {
+  tagWrap.querySelectorAll('.ed-tag').forEach(c => c.remove());
+  tags.forEach(tag => {
+    const chip = document.createElement('span');
+    chip.className = 'ed-tag';
+    chip.append(tag);
+    const x = document.createElement('button');
+    x.type = 'button';
+    x.textContent = '×';
+    x.setAttribute('aria-label', T.removeTag.replace('%s', tag));
+    x.addEventListener('click', () => { tags.delete(tag); dirty = true; renderTags(); tagInput.focus(); });
+    chip.append(x);
+    tagWrap.insertBefore(chip, tagInput);
+  });
+}
+function addTag(val) {
+  const tag = val.toLowerCase().trim().replace(/,+$/, '').slice(0, 50);
+  if (tag && tags.size < 20) { tags.add(tag); dirty = true; }
   renderTags();
 }
-
-function removeTag(tag){ tags.delete(tag); renderTags(); }
-
-document.getElementById('tagInput').addEventListener('keydown',e=>{
-  if(e.key==='Enter'||e.key===','){
+tagWrap.addEventListener('click', e => { if (e.target === tagWrap) tagInput.focus(); });
+tagInput.addEventListener('keydown', e => {
+  if (e.key === 'Enter' || e.key === ',') {
     e.preventDefault();
-    const v=document.getElementById('tagInput').value.trim();
-    if(v){ addTag(v); document.getElementById('tagInput').value=''; }
-  }
-  if(e.key==='Backspace'&&!document.getElementById('tagInput').value&&tags.size){
-    const last=[...tags].pop();
-    tags.delete(last);
-    renderTags();
+    if (tagInput.value.trim()) { addTag(tagInput.value); tagInput.value = ''; }
+  } else if (e.key === 'Backspace' && !tagInput.value && tags.size) {
+    tags.delete([...tags].pop()); dirty = true; renderTags();
   }
 });
-
-document.getElementById('tagInput').addEventListener('blur',()=>{
-  const v=document.getElementById('tagInput').value.trim();
-  if(v){ addTag(v); document.getElementById('tagInput').value=''; }
-});
-
+tagInput.addEventListener('blur', () => { if (tagInput.value.trim()) { addTag(tagInput.value); tagInput.value = ''; } });
 renderTags();
 
-// Theme
-if(localStorage.getItem('iarepo-theme')==='dark') document.documentElement.setAttribute('data-theme','dark');
-
-// Mobile tabs (Editar / Vista previa)
-const editorLayout=document.querySelector('.editor-layout');
-document.querySelectorAll('.mtab').forEach(tab=>{
-  tab.addEventListener('click',()=>{
-    document.querySelectorAll('.mtab').forEach(t=>t.classList.remove('active'));
-    tab.classList.add('active');
-    const showPreview=tab.dataset.panel==='preview';
-    editorLayout.classList.toggle('show-preview',showPreview);
-    editorLayout.classList.toggle('show-form',!showPreview);
-    if(showPreview) updatePreview();
-  });
-});
-
-// Live preview
-function updatePreview(){
-  const type=document.getElementById('codeType').value;
-  const code=document.getElementById('codeContent').value;
-  const frame=document.getElementById('previewFrame');
-  if(type==='html'||type==='embed') frame.srcdoc=code;
-  else if(type==='url') frame.src=code;
-  else frame.srcdoc='<pre style="padding:20px;font-family:monospace;white-space:pre-wrap">'+code.replace(/</g,'&lt;')+'</pre>';
+// ── Vista previa ────────────────────────────────────────────────
+const frame = $('previewFrame');
+function updatePreview() {
+  const t = type();
+  const code = t === 'url' ? $('codeUrl').value.trim() : $('codeContent').value;
+  const show = t === 'url' ? /^https?:\/\/\S+$/i.test(code) : code.trim() !== '';
+  frame.hidden = !show;
+  $('previewEmpty').hidden = show;
+  if (!show) { frame.removeAttribute('srcdoc'); frame.removeAttribute('src'); return; }
+  if (t === 'url') { frame.removeAttribute('srcdoc'); frame.src = code; }
+  else if (t === 'html' || t === 'embed') frame.srcdoc = code;
+  else frame.srcdoc = '<pre style="padding:16px;font:13px/1.5 monospace;white-space:pre-wrap">' + code.replace(/&/g, '&amp;').replace(/</g, '&lt;') + '</pre>';
 }
-
 let previewTimer;
-document.getElementById('codeContent').addEventListener('input',()=>{
+['codeContent', 'codeUrl'].forEach(id => $(id).addEventListener('input', () => {
   clearTimeout(previewTimer);
-  previewTimer=setTimeout(updatePreview,800);
-});
-document.getElementById('refreshPreview').addEventListener('click',updatePreview);
-const placeholders = {
-  html: T.phHtml,
-  prompt: T.phPrompt,
-  url: 'https://phet.colorado.edu/sims/html/...',
-  embed: '<iframe src="..." width="100%" height="500" frameborder="0"></iframe>',
-  python: '# Código Python\nprint("Hola mundo")',
-};
-document.getElementById('codeType').addEventListener('change',()=>{
-  const type=document.getElementById('codeType').value;
-  if(!document.getElementById('codeContent').value)
-    document.getElementById('codeContent').placeholder=placeholders[type]||T.phDefault;
-  updatePreview();
-});
+  previewTimer = setTimeout(updatePreview, 700);
+}));
+$('refreshPreview').addEventListener('click', updatePreview);
+updatePreview();
 
-// Save
-let isSaving=false;  // blocks concurrent requests while one is in flight
-let created=false;   // once created we lock the button and redirect (no duplicates)
-document.getElementById('saveBtn').addEventListener('click', async()=>{
-  if(isSaving||created) return;  // ignore extra clicks while saving / after publishing
-  const title=document.getElementById('title').value.trim();
-  const code=document.getElementById('codeContent').value;
-  if(!title){showStatus('error',T.titleReq);return}
-  if(!code){showStatus('error',T.contentReq);return}
+// Móvil: «Editar» / «Vista previa» (en escritorio van lado a lado).
+document.querySelectorAll('.ed-switch [data-panel]').forEach(b => b.addEventListener('click', () => {
+  const preview = b.dataset.panel === 'preview';
+  document.querySelectorAll('.ed-switch [data-panel]').forEach(x => x.setAttribute('aria-pressed', x === b ? 'true' : 'false'));
+  $('edLayout').classList.toggle('show-preview', preview);
+  $('edLayout').classList.toggle('show-form', !preview);
+  if (preview) updatePreview();
+}));
 
-  const body={
-    title,
-    description:document.getElementById('description').value.trim(),
-    code_content:code,
-    code_type:document.getElementById('codeType').value,
-    visibility:document.getElementById('visibility').value,
-    subject_area:document.getElementById('subjectArea').value.trim(),
-    category_id:document.getElementById('categoryId').value||null,
-    level:document.getElementById('level').value,
-    lang:document.getElementById('lang').value,
-    tags:Array.from(tags),
-  };
+// ── Cambios sin guardar: que un recargón no se lleve el HTML pegado ──
+form.addEventListener('input', () => { dirty = true; });
+form.addEventListener('change', () => { dirty = true; });
+window.addEventListener('beforeunload', e => { if (dirty) { e.preventDefault(); e.returnValue = T.unsaved; } });
 
-  const btn=document.getElementById('saveBtn');
-  isSaving=true;
-  btn.disabled=true;btn.textContent=T.saving;
-
-  try{
-    const url=EDIT_ID?`/api/resources.php?id=${EDIT_ID}`:'/api/resources.php';
-    const method=EDIT_ID?'PUT':'POST';
-    const res=await fetch(url,{method,headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-    const data=await res.json();
-    if(!data.ok) throw new Error(data.error||T.saveFail);
-
-    if(EDIT_ID){
-      // Edit: re-enable so the user can keep refining.
-      showStatus('success',T.updated);
-      isSaving=false;
-      btn.disabled=false;btn.textContent='💾 '+T.saveChanges;
-    }else{
-      // Create: keep the button locked and redirect to the new resource.
-      // This is what stops extra clicks from creating duplicates.
-      created=true;
-      btn.textContent=T.published;
-      showStatus('success',T.createdMsg);
-      setTimeout(()=>{ window.location = data.id ? '/resource/'+data.id : '/dashboard/'; },1200);
-    }
-  }catch(e){
-    showStatus('error',e.message);
-    isSaving=false;
-    btn.disabled=false;btn.textContent='💾 '+(EDIT_ID?T.saveChanges:T.publishResource);
-  }
-});
-
-function showStatus(type,msg){
-  const el=document.getElementById('statusMsg');
-  el.className='status-msg '+type;
-  el.textContent=msg;
-  if(type==='success') setTimeout(()=>el.style.display='none',5000);
+// ── Guardar ─────────────────────────────────────────────────────
+// La materia rellena subject_area (el buscador la usa): si el recurso ya
+// tenía una y no se cambió de materia, se conserva la suya.
+function subjectArea() {
+  const sel = $('categoryId');
+  if (sel.value === ORIG.categoryId && ORIG.subject) return ORIG.subject;
+  const opt = sel.options[sel.selectedIndex];
+  return sel.value && opt ? opt.dataset.label : '';
 }
 
-// Init preview
-if(document.getElementById('codeContent').value) updatePreview();
+let busy = false, created = false;   // sin dobles envíos ni duplicados
+form.addEventListener('submit', async e => {
+  e.preventDefault();
+  if (busy || created) return;
+  const t = type();
+  const title = $('title').value.trim();
+  const url = $('codeUrl').value.trim();
+  const code = t === 'url' ? url : $('codeContent').value;
+  if (!title) { showStatus('error', T.titleReq); $('title').focus(); return; }
+  if (t === 'url' && !/^https?:\/\/\S+$/i.test(url)) { showStatus('error', url ? T.err.INVALID_URL : T.urlReq); $('codeUrl').focus(); return; }
+  if (t !== 'url' && !code.trim()) { showStatus('error', T.contentReq); $('codeContent').focus(); return; }
+
+  const body = {
+    title,
+    description: $('description').value.trim(),
+    code_content: code,
+    code_type: t,
+    visibility: $('visibility').value,
+    subject_area: subjectArea(),
+    category_id: $('categoryId').value || null,
+    level: $('level').value,
+    lang: $('lang').value,
+    tags: Array.from(tags),
+  };
+  // En un enlace, la dirección ES la fuente (ficha «Creado por …» y lista
+  // negra de URLs retiradas). En los demás tipos no se toca.
+  // Al EDITAR, solo si la fuente seguía a la dirección (o no había): muchos
+  // enlaces citan la PÁGINA del autor (p. ej. la del laboratorio en
+  // biointeractive.org) y apuntan a la simulación en otro sitio; mandarla
+  // siempre sustituía esa página por la dirección de la simulación al
+  // cambiar solo el título. Sin la clave, la API conserva la que había.
+  if (t === 'url') {
+    if (!EDIT_ID || !ORIG.sourceUrl || ORIG.sourceUrl === ORIG.code) body.source_url = url;
+    body.source_name = $('sourceName').value.trim();
+  }
+
+  busy = true;
+  saveBtn.disabled = true;
+  saveBtn.querySelector('span').textContent = EDIT_ID ? T.saving : T.publishing;
+  showStatus('', '');
+
+  let res, data = null;
+  try {
+    res = await fetch(EDIT_ID ? `/api/resources.php?id=${EDIT_ID}` : '/api/resources.php', {
+      method: EDIT_ID ? 'PUT' : 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    try { data = await res.json(); } catch (_) { data = null; }
+  } catch (_) {
+    res = null;
+  }
+
+  if (res && data && data.ok) {
+    dirty = false;
+    if (EDIT_ID) {
+      showStatus('ok', T.updated);
+      IA.toast(T.updated);
+      busy = false;
+      saveBtn.disabled = false;
+      saveBtn.querySelector('span').textContent = T.saveChanges;
+    } else {
+      // Creado: el botón queda bloqueado (así un doble clic no duplica) y se
+      // abre la ficha. Si hay moderación, se avisa antes de irse.
+      created = true;
+      const pending = data.moderation_status === 'pending_review';
+      showStatus('ok', pending ? T.pendingReview : (data.info || T.published));
+      setTimeout(() => { location.href = data.id ? '/resource/' + parseInt(data.id, 10) : '/dashboard/'; }, pending ? 3200 : 1200);
+    }
+    return;
+  }
+
+  // Error: se explica por código; lo inesperado, además, se registra.
+  const errCode = data && data.code ? data.code : (res ? '' : 'NETWORK');
+  if (res && (!data || res.status >= 500))
+    report(`${EDIT_ID ? 'PUT' : 'POST'} /api/resources.php → ${res.status}${data ? ' ' + (data.code || '') : ' (sin JSON)'}`);
+  showStatus('error', T.err[errCode] || (res && T.errStatus[res.status]) || T.errGeneric);
+  busy = false;
+  saveBtn.disabled = false;
+  saveBtn.querySelector('span').textContent = EDIT_ID ? T.saveChanges : T.publishResource;
+});
 </script>
 </body>
 </html>

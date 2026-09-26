@@ -1,6 +1,36 @@
 <?php
 // ================================================================
-// dashboard/index.php — Teacher Dashboard (Mis Recursos)
+// dashboard/index.php — Mi panel (el espacio del docente que publica)
+//
+// Para qué sirve: que quien publica vea, de un vistazo, si lo que ha
+// publicado SIRVE. Por eso las cifras de arriba son las del autor, reales y
+// también a cero (a él sí se le enseñan: en público solo salen con umbral,
+// ver resource/index.php):
+//   · Recursos          cuántos, y cuántos son públicos o borradores.
+//   · Abierto por       view_count (histórico, CONGELADO desde 2026-08-06)
+//                       + unique_views (lo vivo, api/track.php). Es la misma
+//                       suma que usa la ficha: el número no se desploma el día
+//                       que cambió la medición. AGENTS.md §6.8.
+//   · Usos en clase     use_count («Lo usé en clase», solo docentes).
+//   · Me gusta          recuento real de resource_likes.
+//   · Versiones de otros docentes  versiones PÚBLICAS hechas por otros. NO es
+//                       fork_count: ese cuenta también los borradores (casi
+//                       todos, porque nacen privados) y prometía versiones que
+//                       nadie podía abrir.
+//
+// Dos pestañas: «Mis recursos» y «Mis listas» (antes «Colecciones»; la tabla
+// sigue siendo collections y NO se unifica con los favoritos, CLAUDE.md §6.1).
+// /dashboard/#listas abre la segunda; #collections sigue valiendo para los
+// enlaces viejos.
+//
+// Piezas comunes: shared/ui.php (cabecera, pie, portada, diálogo «Mandar a
+// mis alumnos»), shared/labels.php (cómo se nombra cada cosa) y
+// assets/css/app.css (.ia-*). El <style> de abajo es solo lo propio del panel
+// (prefijo .db-).
+//
+// Antirregresión: tests/unit/account_pages_test.php (cifras, vocabulario,
+// pestañas) y tests/integration/render_pages_test.php (la página entera, con
+// sesión de profesor, y su script completo).
 // ================================================================
 
 // Primero de todo: los errores de esta página se registran y se ven (y nunca
@@ -10,6 +40,7 @@ require_once __DIR__ . '/../shared/page_errors.php';
 session_start();
 require_once __DIR__ . '/../shared/auth.php';
 require_once __DIR__ . '/../shared/db.php';
+require_once __DIR__ . '/../shared/ui.php';
 // h() local — NO se carga shared/helpers.php: su error_handler vuelca JSON y
 // corta la página a medias ante cualquier error (CLAUDE.md §2.1).
 if (!function_exists('h')) {
@@ -17,20 +48,117 @@ if (!function_exists('h')) {
         return htmlspecialchars($s, ENT_QUOTES | ENT_HTML5, 'UTF-8');
     }
 }
-require_once __DIR__ . '/../shared/i18n.php';
 lang();
 
 $user = getSessionUser();
-if (!$user) { header('Location: /'); exit; }
-// Estudiantes no tienen dashboard de autor: su espacio es "Mis favoritos".
+if (!$user) { header('Location: /auth/signin.php?return_url=' . rawurlencode('/dashboard/')); exit; }
+// Quien está aprendiendo no publica: su espacio es «Guardados».
 if (($user['role'] ?? '') === 'student') { header('Location: /favorites/'); exit; }
 
-$db = getResourcesDB();
+$db  = getResourcesDB();
+$uid = (int) $user['id'];
 
-// Fetch user's resources
-$stmt = $db->prepare('SELECT id, title, description, code_type, subject_area, visibility, view_count, like_count, fork_count, lang, created_at FROM resources WHERE author_user_id = ? AND author_tenant_id = 0 AND is_active = 1 ORDER BY created_at DESC');
-$stmt->execute([$user['id']]);
-$resources = $stmt->fetchAll(PDO::FETCH_ASSOC);
+// ── Utilidades de la página (puras) ────────────────────────────
+
+/** Fecha corta en el idioma de la interfaz. */
+function db_date(?string $ts): string
+{
+    $t = strtotime((string) $ts) ?: time();
+    return lang() === 'en' ? date('M j, Y', $t) : date('d/m/Y', $t);
+}
+
+/** Singular o plural según $n; las dos plantillas llegan ya traducidas (t() con literal). */
+function db_plural(int $n, string $one, string $many): string
+{
+    return sprintf($n === 1 ? $one : $many, iarepo_num($n));
+}
+
+/** «hace 3 h» / «3 h ago»: antigüedad corta de una fecha de la BD. */
+function db_ago(?string $ts): string
+{
+    $d = max(0, time() - (strtotime((string) $ts) ?: time()));
+    if ($d < 60)
+        return t('ahora');
+    $n = match (true) {
+        $d < 3600  => round($d / 60) . ' min',
+        $d < 86400 => round($d / 3600) . ' h',
+        default    => round($d / 86400) . ' d',
+    };
+    return sprintf(t('hace %s'), $n);
+}
+
+/**
+ * Visibilidad en palabras → [etiqueta, clase de .ia-tag].
+ *
+ * 'school' y 'area' significan «el mismo tenant». En iarepo.com todas las
+ * cuentas de Google comparten el tenant 0 (shared/auth.php), así que para
+ * ellas NO es «tu centro»: es cualquiera con cuenta. Decir «Tu centro» ahí
+ * sería prometer una privacidad que no existe. Solo se dice con tenant > 0.
+ */
+function db_visibility(string $vis, int $tenant = 0): array
+{
+    return match ($vis) {
+        'community'      => [t('Pública'), 'ia-tag-ok'],
+        'school', 'area' => [iarepo_restricted_label($vis, $tenant), ''],   // shared/labels.php (la ficha dice lo mismo)
+        default          => [t('Solo tú (borrador)'), 'ia-tag-new'],
+    };
+}
+
+// ── Mis recursos ───────────────────────────────────────────────
+//
+// «Me gusta» se cuenta en resource_likes (como el listado de la API) y no en
+// la columna like_count, que es un contador desnormalizado que puede mentir.
+$stmt = $db->prepare("
+    SELECT r.id, r.title, r.code_type, r.subject_area, r.topic_tag, r.visibility, r.level, r.lang,
+           r.view_count, r.use_count, r.created_at, r.author_tenant_id,
+           c.name AS category_name, c.slug AS category_slug, c.icon AS category_icon,
+           (SELECT COUNT(*) FROM resource_likes rl WHERE rl.resource_id = r.id) AS likes
+    FROM resources r
+    LEFT JOIN categories c ON c.id = r.category_id
+    WHERE r.author_user_id = ? AND r.author_tenant_id = 0 AND r.is_active = 1
+    ORDER BY r.created_at DESC, r.id DESC
+");
+$stmt->execute([$uid]);
+$resources = array_map('iarepo_with_labels', $stmt->fetchAll(PDO::FETCH_ASSOC));
+$myIds     = array_map('intval', array_column($resources, 'id'));
+
+// Visitas únicas (migration_012). Consulta aparte a propósito: si el
+// despliegue llegara antes que la migración, un ERROR 1054 aquí no puede
+// llevarse el panel entero. Degrada a «solo el histórico» y lo deja en el log.
+$uniqueViews = [];
+try {
+    $u = $db->prepare('SELECT id, unique_views FROM resources
+                       WHERE author_user_id = ? AND author_tenant_id = 0 AND is_active = 1');
+    $u->execute([$uid]);
+    foreach ($u->fetchAll(PDO::FETCH_ASSOC) as $row)
+        $uniqueViews[(int) $row['id']] = (int) $row['unique_views'];
+} catch (Throwable $e) {
+    error_log('dashboard: unique_views no disponible (¿falta migration_012?): ' . $e->getMessage());
+    $uniqueViews = [];
+}
+
+// Versiones PÚBLICAS hechas por OTROS docentes, por recurso raíz
+// (root_id, migration_013). Mismo criterio que «Otras versiones» de la ficha.
+// Degrada a cero si root_id no existe todavía.
+$versionsBy = [];
+try {
+    if ($myIds) {
+        $in = implode(',', array_fill(0, count($myIds), '?'));
+        $v  = $db->prepare("
+            SELECT root_id, COUNT(*) AS n
+            FROM resources
+            WHERE root_id IN ($in) AND id <> root_id AND is_active = 1 AND visibility = 'community'
+              AND NOT (author_user_id = ? AND author_tenant_id = 0)
+            GROUP BY root_id
+        ");
+        $v->execute([...$myIds, $uid]);
+        foreach ($v->fetchAll(PDO::FETCH_ASSOC) as $row)
+            $versionsBy[(int) $row['root_id']] = (int) $row['n'];
+    }
+} catch (Throwable $e) {
+    error_log('dashboard: linaje de versiones no disponible (¿falta migration_013?): ' . $e->getMessage());
+    $versionsBy = [];
+}
 
 // ── «¿Les quedó claro?» — el agregado, sólo para el autor ────────
 //
@@ -47,8 +175,8 @@ $resources = $stmt->fetchAll(PDO::FETCH_ASSOC);
 // puede mentir.
 //
 // try/catch por lo de siempre: un ERROR 1054 sin capturar —despliegue antes
-// que migration_014— sacaría la página a medio renderizar. Degradando a
-// vacío, la sección simplemente no aparece.
+// que migration_014— tumbaría la página (page_errors.php la cambiaría por un
+// 500). Degradando a vacío, la sección simplemente no aparece.
 $comprehension = [];
 try {
     if ($resources) {
@@ -66,537 +194,629 @@ try {
         }
     }
 } catch (Throwable $e) {
+    error_log('dashboard: «¿les quedó claro?» no disponible (¿falta migration_014?): ' . $e->getMessage());
     $comprehension = [];
 }
 
-// Stats
-$totalViews = array_sum(array_column($resources, 'view_count'));
-$totalLikes = array_sum(array_column($resources, 'like_count'));
-$totalForks = array_sum(array_column($resources, 'fork_count'));
+// ── Las cifras del autor (reales, también a cero) ──────────────
+$totals = ['public' => 0, 'drafts' => 0, 'opens' => 0, 'uses' => 0, 'likes' => 0, 'versions' => 0];
+foreach ($resources as &$r) {
+    $rid = (int) $r['id'];
+    // Abierto por = histórico congelado + visitas únicas (la ficha suma igual).
+    $r['opens']    = (int) $r['view_count'] + ($uniqueViews[$rid] ?? 0);
+    $r['uses']     = (int) $r['use_count'];
+    $r['likes']    = (int) $r['likes'];
+    $r['versions'] = $versionsBy[$rid] ?? 0;
+    $totals['opens']    += $r['opens'];
+    $totals['uses']     += $r['uses'];
+    $totals['likes']    += $r['likes'];
+    $totals['versions'] += $r['versions'];
+    if ($r['visibility'] === 'community')
+        $totals['public']++;
+    elseif ($r['visibility'] === 'draft')
+        $totals['drafts']++;
+}
+unset($r);
 
-// Recent activity on user's resources
-$myIds = array_column($resources, 'id');
+// ── Actividad reciente: lo que han hecho OTROS con tus recursos ──
+// Las mismas tres fuentes que la campana (api/notifications.php), también
+// excluyendo lo que hace uno mismo: darse «Me gusta» no es una novedad.
 $activity = [];
 if ($myIds) {
-    $inClause = implode(',', array_map('intval', $myIds));
-
-    // Recent likes
-    $likeAct = $db->query("
-        SELECT 'like' AS type, rl.user_name AS actor, r.title AS resource_title, r.id AS resource_id, rl.created_at
-        FROM resource_likes rl JOIN resources r ON r.id = rl.resource_id
-        WHERE rl.resource_id IN ($inClause)
-        ORDER BY rl.created_at DESC LIMIT 5
-    ")->fetchAll();
-
-    // Recent forks
-    $forkAct = $db->query("
-        SELECT 'fork' AS type, r2.author_display_name AS actor, r.title AS resource_title, r.id AS resource_id, r2.created_at
-        FROM resources r2 JOIN resources r ON r.id = r2.fork_of
-        WHERE r2.fork_of IN ($inClause) AND r2.is_active = 1
-        ORDER BY r2.created_at DESC LIMIT 5
-    ")->fetchAll();
-
-    // Recent comments
-    $commentAct = $db->query("
-        SELECT 'comment' AS type, rc.user_name AS actor, r.title AS resource_title, r.id AS resource_id, rc.created_at
-        FROM resource_comments rc JOIN resources r ON r.id = rc.resource_id
-        WHERE rc.resource_id IN ($inClause) AND rc.is_active = 1
-        ORDER BY rc.created_at DESC LIMIT 5
-    ")->fetchAll();
-
-    $activity = array_merge($likeAct, $forkAct, $commentAct);
-    usort($activity, fn($a, $b) => strtotime($b['created_at']) - strtotime($a['created_at']));
-    $activity = array_slice($activity, 0, 10);
+    $inClause = implode(',', $myIds);   // enteros: array_map('intval') arriba
+    $act = static function (string $sql) use ($db, $uid): array {
+        $s = $db->prepare($sql);
+        $s->execute([$uid]);
+        return $s->fetchAll(PDO::FETCH_ASSOC);
+    };
+    $activity = array_merge(
+        // Un «Me gusta» de quien está aprendiendo (rol student, puede ser
+        // menor) sale sin nombre: actor NULL → «Alguien que está aprendiendo».
+        $act("SELECT 'like' AS type, IF(u.role = 'student', NULL, rl.user_name) AS actor, r.title AS resource_title, r.id AS resource_id, rl.created_at
+              FROM resource_likes rl JOIN resources r ON r.id = rl.resource_id
+              LEFT JOIN users u ON u.id = rl.user_id
+              WHERE rl.resource_id IN ($inClause) AND rl.user_id <> ?
+              ORDER BY rl.created_at DESC LIMIT 6"),
+        $act("SELECT 'fork' AS type, r2.author_display_name AS actor, r.title AS resource_title, r.id AS resource_id, r2.created_at
+              FROM resources r2 JOIN resources r ON r.id = r2.fork_of
+              WHERE r2.fork_of IN ($inClause) AND r2.is_active = 1 AND r2.author_user_id <> ?
+              ORDER BY r2.created_at DESC LIMIT 6"),
+        $act("SELECT 'comment' AS type, rc.user_name AS actor, r.title AS resource_title, r.id AS resource_id, rc.created_at
+              FROM resource_comments rc JOIN resources r ON r.id = rc.resource_id
+              WHERE rc.resource_id IN ($inClause) AND rc.is_active = 1 AND rc.user_id <> ?
+              ORDER BY rc.created_at DESC LIMIT 6")
+    );
+    usort($activity, static fn($a, $b) => strtotime((string) $b['created_at']) <=> strtotime((string) $a['created_at']));
+    $activity = array_slice($activity, 0, 6);
 }
+// Verbo e icono por tipo. El nombre y el título se escapan al pintar: vienen
+// de otras personas (antes se imprimían en crudo).
+$activityVerb = ['like' => t('le dio «Me gusta» a'), 'fork' => t('hizo su versión de'), 'comment' => t('comentó en')];
+$activityIcon = ['like' => 'heart', 'fork' => 'git-branch', 'comment' => 'message-circle'];
 
-// Collections
-$collStmt = $db->prepare("SELECT id, title, is_public, item_count, created_at FROM collections WHERE user_id = ? ORDER BY created_at DESC");
-$collStmt->execute([$user['id']]);
+// ── Mis listas (tabla collections) ─────────────────────────────
+// La descripción SÍ se lee: el diálogo de edición la necesita. Antes no se
+// pedía, el diálogo salía vacío y al guardar se borraba la descripción.
+$collStmt = $db->prepare('SELECT id, title, description, is_public, item_count, created_at
+                          FROM collections WHERE user_id = ? ORDER BY created_at DESC, id DESC');
+$collStmt->execute([$uid]);
 $collections = $collStmt->fetchAll(PDO::FETCH_ASSOC);
+
+$firstName = trim(explode(' ', (string) ($user['name'] ?? ''))[0]);
 ?>
 <!DOCTYPE html>
 <html lang="<?= lang() ?>">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Dashboard — iarepo</title>
+<title><?= h(t('Mi panel')) ?> — iarepo</title>
+<meta name="robots" content="noindex">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="icon" href="/favicon.ico" sizes="any">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link rel="manifest" href="/manifest.webmanifest">
-<meta name="theme-color" content="#7c3aed">
-<script src="/assets/js/pwa.js" defer></script>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<script src="/assets/js/lucide.min.js"></script>
+<meta name="theme-color" content="#F6F7F9">
+<?= iarepo_head_assets() ?>
+<?= iarepo_pwa_script() ?>
 <style>
-*{margin:0;padding:0;box-sizing:border-box}
-:root{--bg:#f8fafc;--bg2:#fff;--bg3:#f1f5f9;--text:#1e293b;--text2:#475569;--text3:#94a3b8;--accent:#7c3aed;--accent2:#06b6d4;--grad:linear-gradient(135deg,#7c3aed,#06b6d4);--card:#fff;--border:#e2e8f0;--radius:12px;--shadow:0 1px 3px rgba(0,0,0,.06);--shadow-hover:0 8px 24px rgba(124,58,237,.12)}
-[data-theme="dark"]{--bg:#0a0e1a;--bg2:#111827;--bg3:#1e293b;--text:#e2e8f0;--text2:#94a3b8;--text3:#64748b;--card:#151c2e;--border:#1e293b;--shadow:0 1px 3px rgba(0,0,0,.3);--shadow-hover:0 8px 24px rgba(124,58,237,.2)}
-body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;transition:background .3s,color .3s}
-a{color:var(--accent2);text-decoration:none}
+/* Solo lo propio del panel (.db-*). Botones, etiquetas, filas, diálogo y
+   tipografía salen de assets/css/app.css. */
+.db-main { padding-top: 24px; }
+.db-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px 16px; margin-bottom: 20px; }
+.db-head h1 { font-size: clamp(1.7rem, 1.35rem + 1.3vw, 2.3rem); margin: 0; }
+.db-head p { margin: 4px 0 0; }
+.db-head-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; position: relative; }   /* wrap: a 360 px no cabían campana + perfil + «Publicar» */
 
-.topbar{display:flex;align-items:center;justify-content:space-between;padding:12px 24px;background:var(--bg2);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:100}
-.topbar-left{display:flex;align-items:center;gap:16px}
-.topbar-left a{color:var(--accent);font-weight:600;font-size:.95rem}
-.topbar-right{display:flex;align-items:center;gap:12px;font-size:.85rem}
-.topbar-right img{width:28px;height:28px;border-radius:50%}
+/* Cifras del autor */
+.db-stats { display: grid; gap: 12px; grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 0 0 28px; padding: 0; list-style: none; }
+@media (min-width: 720px) { .db-stats { grid-template-columns: repeat(5, minmax(0, 1fr)); } }
+.db-stat { background: var(--ia-surface); border: 1px solid var(--ia-line); border-radius: var(--ia-radius); padding: 14px 16px; }
+.db-stat-l { display: block; font-size: .8125rem; font-weight: 700; color: var(--ia-ink-3); }
+.db-stat-n { display: block; font-size: 1.9rem; font-weight: 800; line-height: 1.15; font-variant-numeric: tabular-nums; }
+.db-stat-u { display: block; font-size: .8125rem; color: var(--ia-ink-3); }
+@media (max-width: 719px) { .db-stat:first-child { grid-column: 1 / -1; } }
 
-/* Notifications bell */
-.notif-wrap{position:relative;display:flex}
-.notif-bell{position:relative;width:36px;height:36px;border-radius:50%;border:1px solid var(--border);background:var(--bg2);color:var(--text2);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:.2s}
-.notif-bell:hover{border-color:var(--accent);color:var(--accent)}
-.notif-badge{position:absolute;top:-3px;right:-3px;min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:#ef4444;color:#fff;font-size:.66rem;font-weight:700;display:flex;align-items:center;justify-content:center;border:2px solid var(--bg2)}
-.notif-panel{position:absolute;top:46px;right:0;width:330px;max-width:88vw;background:var(--card);border:1px solid var(--border);border-radius:14px;box-shadow:0 12px 40px rgba(0,0,0,.18);opacity:0;visibility:hidden;transform:translateY(8px);transition:all .2s;z-index:300;overflow:hidden}
-.notif-panel.open{opacity:1;visibility:visible;transform:translateY(0)}
-.notif-head{padding:14px 16px;font-weight:700;font-size:.92rem;border-bottom:1px solid var(--border)}
-.notif-list{max-height:380px;overflow-y:auto}
-.notif-item{display:flex;gap:10px;padding:12px 16px;border-bottom:1px solid var(--border);font-size:.84rem;text-decoration:none;color:var(--text);transition:.15s}
-.notif-item:hover{background:var(--bg3)}
-.notif-item:last-child{border-bottom:none}
-.notif-ico{width:30px;height:30px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:.85rem}
-.notif-ico.like{background:rgba(239,68,68,.12);color:#ef4444}
-.notif-ico.fork{background:rgba(124,58,237,.12);color:var(--accent)}
-.notif-ico.comment{background:rgba(6,182,212,.12);color:var(--accent2)}
-.notif-txt{flex:1;line-height:1.45}
-.notif-txt strong{color:var(--text);font-weight:600}
-.notif-time{font-size:.72rem;color:var(--text3);margin-top:2px}
-.notif-empty{padding:30px 16px;text-align:center;color:var(--text3);font-size:.85rem}
+/* Campana de novedades */
+.db-bell { position: relative; }
+.db-bell-badge { position: absolute; top: 2px; right: 2px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px;
+  background: var(--ia-danger); color: #fff; font-size: .7rem; font-weight: 800; line-height: 18px; text-align: center; }
+.db-notif { position: absolute; top: calc(100% + 8px); right: 0; z-index: 40; width: min(360px, calc(100vw - 32px));
+  background: var(--ia-surface); border: 1px solid var(--ia-line); border-radius: var(--ia-radius); box-shadow: var(--ia-shadow-lg); overflow: hidden; }
+.db-notif h2 { font-size: 1rem; margin: 0; padding: 12px 16px; border-bottom: 1px solid var(--ia-line); }
+.db-notif-list { max-height: 380px; overflow-y: auto; margin: 0; padding: 0; list-style: none; }
 
-.container{max-width:1000px;margin:0 auto;padding:32px 24px}
+/* Actividad (misma pieza en la campana y en la sección) */
+.db-act { display: flex; gap: 10px; align-items: flex-start; padding: 10px 16px; font-size: .9rem; color: var(--ia-ink); text-decoration: none; }
+.ia-page a.db-act { color: var(--ia-ink); text-decoration: none; }
+.db-act + .db-act { border-top: 1px solid var(--ia-line); }
+a.db-act:hover { background: var(--ia-surface-2); }
+.db-act-ico { flex: none; display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; background: var(--ia-surface-2); color: var(--ia-ink-2); }
+.db-act-ico svg { width: 16px; height: 16px; }
+.db-act-time { display: block; font-size: .8125rem; color: var(--ia-ink-3); }
+.db-activity { margin: 0 0 28px; padding: 0; list-style: none; background: var(--ia-surface); border: 1px solid var(--ia-line); border-radius: var(--ia-radius); }
+.db-empty-note { padding: 18px 16px; color: var(--ia-ink-3); font-size: .9rem; margin: 0; }
 
-/* Stats */
-.stats-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:32px}
-@media(max-width:640px){.stats-grid{grid-template-columns:repeat(2,1fr)}}
-.stat-card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:20px;text-align:center;box-shadow:var(--shadow)}
-.stat-card strong{display:block;font-size:1.8rem;background:var(--grad);-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin-bottom:4px}
-.stat-card span{font-size:.8rem;color:var(--text3)}
+/* Pestañas */
+.db-tabs { display: flex; gap: 4px; border-bottom: 2px solid var(--ia-line); margin-bottom: 16px; overflow-x: auto; }
+.db-tab { min-height: var(--ia-tap); padding: 8px 14px; margin-bottom: -2px; border: 0; border-bottom: 3px solid transparent; background: none;
+  font: 700 1rem/1.2 var(--ia-font); color: var(--ia-ink-3); cursor: pointer; white-space: nowrap; }
+.db-tab[aria-selected="true"] { color: var(--ia-ink); border-bottom-color: var(--ia-accent); }
+.db-tab .ia-count { font-weight: 600; color: var(--ia-ink-3); }
+.db-panel-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
+.db-panel-head .ia-input { flex: 1 1 220px; max-width: 360px; }
 
-/* Tabs */
-.tabs{display:flex;gap:4px;margin-bottom:24px;border-bottom:2px solid var(--border);padding-bottom:0}
-.tab{padding:10px 20px;border:none;background:none;color:var(--text3);font-family:inherit;font-size:.9rem;font-weight:600;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;transition:.2s}
-.tab.active{color:var(--accent);border-bottom-color:var(--accent)}
-.tab:hover{color:var(--text)}
-.tab-content{display:none}
-.tab-content.active{display:block}
+/* Filas de recurso y de lista */
+.db-list { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.db-item { align-items: flex-start; }
+.db-item .ia-cover { width: 72px; }
+.db-list-ico { flex: none; display: grid; place-items: center; width: 72px; height: 72px; border-radius: 10px; background: var(--ia-accent-soft); color: var(--ia-accent); }
+/* En móvil, miniatura más pequeña: así Editar / Ver ficha / Eliminar caben en una fila. */
+@media (max-width: 559px) { .db-item .ia-cover, .db-list-ico { width: 48px; } .db-list-ico { height: 48px; } }
+.db-item-title { margin: 0 0 4px; font-size: 1.02rem; line-height: 1.3; }
+.db-item-title a { color: var(--ia-ink); text-decoration: none; }
+.db-item-title a:hover { color: var(--ia-accent); text-decoration: underline; }
+.db-item-meta, .db-item-figs { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin: 0 0 4px; font-size: .875rem; color: var(--ia-ink-3); }
+.db-item-figs { color: var(--ia-ink-2); column-gap: 16px; }
+.db-item-figs strong { color: var(--ia-ink); font-variant-numeric: tabular-nums; }
+.db-cmp-ok { color: var(--ia-ok); }
+.db-cmp-lost { color: var(--ia-danger); }
+.db-item-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.db-hint { font-size: .9rem; color: var(--ia-ink-3); margin: -18px 0 28px; }
 
-.header{display:flex;justify-content:space-between;align-items:center;margin-bottom:20px}
-.header h2{font-size:1.2rem;font-weight:700}
-.btn{padding:10px 20px;border-radius:24px;border:none;cursor:pointer;font-family:inherit;font-size:.85rem;font-weight:600;transition:all .2s;display:inline-flex;align-items:center;gap:6px}
-.btn-primary{background:var(--grad);color:#fff}
-.btn-primary:hover{transform:translateY(-1px);box-shadow:0 4px 16px rgba(124,58,237,.3)}
-.btn-sm{padding:6px 14px;font-size:.8rem;border-radius:8px}
-.btn-outline{background:transparent;border:1px solid var(--border);color:var(--text2)}
-.btn-outline:hover{border-color:var(--accent);color:var(--accent)}
-
-.resource-list{display:flex;flex-direction:column;gap:12px}
-.resource-item{display:flex;justify-content:space-between;align-items:center;padding:16px 20px;background:var(--card);border:1px solid var(--border);border-radius:var(--radius);transition:.2s;box-shadow:var(--shadow)}
-.resource-item:hover{box-shadow:var(--shadow-hover);border-color:var(--accent)}
-.resource-info h3{font-size:.95rem;font-weight:600;margin-bottom:4px}
-.resource-info h3 a{color:var(--text)}
-.resource-meta{display:flex;gap:12px;font-size:.78rem;color:var(--text3);flex-wrap:wrap}
-.resource-actions{display:flex;gap:6px}
-.badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:.7rem;font-weight:600}
-.badge-draft{background:#fef3c7;color:#92400e}
-.badge-community{background:#dcfce7;color:#166534}
-[data-theme="dark"] .badge-draft{background:rgba(251,191,36,.15);color:#fbbf24}
-[data-theme="dark"] .badge-community{background:rgba(34,197,94,.15);color:#4ade80}
-.empty{text-align:center;padding:60px 24px;color:var(--text3)}
-.empty h3{color:var(--text);margin-bottom:8px}
-
-.theme-toggle{position:fixed;bottom:16px;right:16px;z-index:100;width:40px;height:40px;border-radius:50%;border:1px solid var(--border);background:var(--bg2);color:var(--text2);cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:var(--shadow)}
-.theme-toggle:hover{border-color:var(--accent);color:var(--accent)}
-
-.activity-list{display:flex;flex-direction:column;gap:8px;margin-bottom:32px}
-.activity-item{display:flex;align-items:center;gap:12px;padding:12px 16px;background:var(--card);border:1px solid var(--border);border-radius:10px;font-size:.85rem}
-.activity-icon{width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:.85rem}
-.activity-icon.like{background:rgba(239,68,68,.1);color:#ef4444}
-.activity-icon.fork{background:rgba(124,58,237,.1);color:var(--accent)}
-.activity-icon.comment{background:rgba(6,182,212,.1);color:var(--accent2)}
-.activity-text{flex:1;line-height:1.4}
-.activity-text strong{color:var(--text)}
-.activity-text a{color:var(--accent2)}
-.activity-time{font-size:.75rem;color:var(--text3);white-space:nowrap}
-
-.coll-link{color:var(--text);text-decoration:none}
-.coll-link:hover{color:var(--accent)}
-
-/* Modal */
-.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:200;display:none;align-items:center;justify-content:center;padding:16px}
-.modal-overlay.open{display:flex}
-.modal{background:var(--bg2);border-radius:16px;padding:28px;width:100%;max-width:420px;box-shadow:0 24px 64px rgba(0,0,0,.2)}
-.modal h3{font-size:1.1rem;font-weight:700;margin-bottom:20px}
-.modal label{display:block;font-size:.85rem;font-weight:600;color:var(--text2);margin-bottom:6px}
-.modal input,.modal textarea,.modal select{width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-family:inherit;font-size:.9rem;margin-bottom:14px}
-.modal input:focus,.modal textarea:focus{outline:none;border-color:var(--accent)}
-.modal textarea{resize:vertical;min-height:72px}
-.modal-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:4px}
-.btn-danger{background:transparent;border:1px solid #ef4444;color:#ef4444}
-.btn-danger:hover{background:rgba(239,68,68,.08)}
+/* Diálogo de lista */
+.db-form { display: grid; gap: 12px; }
+.db-form label { display: block; font-weight: 700; font-size: .9rem; margin-bottom: 4px; }
+.db-form .ia-input, .db-form .ia-select { width: 100%; }
+.db-form textarea.ia-input { min-height: 80px; resize: vertical; line-height: 1.4; }
+.db-form-error { color: var(--ia-danger); font-weight: 600; margin: 0; }
 </style>
 <?php require_once __DIR__ . '/../shared/error_tracker.php'; ?>
 </head>
-<body>
+<body class="ia-page">
+<?php iarepo_header($user, 'teach'); ?>
 
-<div class="topbar">
-  <div class="topbar-left">
-    <a href="/"><img src="/assets/img/logo.svg" alt="iarepo" style="height:24px;width:auto;vertical-align:middle"></a>
-    <span style="color:var(--text3)">·</span>
-    <span style="font-weight:600;font-size:.9rem">Dashboard</span>
-  </div>
-  <div class="topbar-right">
-    <div class="notif-wrap">
-      <button class="notif-bell" id="notifBell" aria-label="<?= h(t('Notificaciones')) ?>" title="<?= h(t('Notificaciones')) ?>">
-        <i data-lucide="bell" style="width:18px;height:18px"></i>
-        <span class="notif-badge" id="notifBadge" style="display:none">0</span>
+<main id="main" class="ia-container db-main">
+  <div class="db-head">
+    <div>
+      <h1><?= h(t('Mi panel')) ?></h1>
+      <p class="ia-muted"><?= $firstName !== '' ? h(sprintf(t('Hola, %s. Aquí ves tus recursos y si están sirviendo en clase.'), $firstName)) : h(t('Aquí ves tus recursos y si están sirviendo en clase.')) ?></p>
+    </div>
+    <div class="db-head-tools">
+      <button type="button" class="ia-btn ia-btn-secondary ia-btn-icon db-bell" id="notifBell" aria-expanded="false" aria-controls="notifPanel"
+              aria-label="<?= h(t('Novedades')) ?>" title="<?= h(t('Novedades')) ?>">
+        <i data-lucide="bell"></i><span class="db-bell-badge" id="notifBadge" hidden>0</span>
       </button>
-      <div class="notif-panel" id="notifPanel">
-        <div class="notif-head"><?= h(t('Notificaciones')) ?></div>
-        <div class="notif-list" id="notifList"><div class="notif-empty"><?= h(t('Cargando…')) ?></div></div>
+      <div class="db-notif" id="notifPanel" hidden>
+        <h2><?= h(t('Novedades')) ?></h2>
+        <ul class="db-notif-list" id="notifList"><li class="db-empty-note"><?= h(t('Cargando…')) ?></li></ul>
       </div>
+      <?php /* aria-label: en ≤ 480 px el texto se oculta (.ia-hide-xs) y el enlace
+               se quedaba sin nombre para el lector de pantalla. */ ?>
+      <a class="ia-btn ia-btn-ghost" href="/profile/<?= $uid ?>" aria-label="<?= h(t('Mi perfil público')) ?>"><i data-lucide="user-round"></i><span class="ia-hide-xs"><?= h(t('Mi perfil público')) ?></span></a>
+      <a class="ia-btn ia-btn-primary" href="/dashboard/editor.php"><i data-lucide="upload"></i><?= h(t('Publicar un recurso')) ?></a>
     </div>
-    <?php if ($user['avatar_url']): ?><img src="<?= h($user['avatar_url']) ?>" alt=""><?php endif; ?>
-    <span><?= h($user['name']) ?></span>
-    <a href="/profile/<?= (int)$user['id'] ?>" style="font-size:.8rem"><?= h(t('Mi perfil')) ?></a>
-    <a href="/auth/logout.php" style="color:var(--text3);font-size:.8rem"><?= h(t('Salir')) ?></a>
-  </div>
-</div>
-
-<div class="container">
-  <div class="stats-grid">
-    <div class="stat-card"><strong><?= count($resources) ?></strong><span><?= h(t('Recursos')) ?></span></div>
-    <div class="stat-card"><strong><?= $totalViews ?></strong><span><?= h(t('Vistas')) ?></span></div>
-    <div class="stat-card"><strong><?= $totalLikes ?></strong><span><?= h(t('Likes')) ?></span></div>
-    <div class="stat-card"><strong><?= $totalForks ?></strong><span><?= h(t('Forks')) ?></span></div>
   </div>
 
-  <?php if ($activity): ?>
-  <div class="header" style="margin-bottom:12px">
-    <h2><?= h(t('Actividad reciente')) ?></h2>
-  </div>
-  <div class="activity-list">
-    <?php foreach ($activity as $act):
-      $icons = ['like' => '❤', 'fork' => '⑂', 'comment' => '💬'];
-      $labels = [
-        'like'    => "<strong>{$act['actor']}</strong> " . t('le dio like a') . " <a href=\"/resource/{$act['resource_id']}\">{$act['resource_title']}</a>",
-        'fork'    => "<strong>{$act['actor']}</strong> " . t('forkeó') . " <a href=\"/resource/{$act['resource_id']}\">{$act['resource_title']}</a>",
-        'comment' => "<strong>{$act['actor']}</strong> " . t('comentó en') . " <a href=\"/resource/{$act['resource_id']}\">{$act['resource_title']}</a>",
-      ];
-      $timeAgo = function($dt) {
-        $diff = time() - strtotime($dt);
-        if ($diff < 3600) return round($diff/60) . 'm';
-        if ($diff < 86400) return round($diff/3600) . 'h';
-        return round($diff/86400) . 'd';
-      };
-    ?>
-    <div class="activity-item">
-      <div class="activity-icon <?= $act['type'] ?>"><?= $icons[$act['type']] ?></div>
-      <div class="activity-text"><?= $labels[$act['type']] ?></div>
-      <div class="activity-time"><?= lang()==='en' ? $timeAgo($act['created_at']).' ago' : 'hace '.$timeAgo($act['created_at']) ?></div>
-    </div>
-    <?php endforeach; ?>
-  </div>
+  <?php /* Sin recursos, nada de cifras: un docente nuevo veía un muro de cinco
+           ceros y el estado vacío útil («Publicar mi primer recurso») quedaba
+           bajo el pliegue en el móvil [revisión 2026-09]. Desde el primero,
+           sus cifras reales, también a cero. */ ?>
+  <?php if ($resources): ?>
+  <ul class="db-stats" aria-label="<?= h(t('Tus cifras')) ?>">
+    <li class="db-stat"><span class="db-stat-l"><?= h(t('Recursos')) ?></span><span class="db-stat-n"><?= iarepo_num(count($resources)) ?></span>
+      <span class="db-stat-u"><?= h(db_plural($totals['public'], t('%s público'), t('%s públicos')) . ' · ' . db_plural($totals['drafts'], t('%s borrador'), t('%s borradores'))) ?></span></li>
+    <li class="db-stat"><span class="db-stat-l"><?= h(t('Abierto por')) ?></span><span class="db-stat-n"><?= iarepo_num($totals['opens']) ?></span>
+      <span class="db-stat-u"><?= h(t('personas, en total')) ?></span></li>
+    <li class="db-stat"><span class="db-stat-l"><?= h(t('Usos en clase')) ?></span><span class="db-stat-n"><?= iarepo_num($totals['uses']) ?></span>
+      <span class="db-stat-u"><?= h(t('marcados por docentes')) ?></span></li>
+    <li class="db-stat"><span class="db-stat-l"><?= h(t('Me gusta recibidos')) ?></span><span class="db-stat-n"><?= iarepo_num($totals['likes']) ?></span>
+      <span class="db-stat-u"><?= h(t('de otras personas')) ?></span></li>
+    <li class="db-stat"><span class="db-stat-l"><?= h(t('Versiones de otros docentes')) ?></span><span class="db-stat-n"><?= iarepo_num($totals['versions']) ?></span>
+      <span class="db-stat-u"><?= h(t('públicas, basadas en las tuyas')) ?></span></li>
+  </ul>
+  <?php endif; ?>
+  <?php if ($resources && $totals['opens'] === 0): ?>
+  <p class="db-hint"><?= h(t('Cuando alguien abra tus recursos o los marque como usados en clase, lo verás aquí.')) ?></p>
   <?php endif; ?>
 
-  <div class="tabs">
-    <button class="tab active" data-tab="resources">📦 <?= h(t('Recursos')) ?></button>
-    <button class="tab" data-tab="collections">📁 <?= h(t('Colecciones')) ?> (<?= count($collections) ?>)</button>
+  <?php if ($activity): ?>
+  <section aria-labelledby="actTitle">
+    <div class="ia-section-head"><h2 id="actTitle"><?= h(t('Actividad reciente')) ?></h2></div>
+    <ul class="db-activity">
+      <?php foreach ($activity as $a): $type = isset($activityVerb[$a['type']]) ? $a['type'] : 'comment'; ?>
+      <li><a class="db-act" href="/resource/<?= (int) $a['resource_id'] ?>">
+        <span class="db-act-ico"><i data-lucide="<?= $activityIcon[$type] ?>"></i></span>
+        <span><strong><?= h((string) ($a['actor'] ?? '') !== '' ? (string) $a['actor'] : t('Alguien que está aprendiendo')) ?></strong> <?= h($activityVerb[$type]) ?> <strong><?= h((string) $a['resource_title']) ?></strong>
+          <span class="db-act-time"><?= h(db_ago($a['created_at'])) ?></span></span>
+      </a></li>
+      <?php endforeach; ?>
+    </ul>
+  </section>
+  <?php endif; ?>
+
+  <div class="db-tabs" role="tablist" aria-label="<?= h(t('Mi panel')) ?>">
+    <button type="button" class="db-tab" role="tab" id="tab-recursos" aria-controls="panel-recursos" aria-selected="true">
+      <?= h(t('Mis recursos')) ?> <span class="ia-count" data-count="res"><?= count($resources) ?></span></button>
+    <button type="button" class="db-tab" role="tab" id="tab-listas" aria-controls="panel-listas" aria-selected="false" tabindex="-1">
+      <?= h(t('Mis listas')) ?> <span class="ia-count" data-count="coll"><?= count($collections) ?></span></button>
   </div>
 
-  <!-- Resources Tab -->
-  <div class="tab-content active" id="tab-resources">
-    <div class="header">
-      <h2><?= h(t('Mis Recursos')) ?></h2>
-      <a href="/dashboard/editor.php" class="btn btn-primary">➕ <?= h(t('Nuevo Recurso')) ?></a>
-    </div>
-    <?php if (empty($resources)): ?>
-      <div class="empty">
-        <h3><?= h(t('Aún no tienes recursos')) ?></h3>
-        <p><?= h(t('Comparte tu primer recurso educativo con la comunidad.')) ?></p>
-        <a href="/dashboard/editor.php" class="btn btn-primary" style="margin-top:16px">➕ <?= h(t('Crear mi primer recurso')) ?></a>
+  <!-- Mis recursos -->
+  <section role="tabpanel" id="panel-recursos" aria-labelledby="tab-recursos">
+    <?php if (!$resources): ?>
+      <div class="ia-empty">
+        <h3><?= h(t('Aún no has publicado nada')) ?></h3>
+        <p><?= h(t('Pega una simulación hecha con IA o el enlace a una que ya exista. En un minuto está en el catálogo, con tu nombre.')) ?></p>
+        <a class="ia-btn ia-btn-primary" href="/dashboard/editor.php"><i data-lucide="upload"></i><?= h(t('Publicar mi primer recurso')) ?></a>
       </div>
     <?php else: ?>
-      <div class="resource-list">
-        <?php foreach ($resources as $r): ?>
-          <div class="resource-item" id="res-<?= (int)$r['id'] ?>">
-            <div class="resource-info">
-              <h3>
-                <a href="/resource/<?= (int)$r['id'] ?>"><?= h($r['title']) ?></a>
-                <span class="badge <?= $r['visibility'] === 'community' ? 'badge-community' : 'badge-draft' ?>"><?= h($r['visibility']) ?></span>
-              </h3>
-              <div class="resource-meta">
-                <span><?= h($r['code_type']) ?></span>
-                <span><?= h($r['subject_area'] ?? '—') ?></span>
-                <span>👁 <?= (int)$r['view_count'] ?></span>
-                <span>❤ <?= (int)($r['like_count'] ?? 0) ?></span>
-                <span>🔄 <?= (int)($r['fork_count'] ?? 0) ?></span>
-                <span><?= date('d/m/Y', strtotime($r['created_at'])) ?></span>
-              </div>
+      <?php if (count($resources) > 8): ?>
+      <div class="db-panel-head">
+        <label class="ia-sr-only" for="resFilter"><?= h(t('Buscar en mis recursos')) ?></label>
+        <input type="search" class="ia-input" id="resFilter" placeholder="<?= h(t('Buscar en mis recursos')) ?>" autocomplete="off">
+      </div>
+      <p class="ia-muted" id="resNoMatch" hidden><?= h(t('Ninguno de tus recursos coincide.')) ?></p>
+      <?php endif; ?>
+      <ul class="db-list" id="resList">
+        <?php foreach ($resources as $r):
+            $rid = (int) $r['id'];
+            [$visLabel, $visClass] = db_visibility((string) $r['visibility'], (int) $r['author_tenant_id']);
+            $cmp = $comprehension[$rid] ?? [];
+        ?>
+        <li class="ia-row db-item" id="res-<?= $rid ?>" data-q="<?= h(mb_strtolower((string) $r['title'])) ?>">
+          <?= iarepo_cover($r) ?>
+          <div class="ia-row-body">
+            <h3 class="db-item-title"><a href="/resource/<?= $rid ?>"><?= h((string) $r['title']) ?></a></h3>
+            <p class="db-item-meta">
+              <span class="ia-tag <?= $visClass ?>"><?= h($visLabel) ?></span>
+              <span><?= h(implode(' · ', array_filter([
+                  $r['category_label'], iarepo_level_label($r['level'], false), $r['opens_label'], db_date($r['created_at']),
+              ], static fn($x) => trim((string) $x) !== ''))) ?></span>
+            </p>
+            <p class="db-item-figs">
               <?php
-              // Sólo si alguien ha contestado. Un "0 de 0" no dice nada y
-              // llenaría el panel de ruido en un catálogo recién estrenado.
-              $cmp = $comprehension[(int)$r['id']] ?? [];
-              if ($cmp):
-                  $claro   = (int)($cmp['claro'] ?? 0);
-                  $regular = (int)($cmp['regular'] ?? 0);
-                  $perdido = (int)($cmp['perdido'] ?? 0);
-              ?>
-              <div class="resource-meta" style="margin-top:4px">
-                <span title="<?= h(t('Respuestas anónimas de quienes usaron el recurso')) ?>">
-                  <?= h(t('¿Les quedó claro?')) ?>
-                </span>
-                <span style="color:#10b981">✔ <?= $claro ?></span>
-                <span style="color:#f59e0b">～ <?= $regular ?></span>
-                <span style="color:#ef4444">✖ <?= $perdido ?></span>
-              </div>
-              <?php endif; ?>
-            </div>
-            <div class="resource-actions">
-              <a href="/view/<?= (int)$r['id'] ?>" target="_blank" class="btn btn-outline btn-sm">👁 <?= h(t('Ver')) ?></a>
-              <a href="/dashboard/editor.php?id=<?= (int)$r['id'] ?>" class="btn btn-outline btn-sm">✏️ <?= h(t('Editar')) ?></a>
-              <button class="btn btn-outline btn-sm btn-danger" onclick="deleteResource(<?= (int)$r['id'] ?>, '<?= h(addslashes($r['title'])) ?>')" title="<?= h(t('Eliminar recurso')) ?>">🗑</button>
+              // Etiqueta + número en negrita, igual que las cifras de arriba: sin
+              // plurales que traducir y sin «0 0» pegados. Me gusta y versiones
+              // solo si los hay; aperturas y usos siempre (a cero también: es
+              // lo que el autor quiere saber).
+              $figs = [[t('Abierto por'), $r['opens']], [t('Usos en clase'), $r['uses']]];
+              if ($r['likes'] > 0)
+                  $figs[] = [t('Me gusta recibidos'), $r['likes']];
+              if ($r['versions'] > 0)
+                  $figs[] = [t('Versiones de otros docentes'), $r['versions']];
+              foreach ($figs as [$label, $n]): ?>
+              <span><?= h($label) ?> <strong><?= iarepo_num((int) $n) ?></strong></span>
+              <?php endforeach; ?>
+            </p>
+            <?php
+            // Sólo si alguien ha contestado. Un "0 de 0" no dice nada y
+            // llenaría el panel de ruido en un catálogo recién estrenado.
+            if ($cmp):
+                $claro   = (int)($cmp['claro'] ?? 0);
+                $regular = (int)($cmp['regular'] ?? 0);
+                $perdido = (int)($cmp['perdido'] ?? 0);
+            ?>
+            <p class="db-item-figs" title="<?= h(t('Respuestas anónimas de quienes usaron el recurso')) ?>">
+              <span><?= h(t('¿Les quedó claro?')) ?></span>
+              <span class="db-cmp-ok"><?= h(t('Sí')) ?>: <strong><?= $claro ?></strong></span>
+              <span><?= h(t('Más o menos')) ?>: <strong><?= $regular ?></strong></span>
+              <span class="db-cmp-lost"><?= h(t('Se perdieron')) ?>: <strong><?= $perdido ?></strong></span>
+            </p>
+            <?php endif; ?>
+            <div class="db-item-actions">
+              <a class="ia-btn ia-btn-secondary ia-btn-sm" href="/dashboard/editor.php?id=<?= $rid ?>"><i data-lucide="pencil"></i><?= h(t('Editar')) ?></a>
+              <a class="ia-btn ia-btn-ghost ia-btn-sm" href="/resource/<?= $rid ?>" aria-label="<?= h(t('Ver ficha')) ?>"><i data-lucide="eye"></i><span class="ia-hide-xs"><?= h(t('Ver ficha')) ?></span></a>
+              <button type="button" class="ia-btn ia-btn-ghost ia-btn-sm ia-btn-icon" data-delete-res="<?= $rid ?>" data-title="<?= h((string) $r['title']) ?>"
+                      aria-label="<?= h(sprintf(t('Eliminar «%s»'), (string) $r['title'])) ?>" title="<?= h(t('Eliminar')) ?>"><i data-lucide="trash-2"></i></button>
             </div>
           </div>
+        </li>
         <?php endforeach; ?>
-      </div>
+      </ul>
     <?php endif; ?>
-  </div>
+  </section>
 
-  <!-- Collections Tab -->
-  <div class="tab-content" id="tab-collections">
-    <div class="header">
-      <h2><?= h(t('Mis Colecciones')) ?></h2>
-      <button class="btn btn-primary" id="newCollBtn">➕ <?= h(t('Nueva Colección')) ?></button>
+  <!-- Mis listas (tabla collections) -->
+  <section role="tabpanel" id="panel-listas" aria-labelledby="tab-listas" hidden>
+    <div class="db-panel-head">
+      <p class="ia-muted" style="margin:0"><?= h(t('Agrupa recursos por tema o por grupo de clase y mándaselos a tus alumnos con un enlace.')) ?></p>
+      <button type="button" class="ia-btn ia-btn-primary" id="newListBtn"><i data-lucide="plus"></i><?= h(t('Nueva lista')) ?></button>
     </div>
-    <?php if (empty($collections)): ?>
-      <div class="empty">
-        <h3><?= h(t('Sin colecciones')) ?></h3>
-        <p><?= h(t('Organiza tus recursos favoritos en colecciones temáticas.')) ?></p>
+    <?php if (!$collections): ?>
+      <div class="ia-empty">
+        <h3><?= h(t('Aún no tienes listas')) ?></h3>
+        <p><?= h(t('Crea una aquí o desde cualquier recurso con «Añadir a una lista».')) ?></p>
       </div>
     <?php else: ?>
-      <div class="resource-list">
-        <?php foreach ($collections as $c): ?>
-          <div class="resource-item" id="coll-<?= (int)$c['id'] ?>">
-            <div class="resource-info">
-              <h3>
-                <a href="/collection/?id=<?= (int)$c['id'] ?>" class="coll-link">📁 <?= h($c['title']) ?></a>
-                <span class="badge <?= $c['is_public'] ? 'badge-community' : 'badge-draft' ?>"><?= $c['is_public'] ? h(t('público')) : h(t('privado')) ?></span>
-              </h3>
-              <div class="resource-meta">
-                <span>📦 <?= (int)$c['item_count'] ?> <?= h(t('recursos')) ?></span>
-                <span><?= date('d/m/Y', strtotime($c['created_at'])) ?></span>
-              </div>
-            </div>
-            <div class="resource-actions">
-              <button class="btn btn-outline btn-sm" onclick="openEditColl(<?= (int)$c['id'] ?>, '<?= h(addslashes($c['title'])) ?>', '<?= h(addslashes($c['description'] ?? '')) ?>', <?= $c['is_public'] ? 1 : 0 ?>)">✏️ <?= h(t('Editar')) ?></button>
-              <button class="btn btn-outline btn-sm btn-danger" onclick="deleteColl(<?= (int)$c['id'] ?>, '<?= h(addslashes($c['title'])) ?>')">🗑</button>
+      <ul class="db-list" id="collList">
+        <?php foreach ($collections as $c): $cid = (int) $c['id']; $public = (bool) $c['is_public']; ?>
+        <li class="ia-row db-item" id="coll-<?= $cid ?>">
+          <span class="db-list-ico" aria-hidden="true"><i data-lucide="list"></i></span>
+          <div class="ia-row-body">
+            <h3 class="db-item-title"><a href="/collection/?id=<?= $cid ?>"><?= h((string) $c['title']) ?></a></h3>
+            <p class="db-item-meta">
+              <span class="ia-tag <?= $public ? 'ia-tag-ok' : 'ia-tag-new' ?>"><?= h($public ? t('Pública') : t('Solo tú')) ?></span>
+              <span><?= h(db_plural((int) $c['item_count'], t('%s recurso'), t('%s recursos')) . ' · ' . db_date($c['created_at'])) ?></span>
+            </p>
+            <div class="db-item-actions">
+              <?php if ($public): ?>
+              <button type="button" class="ia-btn ia-btn-secondary ia-btn-sm" data-send-list="<?= $cid ?>" data-title="<?= h((string) $c['title']) ?>"><i data-lucide="send"></i><?= h(t('Mandar a mis alumnos')) ?></button>
+              <?php endif; ?>
+              <button type="button" class="ia-btn ia-btn-ghost ia-btn-sm" data-edit-list="<?= $cid ?>" data-title="<?= h((string) $c['title']) ?>"
+                      data-desc="<?= h((string) ($c['description'] ?? '')) ?>" data-public="<?= $public ? '1' : '0' ?>"><i data-lucide="pencil"></i><?= h(t('Editar')) ?></button>
+              <button type="button" class="ia-btn ia-btn-ghost ia-btn-sm ia-btn-icon" data-delete-list="<?= $cid ?>" data-title="<?= h((string) $c['title']) ?>"
+                      aria-label="<?= h(sprintf(t('Eliminar «%s»'), (string) $c['title'])) ?>" title="<?= h(t('Eliminar')) ?>"><i data-lucide="trash-2"></i></button>
             </div>
           </div>
+        </li>
         <?php endforeach; ?>
-      </div>
+      </ul>
     <?php endif; ?>
-  </div>
-</div>
+  </section>
+</main>
 
-<!-- New Collection Modal -->
-<div class="modal-overlay" id="newCollModal">
-  <div class="modal">
-    <h3><?= h(t('Nueva Colección')) ?></h3>
-    <label><?= h(t('Nombre *')) ?></label>
-    <input type="text" id="newCollTitle" placeholder="<?= h(t('Ej: Simulaciones de Física')) ?>" maxlength="150">
-    <label><?= h(t('Descripción')) ?></label>
-    <textarea id="newCollDesc" placeholder="<?= h(t('Breve descripción (opcional)')) ?>" maxlength="500"></textarea>
-    <label><?= h(t('Visibilidad')) ?></label>
-    <select id="newCollPublic">
-      <option value="1"><?= h(t('Pública — cualquier profesor puede verla')) ?></option>
-      <option value="0"><?= h(t('Privada — solo yo')) ?></option>
-    </select>
-    <div class="modal-actions">
-      <button class="btn btn-outline" onclick="document.getElementById('newCollModal').classList.remove('open')"><?= h(t('Cancelar')) ?></button>
-      <button class="btn btn-primary" id="newCollSave"><?= h(t('Crear Colección')) ?></button>
+<!-- Nueva lista / Editar lista: un solo diálogo, dos modos. -->
+<dialog class="ia-dialog" id="listDialog" aria-labelledby="listDialogTitle">
+  <form class="ia-dialog-inner db-form" id="listForm" method="dialog" novalidate>
+    <div class="ia-dialog-head">
+      <h2 id="listDialogTitle"><?= h(t('Nueva lista')) ?></h2>
+      <button type="button" class="ia-btn ia-btn-ghost ia-btn-icon" data-dialog-close aria-label="<?= h(t('Cerrar')) ?>"><i data-lucide="x"></i></button>
     </div>
-  </div>
-</div>
-
-<!-- Edit Collection Modal -->
-<div class="modal-overlay" id="editCollModal">
-  <div class="modal">
-    <h3><?= h(t('Editar Colección')) ?></h3>
-    <input type="hidden" id="editCollId">
-    <label><?= h(t('Nombre *')) ?></label>
-    <input type="text" id="editCollTitle" maxlength="150">
-    <label><?= h(t('Descripción')) ?></label>
-    <textarea id="editCollDesc" maxlength="500"></textarea>
-    <label><?= h(t('Visibilidad')) ?></label>
-    <select id="editCollPublic">
-      <option value="1"><?= h(t('Pública')) ?></option>
-      <option value="0"><?= h(t('Privada')) ?></option>
-    </select>
-    <div class="modal-actions">
-      <button class="btn btn-outline" onclick="document.getElementById('editCollModal').classList.remove('open')"><?= h(t('Cancelar')) ?></button>
-      <button class="btn btn-primary" id="editCollSave"><?= h(t('Guardar Cambios')) ?></button>
+    <div>
+      <label for="listTitle"><?= h(t('Nombre *')) ?></label>
+      <input type="text" class="ia-input" id="listTitle" maxlength="150" placeholder="<?= h(t('Ej.: Ondas — 4.º de ESO')) ?>">
     </div>
-  </div>
-</div>
+    <div>
+      <label for="listDesc"><?= h(t('Descripción')) ?></label>
+      <textarea class="ia-input" id="listDesc" maxlength="500" placeholder="<?= h(t('Para qué es esta lista (opcional)')) ?>"></textarea>
+    </div>
+    <div>
+      <label for="listPublic"><?= h(t('Quién puede verla')) ?></label>
+      <select class="ia-select" id="listPublic">
+        <option value="1"><?= h(t('Pública: cualquiera con el enlace')) ?></option>
+        <option value="0"><?= h(t('Solo tú')) ?></option>
+      </select>
+    </div>
+    <p class="db-form-error" id="listError" role="alert" hidden></p>
+    <div class="ia-dialog-actions">
+      <button type="submit" class="ia-btn ia-btn-primary" id="listSave"><?= h(t('Crear lista')) ?></button>
+      <button type="button" class="ia-btn ia-btn-secondary" data-dialog-close><?= h(t('Cancelar')) ?></button>
+    </div>
+  </form>
+</dialog>
 
-<button class="theme-toggle" aria-label="Cambiar tema" id="themeBtn"><i data-lucide="moon" style="width:18px;height:18px"></i></button>
-
+<?php iarepo_send_dialog(); ?>
+<?php iarepo_footer($user); ?>
+<?= iarepo_body_assets(true) ?>
 <script>
 const T = {
-  nameRequired: <?= json_encode(t('El nombre es obligatorio')) ?>,
-  creating: <?= json_encode(t('⏳ Creando...')) ?>,
-  createColl: <?= json_encode(t('Crear Colección')) ?>,
-  saving: <?= json_encode(t('⏳ Guardando...')) ?>,
-  saveChanges: <?= json_encode(t('Guardar Cambios')) ?>,
-  confirmDelColl: <?= json_encode(t('¿Eliminar la colección "%s"? Los recursos no se borrarán.')) ?>,
-  confirmDelRes: <?= json_encode(t('¿Eliminar el recurso "%s"? Esta acción no se puede deshacer.')) ?>,
+  learner: <?= json_encode(t('Alguien que está aprendiendo')) ?>,
+  nameRequired: <?= json_encode(t('Ponle un nombre a la lista.')) ?>,
+  creating: <?= json_encode(t('Creando...')) ?>,
+  saving: <?= json_encode(t('Guardando...')) ?>,
+  createList: <?= json_encode(t('Crear lista')) ?>,
+  saveChanges: <?= json_encode(t('Guardar cambios')) ?>,
+  newList: <?= json_encode(t('Nueva lista')) ?>,
+  editList: <?= json_encode(t('Editar lista')) ?>,
+  confirmDelList: <?= json_encode(t('¿Eliminar la lista «%s»? Los recursos no se borran.')) ?>,
+  confirmDelRes: <?= json_encode(t('¿Eliminar el recurso «%s»? Esta acción no se puede deshacer.')) ?>,
+  resDeleted: <?= json_encode(t('Recurso eliminado')) ?>,
+  listDeleted: <?= json_encode(t('Lista eliminada')) ?>,
+  linkCopied: <?= json_encode(t('Enlace copiado')) ?>,
+  // Campana de novedades
+  notifEmpty: <?= json_encode(t('Aún no hay novedades. Cuando alguien comente, dé «Me gusta» o haga su versión de un recurso tuyo, aparecerá aquí.')) ?>,
+  notifError: <?= json_encode(t('No se pudieron cargar las novedades.')) ?>,
+  verb: {
+    like: <?= json_encode(t('le dio «Me gusta» a')) ?>,
+    fork: <?= json_encode(t('hizo su versión de')) ?>,
+    comment: <?= json_encode(t('comentó en')) ?>,
+  },
+  now: <?= json_encode(t('ahora')) ?>,
+  ago: <?= json_encode(t('hace %s')) ?>,
+  // Errores de la API: por CÓDIGO, nunca por el texto (que va en inglés y
+  // es un contrato con Campus, no un mensaje para la persona).
+  err: {
+    MISSING_TITLE: <?= json_encode(t('Ponle un nombre a la lista.')) ?>,
+    COLLECTION_LIMIT: <?= json_encode(t('Has llegado al máximo de 20 listas')) ?>,
+    COLLECTION_NOT_FOUND: <?= json_encode(t('Esa lista ya no existe. Recarga la página.')) ?>,
+    NOT_COLLECTION_OWNER: <?= json_encode(t('Esa lista no es tuya.')) ?>,
+    NOT_FOUND: <?= json_encode(t('Ese recurso ya no existe. Recarga la página.')) ?>,
+    RATE_LIMITED: <?= json_encode(t('Demasiados cambios seguidos. Espera un minuto y vuelve a intentarlo.')) ?>,
+    NETWORK: <?= json_encode(t('Sin conexión. Revisa la red y vuelve a intentarlo.')) ?>,
+  },
+  errStatus: {
+    401: <?= json_encode(t('Tu sesión ha caducado. Vuelve a entrar y repite el cambio.')) ?>,
+    403: <?= json_encode(t('No tienes permiso para hacer eso.')) ?>,
+  },
+  errGeneric: <?= json_encode(t('No se pudo completar. Inténtalo de nuevo en un momento.')) ?>,
 };
-// Theme
-if(localStorage.getItem('iarepo-theme')==='dark') document.documentElement.setAttribute('data-theme','dark');
-document.getElementById('themeBtn').addEventListener('click',()=>{
-  const d=document.documentElement.getAttribute('data-theme')==='dark';
-  d?document.documentElement.removeAttribute('data-theme'):document.documentElement.setAttribute('data-theme','dark');
-  localStorage.setItem('iarepo-theme',d?'light':'dark');
-});
 
-// Tabs
-document.querySelectorAll('.tab').forEach(tab=>{
-  tab.addEventListener('click',()=>{
-    document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
-    document.querySelectorAll('.tab-content').forEach(c=>c.classList.remove('active'));
-    tab.classList.add('active');
-    document.getElementById('tab-'+tab.dataset.tab).classList.add('active');
+// ── Llamadas a la API con errores legibles ──────────────────────
+// Lo inesperado (una respuesta que no es JSON, un 5xx) se registra en
+// /api/log-error.php —el mismo destino que shared/error_tracker.php— para
+// que se sepa aunque la persona no avise. Lo esperado (validación, permisos,
+// sin red) solo se explica en pantalla.
+function report(msg) {
+  try {
+    const body = JSON.stringify({ message: String(msg).slice(0, 500), source: 'dashboard', lineno: 0, page: location.pathname });
+    if (!(navigator.sendBeacon && navigator.sendBeacon('/api/log-error.php', body)))
+      fetch('/api/log-error.php', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body, keepalive: true }).catch(() => {});
+  } catch (e) { /* registrar un fallo no puede provocar otro */ }
+}
+async function api(url, opts) {
+  let res;
+  try { res = await fetch(url, opts); }
+  catch (e) { throw Object.assign(new Error('network'), { code: 'NETWORK', status: 0 }); }
+  let data = null;
+  try { data = await res.json(); } catch (e) { data = null; }
+  if (!data || res.status >= 500) report(`${opts && opts.method || 'GET'} ${url} → ${res.status}${data ? ' ' + (data.code || '') : ' (sin JSON)'}`);
+  if (!data || !data.ok) throw Object.assign(new Error('api'), { code: (data && data.code) || '', status: res.status });
+  return data;
+}
+function errText(e) { return T.err[e.code] || T.errStatus[e.status] || T.errGeneric; }
+const fmt = (tpl, s) => tpl.replace('%s', s);
+
+// ── Pestañas: «Mis recursos» / «Mis listas» ─────────────────────
+// #listas abre las listas; #collections sigue valiendo (enlaces viejos).
+const tabs = { recursos: document.getElementById('tab-recursos'), listas: document.getElementById('tab-listas') };
+function showTab(key, focus) {
+  Object.entries(tabs).forEach(([k, tab]) => {
+    const on = k === key;
+    tab.setAttribute('aria-selected', on ? 'true' : 'false');
+    tab.tabIndex = on ? 0 : -1;
+    document.getElementById(tab.getAttribute('aria-controls')).hidden = !on;
+  });
+  if (focus) tabs[key].focus();
+}
+function tabFromHash() { return /^#(listas|collections)$/.test(location.hash) ? 'listas' : 'recursos'; }
+Object.entries(tabs).forEach(([key, tab]) => {
+  tab.addEventListener('click', () => { showTab(key); history.replaceState(null, '', '#' + key); });
+  tab.addEventListener('keydown', e => {
+    if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+    const next = key === 'recursos' ? 'listas' : 'recursos';
+    showTab(next, true); history.replaceState(null, '', '#' + next);
   });
 });
+window.addEventListener('hashchange', () => showTab(tabFromHash()));
+showTab(tabFromHash());
 
-// Collections — new
-document.getElementById('newCollBtn')?.addEventListener('click', () => {
-  document.getElementById('newCollTitle').value = '';
-  document.getElementById('newCollDesc').value = '';
-  document.getElementById('newCollPublic').value = '1';
-  document.getElementById('newCollModal').classList.add('open');
-});
+function bumpCount(which, delta) {
+  const el = document.querySelector(`[data-count="${which}"]`);
+  if (el) el.textContent = Math.max(0, (parseInt(el.textContent, 10) || 0) + delta);
+}
 
-document.getElementById('newCollSave').addEventListener('click', async () => {
-  const title = document.getElementById('newCollTitle').value.trim();
-  if (!title) { alert(T.nameRequired); return; }
-  const btn = document.getElementById('newCollSave');
-  btn.disabled = true; btn.textContent = T.creating;
-  try {
-    const res = await fetch('/api/collections.php', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({
-        title,
-        description: document.getElementById('newCollDesc').value.trim(),
-        is_public: parseInt(document.getElementById('newCollPublic').value)
-      })
+// ── Buscar en mis recursos (solo filtra lo que ya está en la página) ──
+const resFilter = document.getElementById('resFilter');
+if (resFilter) {
+  resFilter.addEventListener('input', () => {
+    const q = resFilter.value.trim().toLowerCase();
+    let shown = 0;
+    document.querySelectorAll('#resList > li').forEach(li => {
+      const hit = !q || (li.dataset.q || '').includes(q);
+      li.hidden = !hit;
+      if (hit) shown++;
     });
-    const data = await res.json();
-    if (!data.ok) throw new Error(data.error);
-    location.reload();
-  } catch(e) { alert(e.message); btn.disabled = false; btn.textContent = T.createColl; }
-});
-
-// Collections — edit
-function openEditColl(id, title, desc, isPublic) {
-  document.getElementById('editCollId').value = id;
-  document.getElementById('editCollTitle').value = title;
-  document.getElementById('editCollDesc').value = desc;
-  document.getElementById('editCollPublic').value = isPublic ? '1' : '0';
-  document.getElementById('editCollModal').classList.add('open');
+    document.getElementById('resNoMatch').hidden = shown > 0;
+  });
 }
 
-document.getElementById('editCollSave').addEventListener('click', async () => {
-  const id = document.getElementById('editCollId').value;
-  const title = document.getElementById('editCollTitle').value.trim();
-  if (!title) { alert(T.nameRequired); return; }
-  const btn = document.getElementById('editCollSave');
-  btn.disabled = true; btn.textContent = T.saving;
-  try {
-    const res = await fetch(`/api/collections.php?id=${id}`, {
-      method: 'PUT',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({
-        title,
-        description: document.getElementById('editCollDesc').value.trim(),
-        is_public: parseInt(document.getElementById('editCollPublic').value)
-      })
-    });
-    const data = await res.json();
-    if (!data.ok) throw new Error(data.error);
-    location.reload();
-  } catch(e) { alert(e.message); btn.disabled = false; btn.textContent = T.saveChanges; }
-});
-
-// Collections — delete
-async function deleteColl(id, title) {
-  if (!confirm(T.confirmDelColl.replace("%s", title))) return;
-  try {
-    const res = await fetch(`/api/collections.php?id=${id}`, {method: 'DELETE'});
-    const data = await res.json();
-    if (!data.ok) throw new Error(data.error);
-    document.getElementById(`coll-${id}`)?.remove();
-  } catch(e) { alert(e.message); }
-}
-
-// Resources — delete
-async function deleteResource(id, title) {
-  if (!confirm(T.confirmDelRes.replace("%s", title))) return;
-  try {
-    const res = await fetch(`/api/resources.php?id=${id}`, {method: 'DELETE'});
-    const data = await res.json();
-    if (!data.ok) throw new Error(data.error);
-    document.getElementById(`res-${id}`)?.remove();
-  } catch(e) { alert(e.message); }
-}
-
-// Close modals on overlay click
-document.querySelectorAll('.modal-overlay').forEach(o => {
-  o.addEventListener('click', e => { if (e.target === o) o.classList.remove('open'); });
-});
-
-// Notifications bell
-(function(){
-  const bell=document.getElementById('notifBell');
-  const panel=document.getElementById('notifPanel');
-  const badge=document.getElementById('notifBadge');
-  const list=document.getElementById('notifList');
-  if(!bell) return;
-  const ico={like:'❤',fork:'⑂',comment:'💬'};
-  const verb={like:'le dio like a',fork:'hizo un fork de',comment:'comentó en'};
-  function esc(s){const e=document.createElement('div');e.textContent=s||'';return e.innerHTML;}
-  function ago(dt){const d=(Date.now()-new Date(dt.replace(' ','T')+'Z').getTime())/1000;if(d<60)return 'ahora';if(d<3600)return Math.round(d/60)+'m';if(d<86400)return Math.round(d/3600)+'h';return Math.round(d/86400)+'d';}
-  async function load(){
-    try{
-      const res=await fetch('/api/notifications.php');
-      const data=await res.json();
-      if(!data.ok) return;
-      if(data.unread>0){badge.textContent=data.unread>9?'9+':data.unread;badge.style.display='flex';}
-      else badge.style.display='none';
-      if(!data.notifications.length){list.innerHTML='<div class="notif-empty">Sin notificaciones todavía 🔔</div>';return;}
-      list.innerHTML=data.notifications.map(n=>`<a class="notif-item" href="/resource/${n.resource_id}">
-        <div class="notif-ico ${n.type}">${ico[n.type]||'•'}</div>
-        <div class="notif-txt"><strong>${esc(n.actor)}</strong> ${verb[n.type]||'interactuó con'} <strong>${esc(n.resource_title)}</strong>
-        <div class="notif-time">hace ${ago(n.created_at)}</div></div></a>`).join('');
-    }catch(e){}
+// ── Acciones por delegación (sin onclick con texto interpolado: un título
+//    con apóstrofo rompía el onclick="deleteColl(…, '…')" de antes) ──
+document.addEventListener('click', async e => {
+  const del = e.target.closest('[data-delete-res]');
+  if (del) {
+    if (!confirm(fmt(T.confirmDelRes, del.dataset.title))) return;
+    const id = parseInt(del.dataset.deleteRes, 10);
+    del.disabled = true;
+    try {
+      await api(`/api/resources.php?id=${id}`, { method: 'DELETE' });
+      document.getElementById(`res-${id}`)?.remove();
+      bumpCount('res', -1);
+      IA.toast(T.resDeleted);
+    } catch (err) { del.disabled = false; IA.toast(errText(err)); }
+    return;
   }
-  load();
-  bell.addEventListener('click', async (e)=>{
+  const delList = e.target.closest('[data-delete-list]');
+  if (delList) {
+    if (!confirm(fmt(T.confirmDelList, delList.dataset.title))) return;
+    const id = parseInt(delList.dataset.deleteList, 10);
+    delList.disabled = true;
+    try {
+      await api(`/api/collections.php?id=${id}`, { method: 'DELETE' });
+      document.getElementById(`coll-${id}`)?.remove();
+      bumpCount('coll', -1);
+      IA.toast(T.listDeleted);
+    } catch (err) { delList.disabled = false; IA.toast(errText(err)); }
+    return;
+  }
+  const send = e.target.closest('[data-send-list]');
+  if (send) {
+    IA.openSend({ path: '/collection/?id=' + parseInt(send.dataset.sendList, 10), title: send.dataset.title, copiedMsg: T.linkCopied });
+    return;
+  }
+  const edit = e.target.closest('[data-edit-list]');
+  if (edit) openListDialog(edit.dataset);
+});
+
+// ── Diálogo de lista: crear y editar ────────────────────────────
+const listDialog = document.getElementById('listDialog');
+const listForm   = document.getElementById('listForm');
+const listError  = document.getElementById('listError');
+const listSave   = document.getElementById('listSave');
+let editingListId = null;
+
+function openListDialog(d) {
+  editingListId = d && d.editList ? parseInt(d.editList, 10) : null;
+  document.getElementById('listDialogTitle').textContent = editingListId ? T.editList : T.newList;
+  document.getElementById('listTitle').value  = editingListId ? d.title : '';
+  document.getElementById('listDesc').value   = editingListId ? (d.desc || '') : '';
+  document.getElementById('listPublic').value = editingListId ? d.public : '1';
+  listSave.textContent = editingListId ? T.saveChanges : T.createList;
+  listSave.disabled = false;
+  listError.hidden = true;
+  listDialog.showModal();
+  document.getElementById('listTitle').focus();
+}
+document.getElementById('newListBtn').addEventListener('click', () => openListDialog(null));
+
+listForm.addEventListener('submit', async e => {
+  e.preventDefault();
+  const title = document.getElementById('listTitle').value.trim();
+  if (!title) { listError.textContent = T.nameRequired; listError.hidden = false; return; }
+  listSave.disabled = true;
+  listSave.textContent = editingListId ? T.saving : T.creating;
+  try {
+    await api(editingListId ? `/api/collections.php?id=${editingListId}` : '/api/collections.php', {
+      method: editingListId ? 'PUT' : 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title,
+        description: document.getElementById('listDesc').value.trim(),
+        is_public: parseInt(document.getElementById('listPublic').value, 10),
+      }),
+    });
+    history.replaceState(null, '', '#listas');   // al recargar, vuelve a las listas
+    location.reload();
+  } catch (err) {
+    listError.textContent = errText(err);
+    listError.hidden = false;
+    listSave.disabled = false;
+    listSave.textContent = editingListId ? T.saveChanges : T.createList;
+  }
+});
+
+// ── Campana de novedades (api/notifications.php) ────────────────
+(function () {
+  const bell  = document.getElementById('notifBell');
+  const panel = document.getElementById('notifPanel');
+  const badge = document.getElementById('notifBadge');
+  const list  = document.getElementById('notifList');
+  const icon  = { like: 'heart', fork: 'git-branch', comment: 'message-circle' };
+
+  // created_at llega sin zona; como antes, se interpreta en UTC (la de la BD).
+  function ago(dt) {
+    const d = (Date.now() - new Date(String(dt).replace(' ', 'T') + 'Z').getTime()) / 1000;
+    if (!(d >= 60)) return T.now;
+    const n = d < 3600 ? Math.round(d / 60) + ' min' : d < 86400 ? Math.round(d / 3600) + ' h' : Math.round(d / 86400) + ' d';
+    return fmt(T.ago, n);
+  }
+  function render(items) {
+    if (!items.length) { list.innerHTML = `<li class="db-empty-note">${IA.esc(T.notifEmpty)}</li>`; return; }
+    list.innerHTML = items.map(n => `<li><a class="db-act" href="/resource/${parseInt(n.resource_id, 10)}">
+      <span class="db-act-ico"><i data-lucide="${icon[n.type] || 'bell'}"></i></span>
+      <span><strong>${IA.esc(n.actor || T.learner)}</strong> ${IA.esc(T.verb[n.type] || '')} <strong>${IA.esc(n.resource_title)}</strong>
+      <span class="db-act-time">${IA.esc(ago(n.created_at))}</span></span></a></li>`).join('');
+    IA.icons();
+  }
+  async function load() {
+    try {
+      const data = await api('/api/notifications.php');
+      badge.hidden = !(data.unread > 0);
+      badge.textContent = data.unread > 9 ? '9+' : String(data.unread);
+      render(data.notifications || []);
+    } catch (err) {
+      list.innerHTML = `<li class="db-empty-note">${IA.esc(T.notifError)}</li>`;
+    }
+  }
+  function close() { panel.hidden = true; bell.setAttribute('aria-expanded', 'false'); }
+  bell.addEventListener('click', async e => {
     e.stopPropagation();
-    const opening=!panel.classList.contains('open');
-    panel.classList.toggle('open');
-    if(opening){
-      await load();
-      if(badge.style.display!=='none'){
-        badge.style.display='none';
-        fetch('/api/notifications.php',{method:'POST'}).catch(()=>{});
-      }
+    if (!panel.hidden) { close(); return; }
+    panel.hidden = false;
+    bell.setAttribute('aria-expanded', 'true');
+    const hadUnread = !badge.hidden;
+    await load();
+    if (hadUnread) {
+      badge.hidden = true;
+      api('/api/notifications.php', { method: 'POST' }).catch(() => { /* marcar como visto es cortesía: si falla, vuelve a salir */ });
     }
   });
-  document.addEventListener('click',(e)=>{ if(!panel.contains(e.target)&&!bell.contains(e.target)) panel.classList.remove('open'); });
+  document.addEventListener('click', e => { if (!panel.hidden && !panel.contains(e.target) && !bell.contains(e.target)) close(); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && !panel.hidden) { close(); bell.focus(); } });
+  load();
 })();
 
-lucide.createIcons();
+IA.icons();
 </script>
 </body>
 </html>

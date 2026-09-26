@@ -1,25 +1,28 @@
 // ================================================================
 // pwa.js — iarepo PWA helper
-//   1. Matches the browser UI bar (theme-color) to the active theme
-//   2. Registers the service worker
-//   3. Shows an "Instalar app" button when the browser allows install
+//   1. Registers the service worker
+//   2. Shows an "Install app" button when the browser allows install
+//   3. Applies a guest's pending «Guardar» once they come back signed in
+//
+// Se carga con shared/ui.php::iarepo_pwa_script(), que pasa los textos YA
+// traducidos en data-* (un .js estático no puede llamar a t()). El
+// theme-color ya no se toca aquí: lo lleva assets/js/theme.js, y los dos
+// pintaban colores distintos (parpadeo al cargar).
 // ================================================================
-(function () {
-  // 1) theme-color → match light/dark theme stored by the app
-  try {
-    var dark = localStorage.getItem('iarepo-theme') === 'dark';
-    var meta = document.querySelector('meta[name="theme-color"]');
-    if (meta) meta.setAttribute('content', dark ? '#0a0e1a' : '#7c3aed');
-  } catch (e) {}
+// document.currentScript solo vale mientras el script se ejecuta: se lee YA.
+var IAREPO_PWA_TXT = (document.currentScript && document.currentScript.dataset) || {};
 
-  // 2) service worker
+(function () {
+  var TXT = IAREPO_PWA_TXT;
+
+  // 1) service worker
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function () {
       navigator.serviceWorker.register('/sw.js').catch(function () { /* non-fatal */ });
     });
   }
 
-  // 3) install button (Chrome/Edge/Android — fires beforeinstallprompt)
+  // 2) install button (Chrome/Edge/Android — fires beforeinstallprompt)
   var isStandalone = window.matchMedia('(display-mode: standalone)').matches
                   || window.navigator.standalone === true;
   if (isStandalone) return;
@@ -45,7 +48,13 @@
     var btn = document.createElement('button');
     btn.id = 'pwa-install-btn';
     btn.type = 'button';
-    btn.innerHTML = '⬇️ Instalar app <span class="pwa-x" title="Ocultar">✕</span>';
+    // Con nodos, no innerHTML: el texto llega de un atributo y no se interpreta.
+    var x = document.createElement('span');
+    x.className = 'pwa-x';
+    x.title = TXT.hide || 'Ocultar';
+    x.textContent = '✕';
+    btn.appendChild(document.createTextNode('⬇️ ' + (TXT.install || 'Instalar app') + ' '));
+    btn.appendChild(x);
     btn.addEventListener('click', function (e) {
       if (e.target && e.target.classList.contains('pwa-x')) {
         btn.remove();
@@ -109,7 +118,12 @@
         b.classList.add('is-fav');
         b.setAttribute('aria-pressed', 'true');
       });
-      var msg = document.documentElement.lang === 'en' ? 'Saved to your favorites ⭐' : 'Guardado en tus favoritos ⭐';
+      var msg = IAREPO_PWA_TXT.saved || 'Guardado. Solo tú lo ves, en Guardados.';
+      // El aviso común (#ia-toast de shared/ui.php) si la página lo tiene.
+      if (window.IA && window.IA.toast && document.getElementById('ia-toast')) {
+        window.IA.toast(msg);
+        return;
+      }
       var t = document.createElement('div');
       t.textContent = msg;
       t.style.cssText = 'position:fixed;left:50%;bottom:22px;transform:translateX(-50%);background:#1e293b;color:#fff;padding:11px 20px;border-radius:10px;font:600 .88rem/1 -apple-system,"Segoe UI",Roboto,sans-serif;z-index:3000;box-shadow:0 8px 24px rgba(0,0,0,.3)';
