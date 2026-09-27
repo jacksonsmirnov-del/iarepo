@@ -185,8 +185,9 @@ shared/            auth jwt db cors helpers error_handler error_tracker i18n i18
                    assets (AGENTS.md §6.10). Una página nueva los usa, no los copia.
                    viewer_key = identidad anónima + sal diaria caducable.
                    srcdoc = TODO <iframe srcdoc> de un recurso pasa por
-                   iarepo_srcdoc(): sin él, un enlace #… del recurso carga
-                   iarepo DENTRO del iframe (AGENTS.md §14).
+                   iarepo_srcdoc() (en JS, iarepoSrcdoc()): sin él, un enlace
+                   #… carga iarepo DENTRO del iframe, y un recurso que usa
+                   localStorage no llega a dibujarse (AGENTS.md §14).
                    NO carga helpers.php (igual que search.php)
                    activity = lo que otros hicieron con tus recursos (campana y
                    Mi panel, una sola fuente) · mailer notify (correos al autor,

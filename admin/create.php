@@ -252,12 +252,13 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:#7c3aed;box-sh
 </div>
 
 <script>
+<?= iarepo_srcdoc_js() ?>
 function previewCode() {
   const code = document.getElementById('code').value;
   const frame = document.getElementById('preview');
   frame.style.display = frame.style.display === 'none' ? 'block' : 'none';
   if (frame.style.display === 'block') {
-    frame.srcdoc = code + <?= json_encode("\n" . iarepo_srcdoc_shim(), JSON_HEX_TAG | JSON_HEX_AMP) ?>;   // shared/srcdoc.php
+    frame.srcdoc = iarepoSrcdoc(code);   // shared/srcdoc.php
   }
 }
 </script>

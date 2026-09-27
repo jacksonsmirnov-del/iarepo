@@ -737,9 +737,10 @@ function test_la_bienvenida_ofrece_las_dos_entradas_y_no_degrada_a_un_admin(): v
 }
 
 /**
- * El HTML de un recurso lleva el script de anclas en la ficha y en el visor
- * (shared/srcdoc.php): sin él, un <a href="#…"> cargaba la ficha de iarepo
- * dentro del iframe del recurso [2026-09-27].
+ * El HTML de un recurso lleva sus dos scripts en la ficha y en el visor
+ * (shared/srcdoc.php): el almacén de respaldo (sin él, un recurso que usa
+ * localStorage no se dibuja) y el de anclas (sin él, un <a href="#…"> cargaba
+ * la ficha de iarepo dentro del iframe) [2026-09-27].
  */
 function test_la_ficha_y_el_visor_mantienen_los_enlaces_dentro_del_recurso(): void
 {
@@ -750,7 +751,7 @@ function test_la_ficha_y_el_visor_mantienen_los_enlaces_dentro_del_recurso(): vo
     foreach (['/resource/' . IT_RENDER_RES, '/view/' . IT_RENDER_RES] as $path) {
         [$code, $b] = it_ficha_get($path, 'teacher');
         it_eq(200, $code, "$path responde");
-        it_true((bool) preg_match('/<iframe[^>]*srcdoc="[^"]*&lt;p&gt;demo&lt;\/p&gt;[^"]*data-iarepo=&quot;anclas&quot;/', $b),
-            "$path: el iframe lleva el HTML del autor y, detrás, el script de anclas");
+        it_true((bool) preg_match('/<iframe[^>]*srcdoc="[^"]*data-iarepo=&quot;almacen&quot;[^"]*&lt;p&gt;demo&lt;\/p&gt;[^"]*data-iarepo=&quot;anclas&quot;/', $b),
+            "$path: el iframe lleva el almacén de respaldo delante del HTML del autor y el script de anclas detrás");
     }
 }

@@ -183,7 +183,9 @@ tests/integration/usage_notify_test.php
 
 # srcdoc_test.php: un recurso 'html' va en <iframe srcdoc>, que resuelve sus
 # enlaces contra la página que lo contiene: <a href="#seccion"> cargaba la
-# ficha de iarepo DENTRO del recurso [2026-09-27]. shared/srcdoc.php lo
-# arregla para todas las incrustaciones; el test ejecuta su script en Node y
+# ficha de iarepo DENTRO del recurso [2026-09-27]. Y leer localStorage en ese
+# sandbox lanza: un recurso que guarda la puntuación no se dibujaba (617).
+# shared/srcdoc.php arregla las dos cosas para todas las incrustaciones; el
+# test ejecuta sus scripts en Node, compara la gemela JS con la de PHP y
 # exige que todo srcdoc del repo pase por él.
 tests/unit/srcdoc_test.php
