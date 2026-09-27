@@ -26,6 +26,7 @@ require_once __DIR__ . '/../shared/auth.php';
 require_once __DIR__ . '/../shared/access.php';
 require_once __DIR__ . '/../shared/asset.php';
 require_once __DIR__ . '/../shared/labels.php';   // carga también shared/i18n.php
+require_once __DIR__ . '/../shared/srcdoc.php';   // enlaces internos del recurso (#…) dentro del iframe
 // h() local — NO se carga shared/helpers.php: su error_handler vuelca JSON y
 // corta la página a medias ante cualquier error (CLAUDE.md §2.1).
 if (!function_exists('h')) {
@@ -264,7 +265,7 @@ $openName  = $sourceLabel ?: t('su web');
 
     <?php if ($resource['code_type'] === 'html'): ?>
         <iframe class="viewer-frame"
-                srcdoc="<?= h($resource['code_content']) ?>"
+                srcdoc="<?= h(iarepo_srcdoc((string) $resource['code_content'])) ?>"
                 sandbox="allow-scripts allow-modals allow-popups"
                 title="<?= h($resource['title']) ?>">
         </iframe>
@@ -316,7 +317,7 @@ $openName  = $sourceLabel ?: t('su web');
         <?php endif; ?>
     <?php elseif ($resource['code_type'] === 'embed'): ?>
         <iframe class="viewer-frame"
-                srcdoc="<?= h($resource['code_content']) ?>"
+                srcdoc="<?= h(iarepo_srcdoc((string) $resource['code_content'])) ?>"
                 sandbox="allow-scripts allow-modals allow-popups allow-forms"
                 title="<?= h($resource['title']) ?>">
         </iframe>

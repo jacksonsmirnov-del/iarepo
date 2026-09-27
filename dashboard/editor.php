@@ -36,6 +36,7 @@ require_once __DIR__ . '/../shared/auth.php';
 require_once __DIR__ . '/../shared/db.php';
 require_once __DIR__ . '/../shared/ui.php';
 require_once __DIR__ . '/../shared/access.php';
+require_once __DIR__ . '/../shared/srcdoc.php';   // la vista previa se comporta como la ficha
 // h() local — NO se carga shared/helpers.php: su error_handler vuelca JSON y
 // corta la página a medias ante cualquier error (CLAUDE.md §2.1).
 if (!function_exists('h')) {
@@ -356,6 +357,9 @@ textarea.ed-desc { min-height: 80px; resize: vertical; line-height: 1.45; }
 <?= iarepo_body_assets() ?>
 <script>
 const EDIT_ID = <?= $editId ?: 'null' ?>;
+// Los enlaces internos (#…) del recurso se quedan dentro de la vista previa,
+// como en la ficha y el visor (shared/srcdoc.php).
+const SRCDOC_SHIM = <?= json_encode("\n" . iarepo_srcdoc_shim(), JSON_HEX_TAG | JSON_HEX_AMP) ?>;
 // JSON_HEX_TAG | JSON_HEX_AMP: un título o una etiqueta con «<!--<script»
 // dentro de un <script> dejaba la página en blanco (el parser HTML se lo tragaba).
 const ORIG = <?= json_encode([
@@ -505,7 +509,7 @@ function updatePreview() {
   $('previewEmpty').hidden = show;
   if (!show) { frame.removeAttribute('srcdoc'); frame.removeAttribute('src'); return; }
   if (t === 'url') { frame.removeAttribute('srcdoc'); frame.src = code; }
-  else if (t === 'html' || t === 'embed') frame.srcdoc = code;
+  else if (t === 'html' || t === 'embed') frame.srcdoc = code + SRCDOC_SHIM;   // shared/srcdoc.php
   else frame.srcdoc = '<pre style="padding:16px;font:13px/1.5 monospace;white-space:pre-wrap">' + code.replace(/&/g, '&amp;').replace(/</g, '&lt;') + '</pre>';
 }
 let previewTimer;

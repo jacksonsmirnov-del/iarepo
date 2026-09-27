@@ -11,6 +11,7 @@
 require_once __DIR__ . '/../shared/page_errors.php';
 
 require_once __DIR__ . '/../shared/db.php';
+require_once __DIR__ . '/../shared/srcdoc.php';
 // h() local — NO se carga shared/helpers.php: su error_handler vuelca JSON y
 // corta la página a medias ante cualquier error (CLAUDE.md §2.1).
 if (!function_exists('h')) {
@@ -256,7 +257,7 @@ function previewCode() {
   const frame = document.getElementById('preview');
   frame.style.display = frame.style.display === 'none' ? 'block' : 'none';
   if (frame.style.display === 'block') {
-    frame.srcdoc = code;
+    frame.srcdoc = code + <?= json_encode("\n" . iarepo_srcdoc_shim(), JSON_HEX_TAG | JSON_HEX_AMP) ?>;   // shared/srcdoc.php
   }
 }
 </script>

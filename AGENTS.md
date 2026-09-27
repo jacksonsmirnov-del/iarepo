@@ -2164,6 +2164,7 @@ Ordenada por lo que más duele. El procedimiento de cada una está en `docs/RUNB
 | Health `degraded` | La BD no conecta | credenciales en `.env.php` |
 | `429` en el smoke test | 120 GET/min por IP en el listado | `SEARCH_DELAY`, espera un minuto |
 | Viewer en blanco | `code_content` vacío | el recurso no tiene contenido |
+| Al pulsar un enlace interno de un recurso (`#seccion`, un índice), **iarepo se carga dentro del propio recurso** | Un `<iframe srcdoc>` resuelve sus enlaces contra la URL de la página que lo contiene: `#seccion` → `/resource/N#seccion` [2026-09-27] | Toda incrustación pasa por `iarepo_srcdoc()` (`shared/srcdoc.php`), que añade al final un script: `#id` desplaza, `#` sube, un relativo no hace nada. `tests/unit/srcdoc_test.php` exige que ningún `srcdoc` se salte la función. **No se arregla en el prompt**: le pasa a cualquier HTML con índice |
 | Una `<option>` de filtro no devuelve nada | El catálogo no tiene ese valor (p. ej. `lang=pt`) | consulta la BD antes de añadir opciones |
 | El 404 no es el de marca | LiteSpeed ignora `ErrorDocument`; falta el catch-all | `.htaccess:70-73` |
 | `403` en `/tests/…`, `/quality/…`, `/docs/…` | **Correcto, es el bloqueo nuevo** | `.htaccess:51-59` (§9) |

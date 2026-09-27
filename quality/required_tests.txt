@@ -180,3 +180,10 @@ tests/integration/review_fixes_test.php
 # Campus con el mismo user_id que una cuenta de iarepo ni es su autor ni
 # recibe su campana.
 tests/integration/usage_notify_test.php
+
+# srcdoc_test.php: un recurso 'html' va en <iframe srcdoc>, que resuelve sus
+# enlaces contra la página que lo contiene: <a href="#seccion"> cargaba la
+# ficha de iarepo DENTRO del recurso [2026-09-27]. shared/srcdoc.php lo
+# arregla para todas las incrustaciones; el test ejecuta su script en Node y
+# exige que todo srcdoc del repo pase por él.
+tests/unit/srcdoc_test.php

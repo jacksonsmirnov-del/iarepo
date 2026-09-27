@@ -735,3 +735,22 @@ function test_la_bienvenida_ofrece_las_dos_entradas_y_no_degrada_a_un_admin(): v
         $db->exec("UPDATE users SET role = 'teacher' WHERE id = $t");
     }
 }
+
+/**
+ * El HTML de un recurso lleva el script de anclas en la ficha y en el visor
+ * (shared/srcdoc.php): sin él, un <a href="#…"> cargaba la ficha de iarepo
+ * dentro del iframe del recurso [2026-09-27].
+ */
+function test_la_ficha_y_el_visor_mantienen_los_enlaces_dentro_del_recurso(): void
+{
+    if (it_render_server() === null) {
+        echo '    SKIP render: ' . (it_render_state()['skip'] ?? '') . "\n";
+        return;
+    }
+    foreach (['/resource/' . IT_RENDER_RES, '/view/' . IT_RENDER_RES] as $path) {
+        [$code, $b] = it_ficha_get($path, 'teacher');
+        it_eq(200, $code, "$path responde");
+        it_true((bool) preg_match('/<iframe[^>]*srcdoc="[^"]*&lt;p&gt;demo&lt;\/p&gt;[^"]*data-iarepo=&quot;anclas&quot;/', $b),
+            "$path: el iframe lleva el HTML del autor y, detrás, el script de anclas");
+    }
+}

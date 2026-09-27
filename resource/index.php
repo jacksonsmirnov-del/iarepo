@@ -41,6 +41,7 @@ require_once __DIR__ . '/../shared/auth.php';
 require_once __DIR__ . '/../shared/db.php';
 require_once __DIR__ . '/../shared/access.php';
 require_once __DIR__ . '/../shared/ui.php';
+require_once __DIR__ . '/../shared/srcdoc.php';   // enlaces internos del recurso (#…) dentro del iframe
 // h() local — NO se carga shared/helpers.php: su error_handler vuelca JSON y
 // corta la página a medias ante cualquier error (CLAUDE.md §2.1).
 if (!function_exists('h')) {
@@ -787,7 +788,7 @@ $metaDesc = mb_substr($metaDesc . ' — iarepo', 0, 160);
        frontera entre el código del autor y la sesión de quien lo mira. -->
   <section class="rf-stage" id="stage" aria-label="<?= h(t('El recurso')) ?>"<?= $embedBlocked ? ' data-blocked="1"' : '' ?>>
     <?php if ($r['code_type'] === 'html'): ?>
-      <iframe class="rf-frame" srcdoc="<?= h((string) $r['code_content']) ?>" sandbox="allow-scripts allow-modals allow-popups" title="<?= h($titleText) ?>"></iframe>
+      <iframe class="rf-frame" srcdoc="<?= h(iarepo_srcdoc((string) $r['code_content'])) ?>" sandbox="allow-scripts allow-modals allow-popups" title="<?= h($titleText) ?>"></iframe>
     <?php elseif ($r['code_type'] === 'url'): ?>
       <?php if ($embedBlocked): ?>
         <div class="rf-fallback">
@@ -804,7 +805,7 @@ $metaDesc = mb_substr($metaDesc . ' — iarepo', 0, 160);
         </div>
       <?php endif; ?>
     <?php elseif ($r['code_type'] === 'embed'): ?>
-      <iframe class="rf-frame" srcdoc="<?= h((string) $r['code_content']) ?>" sandbox="allow-scripts allow-modals allow-popups allow-forms" title="<?= h($titleText) ?>"></iframe>
+      <iframe class="rf-frame" srcdoc="<?= h(iarepo_srcdoc((string) $r['code_content'])) ?>" sandbox="allow-scripts allow-modals allow-popups allow-forms" title="<?= h($titleText) ?>"></iframe>
     <?php else: ?>
       <pre class="rf-code"><?= h((string) $r['code_content']) ?></pre>
     <?php endif; ?>
