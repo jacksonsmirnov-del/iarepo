@@ -261,3 +261,21 @@ function test_las_miniaturas_se_capturan_sin_controles_del_visor(): void
     assert_matches('/URL="\$\{BASE_URL\}\/\$\{ID\}\?mode=present&ui=0"/', $sh,
         'sin ui=0, el botón de pantalla completa y «Abrir en…» salen en cada imagen al compartir');
 }
+
+/**
+ * El script de miniaturas cubre TODO el catálogo y un fallo no lo corta.
+ * Hasta 2026-09-27: «--default-background-color=0» lo rechaza el Chrome
+ * headless moderno y NO guarda la captura (recursos sin miniatura), solo se
+ * pedían las 100 primeras filas, y con `set -e` una captura fallida mataba
+ * el script entero.
+ */
+function test_el_script_de_miniaturas_cubre_todo_y_no_se_corta(): void
+{
+    $sh = (string) file_get_contents(IAREPO_ROOT . '/setup/tools/generate-thumbnails.sh');
+    assert_matches('/--default-background-color=[0-9a-fA-F]{6}(?:[0-9a-fA-F]{2})?\b/', $sh,
+        'el color de fondo va en hex RRGGBB(AA): con «=0» Chrome no guarda la captura');
+    assert_matches('/"\$URL" 2>\/dev\/null \|\| true/', $sh, 'una captura fallida no corta el script (set -e)');
+    assert_contains('page=${PAGE}', $sh, 'recorre todas las páginas de la API, no solo las 100 primeras');
+    assert_not_contains('sort=popular', $sh, 'ni pide un orden que ya no existe');
+    assert_contains('/thumbnails/og-${ID}.png', $sh, 'y sin argumentos solo rehace las que faltan');
+}

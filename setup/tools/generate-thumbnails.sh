@@ -7,8 +7,14 @@
 # to the server over scp.
 #
 # Usage:
-#   ./setup/tools/generate-thumbnails.sh           # All resources
-#   ./setup/tools/generate-thumbnails.sh 3 5 100   # Specific IDs
+#   ./setup/tools/generate-thumbnails.sh           # las que FALTAN, de todo el catálogo
+#   ./setup/tools/generate-thumbnails.sh --all     # todas, también las que ya existen
+#   ./setup/tools/generate-thumbnails.sh 3 5 100   # esas IDs (siempre se rehacen)
+#
+# Sin argumentos recorre TODAS las páginas de la API (antes solo pedía las 100
+# primeras, con un orden 'popular' que ya no existe) y se salta los recursos
+# que ya tienen miniatura publicada (HEAD a /thumbnails/og-N.png → 200). Así,
+# tras subir recursos nuevos, basta con volver a lanzarlo.
 #
 # Prerequisites: google-chrome or chromium installed locally.
 #
@@ -86,27 +92,64 @@ echo "🌐 Using: $CHROME"
 # Create local temp dir
 mkdir -p "$LOCAL_TMP"
 
-# Ensure remote directory exists
-ssh -p "$PORT" "$REMOTE" "mkdir -p $REMOTE_DIR"
 
 # Get resource IDs
+SITE="${BASE_URL%/view}"            # https://iarepo.com
+ONLY_MISSING=1
+if [ "${1:-}" = "--all" ]; then
+    ONLY_MISSING=0
+    shift
+fi
+
 if [ "$#" -gt 0 ]; then
     IDS=("$@")
+    ONLY_MISSING=0                  # IDs explícitas: se rehacen siempre
 else
-    echo "📋 Fetching resource IDs from API..."
-    IDS=($(curl -s "https://iarepo.com/api/resources.php?limit=100&sort=popular" | python3 -c "
+    echo "📋 Leyendo los IDs de TODO el catálogo (API, página a página)..."
+    IDS=()
+    PAGE=1
+    while :; do
+        CHUNK=$(curl -s "${SITE}/api/resources.php?limit=100&page=${PAGE}&sort=recent" | python3 -c "
 import json, sys
 data = json.load(sys.stdin)
-if data.get('ok'):
-    for r in data['resources']:
-        print(r['id'])
-"))
+if not data.get('ok'):
+    sys.exit(1)
+for r in data['resources']:
+    print(r['id'])
+print('PAGES', data.get('pages', 1))
+" 2>/dev/null) || { echo "❌ La API no respondió bien (página $PAGE)." >&2; exit 1; }
+        PAGES=$(printf '%s\n' "$CHUNK" | awk '/^PAGES /{print $2}')
+        while read -r ID; do
+            [ -n "$ID" ] && IDS+=("$ID")
+        done < <(printf '%s\n' "$CHUNK" | grep -v '^PAGES ')
+        [ "$PAGE" -ge "${PAGES:-1}" ] && break
+        PAGE=$((PAGE + 1))
+    done
+    echo "   ${#IDS[@]} recursos en el catálogo."
+fi
+
+if [ "$ONLY_MISSING" -eq 1 ] && [ "${#IDS[@]}" -gt 0 ]; then
+    echo "🔎 Buscando cuáles no tienen miniatura todavía..."
+    TODO=()
+    for ID in "${IDS[@]}"; do
+        CODE=$(curl -s -o /dev/null -w '%{http_code}' -I "${SITE}/thumbnails/og-${ID}.png")
+        [ "$CODE" = "200" ] || TODO+=("$ID")
+    done
+    echo "   $(( ${#IDS[@]} - ${#TODO[@]} )) ya la tienen; faltan ${#TODO[@]}."
+    IDS=("${TODO[@]+"${TODO[@]}"}")
+    if [ "${#IDS[@]}" -eq 0 ]; then
+        echo "✅ Nada que hacer: todos los recursos tienen miniatura."
+        exit 0
+    fi
 fi
 
 if [ "${#IDS[@]}" -eq 0 ]; then
     echo "❌ No hay IDs que capturar (¿respondió la API?)." >&2
     exit 1
 fi
+
+# Ensure remote directory exists
+ssh -p "$PORT" "$REMOTE" "mkdir -p $REMOTE_DIR"
 
 echo "📸 Generating thumbnails for ${#IDS[@]} resources..."
 echo ""
@@ -131,8 +174,13 @@ for ID in "${IDS[@]}"; do
         --window-size=1200,630 \
         --screenshot="$OUTPUT" \
         --hide-scrollbars \
-        --default-background-color=0 \
-        "$URL" 2>/dev/null
+        --default-background-color=ffffffff \
+        "$URL" 2>/dev/null || true
+    # ↑ `|| true`: con `set -e`, UNA captura fallida (timeout, Chrome que
+    #   revienta) mataba el script entero sin imprimir «Failed» ni el resumen.
+    # --default-background-color: hex RRGGBBAA. El antiguo «=0» lo rechaza el
+    #   Chrome headless moderno («Expected a hex RGB or RGBA value») y NO guarda
+    #   la captura: por eso había recursos sin miniatura. Blanco opaco.
 
     if [ -f "$OUTPUT" ] && [ -s "$OUTPUT" ]; then
         # Upload to server
@@ -155,4 +203,4 @@ echo "✅ Success: $SUCCESS"
 echo "❌ Failed:  $FAIL"
 echo "📁 Remote:  $REMOTE_DIR/"
 echo ""
-echo "🔗 Test: https://iarepo.com/thumbnails/og-${IDS[0]}.png"
+echo "🔗 Test: ${SITE}/thumbnails/og-${IDS[0]}.png"
