@@ -17,6 +17,10 @@
 // Y api/comments.php enseñaba los comentarios de cualquier recurso y dejaba
 // publicar a los alumnos con su nombre y su foto.
 //
+// 2026-09-27: un token de Campus con el mismo user_id que una cuenta de
+// iarepo leía y tocaba sus Guardados, «Me gusta», listas, comentarios y
+// novedades (los user_id de Campus son de otra numeración). Último test.
+//
 // Cada test entra como "el otro" —otro profesor, un alumno, un anónimo— e
 // intenta leer lo que no es suyo. Se hace por HTTP contra el sitio levantado
 // (site_server.php), no llamando a funciones: lo que importa es lo que sale
@@ -288,6 +292,76 @@ function test_el_visor_incrustado_no_navega_dentro_del_iframe(): void
         [$code, , $body] = it_render_request('GET', "$base/view/1000");
         it_true(str_contains($body, 'id="btnClose"'), 'abierto directamente: «Ver la ficha» sigue ahí');
     } finally {
+        it_authz_cleanup($db);
+    }
+}
+
+/**
+ * Un token de Campus con el MISMO user_id que una cuenta de iarepo no es esa
+ * cuenta: los user_id de Campus son de otra numeración. Hasta 2026-09-27 todo
+ * lo que va por users.id —guardados, «Me gusta», listas, comentarios,
+ * novedades— lo leía y lo tocaba quien tuviera un token con ese número.
+ * Ahora exige cuenta de iarepo.com (requireSiteAccount, shared/auth.php).
+ */
+function test_un_token_de_campus_no_es_la_cuenta_de_iarepo_con_su_numero(): void
+{
+    if (!($db = it_authz_ready()))
+        return;
+    $base = it_render_state()['base'];
+    $st   = IT_RENDER_STUDENT;   // tiene 1000 en Guardados (site_server.php)
+    $t    = IT_RENDER_TEACHER;   // dueño de «Lista de pruebas» y de un comentario
+    $coll = (int) it_render_state()['coll'];
+    $asStudent = ['Authorization' => 'Bearer ' . it_campus_jwt($st, 7, 'student')];
+    $asTeacher = ['Authorization' => 'Bearer ' . it_campus_jwt($t, 7)];
+    try {
+        $db->exec("INSERT IGNORE INTO resource_likes (resource_id, user_id, user_name) VALUES (1000, $st, NULL)");
+
+        // Guardados: ni leerlos ni tocarlos.
+        [$code, , $body] = it_render_request('GET', "$base/api/favorites.php", null, [], $asStudent);
+        it_eq(403, $code, 'Guardados con token de Campus: 403');
+        it_eq('SITE_ACCOUNT_REQUIRED', it_authz_json($body)['code'] ?? null, 'con su código');
+        it_true(!str_contains($body, 'Ondas sonoras'), 'y sin los Guardados de la cuenta de iarepo con su número');
+        [$code] = it_render_request('POST', "$base/api/favorites.php?id=1000", null, [], $asStudent);
+        it_eq(403, $code, 'tampoco puede quitarlos');
+        it_eq(1, (int) $db->query("SELECT COUNT(*) FROM resource_favorites WHERE user_id = $st AND resource_id = 1000")->fetchColumn(),
+            'y el guardado de la alumna sigue ahí');
+
+        // «Me gusta»: el recuento es público; «si le gustó» es de cada cuenta.
+        [$code, , $body] = it_render_request('GET', "$base/api/likes.php?id=1000", null, [], $asStudent);
+        it_eq(200, $code, 'el recuento de «Me gusta» responde');
+        it_eq(false, it_authz_json($body)['user_liked'] ?? null, 'pero no dice si le gustó a la alumna de iarepo');
+        [$code] = it_render_request('POST', "$base/api/likes.php?id=1000", null, [], $asStudent);
+        it_eq(403, $code, 'ni quita su «Me gusta»');
+        it_eq(1, (int) $db->query("SELECT COUNT(*) FROM resource_likes WHERE user_id = $st AND resource_id = 1000")->fetchColumn(),
+            'que sigue ahí');
+
+        // Listas: una privada no se abre, y ninguna se borra.
+        $db->exec("UPDATE collections SET is_public = 0 WHERE id = $coll");
+        [$code] = it_render_request('GET', "$base/api/collections.php?id=$coll", null, [], $asTeacher);
+        it_eq(403, $code, 'una lista privada no se abre con el mismo número');
+        [$code] = it_render_request('DELETE', "$base/api/collections.php?id=$coll", null, [], $asTeacher);
+        it_eq(403, $code, 'ni se borra');
+        it_eq(1, (int) $db->query("SELECT COUNT(*) FROM collections WHERE id = $coll")->fetchColumn(), 'la lista sigue ahí');
+
+        // Comentarios: no borra los de la cuenta de iarepo.
+        $cid = (int) $db->query("SELECT id FROM resource_comments WHERE user_id = $t AND body = 'COMENTARIO-EN-BORRADOR'")->fetchColumn();
+        [$code] = it_render_request('DELETE', "$base/api/comments.php?id=$cid", null, [], $asTeacher);
+        it_eq(403, $code, 'no borra un comentario de la cuenta con su número');
+        it_eq(1, (int) $db->query("SELECT is_active FROM resource_comments WHERE id = $cid")->fetchColumn(), 'que sigue publicado');
+
+        // La ficha con ?token=: no pinta el guardado ni el «Me gusta» de otra persona.
+        [$code, , $page] = it_render_request('GET', "$base/resource/1000?token=" . substr($asStudent['Authorization'], 7));
+        it_eq(200, $code, 'la ficha con ?token= responde');
+        it_true(!preg_match('/id="favBtn"[^>]*aria-pressed="true"/', $page) && !preg_match('/id="likeBtn"[^>]*aria-pressed="true"/', $page),
+            'sin «Guardado» ni «Me gusta» marcados de la cuenta de iarepo');
+
+        // Y la cuenta de iarepo, con su sesión, sigue teniendo todo lo suyo.
+        [$code, , $body] = it_render_request('GET', "$base/api/favorites.php", it_render_cookie('student'), []);
+        it_eq(200, $code, 'con sesión, sus Guardados responden');
+        it_true(in_array(1000, it_authz_json($body)['favorite_ids'] ?? [], true), 'con lo que guardó');
+    } finally {
+        $db->exec("DELETE FROM resource_likes WHERE user_id = $st AND resource_id = 1000");
+        $db->exec("UPDATE collections SET is_public = 1 WHERE id = $coll");
         it_authz_cleanup($db);
     }
 }

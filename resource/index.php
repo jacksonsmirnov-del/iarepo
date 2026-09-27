@@ -187,7 +187,9 @@ $resourceTags = $tagStmt->fetchAll(PDO::FETCH_COLUMN);
 // Check if user liked
 $userLiked = false;
 $userFavorited = false;
-if ($user) {
+// Van por users.id: solo con cuenta de iarepo.com. Con ?token= de Campus
+// serían los de OTRA persona con el mismo número (shared/auth.php).
+if (iarepo_is_site_account($user)) {
     $likeCheck = $db->prepare("SELECT id FROM resource_likes WHERE resource_id = ? AND user_id = ?");
     $likeCheck->execute([$id, $user['user_id']]);
     $userLiked = (bool)$likeCheck->fetch();

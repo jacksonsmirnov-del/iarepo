@@ -20,17 +20,12 @@ cors();
 
 $db = getResourcesDB();
 $method = request_method();
-$user = requireAuth();
+// Las novedades son de las cuentas de iarepo.com: van por users.id. Un token
+// de Campus trae el user_id de SU numeración, y sin este corte el docente 5 de
+// Campus recibía las de la cuenta 5 de iarepo (quién le dio «Me gusta», quién
+// comentó, quién lo usó en clase) y podía marcarlas como vistas.
+$user = requireSiteAccount();
 $uid = (int) $user['user_id'];
-
-// Las novedades son de las cuentas de iarepo.com (tenant 0): son las únicas
-// con fila en `users` y recursos con author_tenant_id = 0. Un docente de
-// Campus trae el user_id de SU numeración: sin este corte, el docente 5 de
-// Campus recibía las novedades de la cuenta 5 de iarepo (quién le dio «Me
-// gusta», quién comentó, quién lo usó en clase) y podía marcarlas como vistas.
-if ((int) ($user['tenant_id'] ?? 0) !== 0) {
-    json_ok($method === 'POST' ? ['seen' => true] : ['notifications' => [], 'unread' => 0]);
-}
 
 // ── POST: mark all as seen ────────────────────────────────────
 if ($method === 'POST') {

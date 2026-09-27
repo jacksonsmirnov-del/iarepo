@@ -785,7 +785,7 @@ Qué se le cuenta al autor de un recurso, y dónde [2026-09-27]:
   `users.notifications_seen_at` (`migration_008`). Las fuentes viven en
   **`shared/activity.php`** (`iarepo_author_activity`), que usa también «Actividad
   reciente» de Mi panel: una fuente nueva se añade ahí y aparece en los dos sitios. Solo
-  para cuentas de iarepo.com (tenant 0); con JWT de Campus el feed sale vacío (§9).
+  para cuentas de iarepo.com: con JWT de Campus, 403 `SITE_ACCOUNT_REQUIRED` (§9).
 - **Email:** `shared/mailer.php` (`sendMail`, `mailFromDefault`, `emailShell`) y
   `shared/notify.php` (`notifyResourceAuthor`). Deduplicación en `notification_log`
   (ventana 24 h, `migration_007`). Opt-out por `unsubscribe.php` con
@@ -1948,16 +1948,30 @@ Google para leer lo que no es de uno:
 | `api/comments.php` | comentarios de cualquier recurso; los alumnos publicaban con nombre y foto | GET sigue `canView()`; POST exige rol docente |
 | `api/collections.php?id=N` | título y descripción de un borrador (o de un `school` de otro centro) metido en una lista pública, también a anónimos | cada paso pasa por `canView()`, como la página de la lista |
 
-Y el 2026-09-27, al añadir los usos en clase a la campana (§6.6):
+Y el 2026-09-27, al añadir los usos en clase a la campana (§6.6). La raíz de casi todas:
+un token de Campus trae el `user_id` de **la numeración de Campus**, y lo que va por
+`users.id` lo comparaba a secas: el docente (o alumno) 5 de Campus **era**, para esas
+tablas, la cuenta 5 de iarepo.
 
-| Endpoint | Qué entregaba | Ahora |
+| Endpoint | Qué entregaba o permitía, con un token de Campus del mismo número | Ahora |
 |---|---|---|
-| `api/notifications.php` | a un docente de **Campus**, las novedades de la cuenta de iarepo con **su mismo `user_id`** (otra numeración): quién le dio «Me gusta», quién comentó; y podía marcarlas como vistas | con `tenant_id` ≠ 0, feed vacío y el POST no toca `users` |
-| `api/usage.php` (POST) | registraba el uso de **cualquier** recurso activo, borradores ajenos incluidos (y desde §6.6 eso manda un correo al autor) | solo si `canView()`; si no, 404 |
+| `api/favorites.php` | leer los **Guardados privados** de la cuenta de iarepo (alumnos incluidos) y quitarlos | `requireSiteAccount()`: 403 `SITE_ACCOUNT_REQUIRED` |
+| `api/likes.php` | saber si le gustó un recurso y quitarle el «Me gusta» | GET: `user_liked` solo con cuenta de iarepo; POST: 403 |
+| `api/collections.php` | abrir sus **listas privadas**, editarlas, vaciarlas y borrarlas | dueño solo con cuenta de iarepo; escrituras y «mis listas»: 403 |
+| `api/comments.php` | borrar sus comentarios | comentar y borrar: 403 |
+| `api/notifications.php` | leer sus novedades (quién le dio «Me gusta», quién comentó) y marcarlas como vistas | 403 |
+| `/resource/N?token=` | pintar su «Guardado» y su «Me gusta» | solo con cuenta de iarepo |
+| `api/usage.php` (POST) | *(cualquier docente)* registrar el uso de **cualquier** recurso activo, borradores ajenos incluidos (y desde §6.6 eso manda un correo al autor) | solo si `canView()`; si no, 404 |
+
+**Regla desde entonces:** lo que se guarda o se lee por `users.id` exige
+`requireSiteAccount()` (o `iarepo_is_site_account()` donde el anónimo también vale), en
+`shared/auth.php`. Una cuenta de iarepo es `source === 'google'`; comparar solo el
+número, o solo `tenant_id = 0`, no basta.
 
 `tests/integration/authorization_test.php` entra como «el otro» y pide lo ajeno; contra
-el código anterior, sus cuatro tests se ponen rojos. Los dos del 2026-09-27 los fija
-`tests/integration/usage_notify_test.php`. **Regla desde entonces:** un GET que
+el código anterior, sus cuatro tests se ponen rojos. Los del 2026-09-27 los fijan
+`test_un_token_de_campus_no_es_la_cuenta_de_iarepo_con_su_numero` (mismo fichero; siete
+mutaciones, las siete en rojo) y `tests/integration/usage_notify_test.php`. **Regla desde entonces:** un GET que
 devuelva filas de otras personas lleva su test de visibilidad en ese fichero.
 
 ⚠️ Un fallo de seguridad **abierto** no se describe en ficheros versionados (este
@@ -2043,7 +2057,7 @@ con ⚠️, que cambia un comportamiento. Los tests que lo fijan están en
 | ⚠️ `/view/N` en un iframe | con `Sec-Fetch-Dest: iframe` (o `window.top !== self`) no hay «Ver la ficha», y el título solo abre la ficha **en pestaña nueva** y solo si el recurso es público; un borrador ahora exige también el mismo `tenant_id` | nada navega dentro del iframe de Campus ni pierde el `?token=` |
 | `GET /api/health.php` | nuevo `errors_24h` | nada que hacer |
 | ⚠️ `POST /api/usage.php` | 404 si el recurso no es visible para el token (`canView`); un `presented` de un docente de Campus sobre un recurso de una cuenta de iarepo **le manda un correo a su autor** con el nombre del docente y su `tenant_name` | si Campus registraba usos de recursos que no puede ver, ya no cuentan |
-| ⚠️ `api/notifications.php` | con `tenant_id` ≠ 0 devuelve siempre `{notifications: [], unread: 0}` (las novedades son de cuentas de iarepo.com); tipo nuevo `used` en el feed | si Campus pintaba esta campana, lo que veía era de otra persona: ahora sale vacía |
+| ⚠️ `favorites`, `likes` (POST), `collections` (las propias y las escrituras), `comments` (POST y DELETE), `notifications` | **403 `SITE_ACCOUNT_REQUIRED` con token de Campus**: van por `users.id` y el `user_id` de Campus es de otra numeración (§9). `likes` GET sigue dando el recuento, con `user_liked: false`; una lista pública se sigue leyendo | si Campus usaba algo de esto, leía y escribía los datos de **otra persona** (la cuenta de iarepo con su número); ahora falla con un código claro. El feed de `notifications` trae un tipo nuevo, `used` |
 
 ---
 

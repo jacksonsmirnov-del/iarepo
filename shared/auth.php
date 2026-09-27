@@ -174,6 +174,37 @@ function requireAuth(): array {
 }
 
 /**
+ * ¿Es una cuenta de iarepo.com (sesión de Google)?
+ *
+ * Solo esas tienen fila en `users`, y solo en ellas user_id ES users.id. Un
+ * token de Campus trae el user_id de la numeración de Campus: el docente 5 de
+ * Campus NO es la cuenta 5 de iarepo, aunque el número coincida. Todo lo que
+ * se guarda o se lee por users.id —guardados, «Me gusta», listas,
+ * comentarios, novedades— lo exige (requireSiteAccount). Hasta 2026-09-27 no
+ * se miraba, y un token de Campus leía y tocaba lo de la cuenta de iarepo con
+ * su mismo número.
+ */
+function iarepo_is_site_account(?array $user): bool {
+    return $user !== null && ($user['source'] ?? '') === 'google' && (int) ($user['user_id'] ?? 0) > 0;
+}
+
+/**
+ * Como requireAuth(), pero solo para cuentas de iarepo.com. Con un token de
+ * Campus: 403 y código SITE_ACCOUNT_REQUIRED (la API decide por el código).
+ * Antirregresión: tests/integration/usage_notify_test.php.
+ */
+function requireSiteAccount(): array {
+    $user = requireAuth();
+    if (!iarepo_is_site_account($user)) {
+        http_response_code(403);
+        header('Content-Type: application/json');
+        die(json_encode(['ok' => false, 'error' => 'This needs an iarepo.com account',
+                         'code' => 'SITE_ACCOUNT_REQUIRED']));
+    }
+    return $user;
+}
+
+/**
  * Require a specific role. Dies with 403 if role doesn't match.
  *
  * @param array $user           User info from requireAuth()

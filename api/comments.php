@@ -79,7 +79,9 @@ if ($method === 'GET') {
 
 // ── POST: Create comment ──────────────────────────────────────
 if ($method === 'POST') {
-    $user = requireAuth();
+    // Un comentario es de una cuenta de iarepo.com: su dueño (el que puede
+    // borrarlo) va por users.id, y un token de Campus trae otra numeración.
+    $user = requireSiteAccount();
     requireRole($user, ['teacher', 'admin', 'superadmin']);
 
     $data = json_body();
@@ -145,7 +147,7 @@ if ($method === 'POST') {
 
 // ── DELETE: Soft-delete own comment ───────────────────────────
 if ($method === 'DELETE') {
-    $user = requireAuth();
+    $user = requireSiteAccount();
     $id = (int) ($_GET['id'] ?? 0);
     if (!$id)
         json_error('Comment ID required', 400, 'MISSING_COMMENT_ID');

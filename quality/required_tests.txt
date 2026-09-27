@@ -105,6 +105,8 @@ tests/integration/site_server.php
 # authorization_test.php entra como otro profesor, como alumno y como anónimo y
 # pide lo que no es suyo a api/versions.php, usage.php, assignments.php y
 # comments.php. Hasta 2026-09-26 el gate no tenía ni una regla de autorización.
+# Desde 2026-09-27 también entra con un token de Campus del MISMO user_id que
+# una cuenta de iarepo (otra numeración) y comprueba que no es esa cuenta.
 tests/integration/authorization_test.php
 
 # page_errors_test.php: un error fatal en una página HTML no deja media página

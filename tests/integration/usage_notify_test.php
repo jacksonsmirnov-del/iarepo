@@ -20,7 +20,7 @@
 //     un borrador que ni siquiera puede abrir.
 //   · Un docente de Campus trae el user_id de SU numeración: con el mismo
 //     número que el autor NO es el autor (sí recibe correo el autor), y no
-//     recibe la campana de la cuenta de iarepo con ese número.
+//     recibe la campana de la cuenta de iarepo con ese número (403).
 //
 // ── CÓMO ──────────────────────────────────────────────────────
 // Por HTTP contra el sitio levantado (site_server.php), que corre con
@@ -166,9 +166,9 @@ function test_un_docente_de_campus_con_el_mismo_numero_no_es_el_autor(): void
 
         [$code, , $raw] = it_render_request('GET', it_render_state()['base'] . '/api/notifications.php', null, [],
             ['Authorization' => "Bearer $jwt"]);
-        it_eq(200, $code, 'la campana responde a Campus');
-        it_eq([], json_decode($raw, true)['notifications'] ?? null,
-            'pero no le da las novedades de la cuenta de iarepo con su mismo número');
+        it_eq(403, $code, 'la campana es de cuentas de iarepo.com: con token de Campus, 403');
+        it_true(!str_contains($raw, 'Recurso de pruebas del panel'),
+            'sin las novedades de la cuenta de iarepo con su mismo número');
 
         [$code, , $raw] = it_render_request('GET', it_render_state()['base'] . '/api/notifications.php', it_render_cookie('teacher'), []);
         $feed = json_decode($raw, true)['notifications'] ?? [];

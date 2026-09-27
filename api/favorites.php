@@ -28,7 +28,8 @@ elseif ($method === 'POST')  rateLimit($db, 'favorites_post', 30);
 
 // ── GET: mis favoritos ────────────────────────────────────────
 if ($method === 'GET') {
-    $user = requireAuth();
+    // Guardados = users.id: solo cuentas de iarepo.com (shared/auth.php).
+    $user = requireSiteAccount();
 
     $stmt = $db->prepare("
         SELECT r.id, r.title, r.description, r.code_type, r.subject_area, r.level,
@@ -53,7 +54,7 @@ if ($method === 'GET') {
 
 // ── POST: toggle favorito ─────────────────────────────────────
 if ($method === 'POST') {
-    $user = requireAuth();
+    $user = requireSiteAccount();
 
     $resourceId = (int) ($_GET['id'] ?? 0);
     if (!$resourceId)

@@ -178,6 +178,9 @@ assets/js/         theme.js (tema, en el <head>) · ui.js (window.IA) · qrcode.
 shared/            auth jwt db cors helpers error_handler error_tracker i18n i18n_en
                    page_errors = errores de las páginas HTML (lo primero de cada una)
                    access = canView(): quién ve un recurso (lo usan todos los endpoints)
+                   auth: sesión (cuenta de iarepo) o JWT de Campus, cuyo user_id es de
+                   OTRA numeración. Lo que va por users.id → requireSiteAccount()
+                   (AGENTS.md §9): el 5 de Campus no es la cuenta 5 de iarepo.
                    ui + labels + asset = componentes, etiquetas traducidas y ?v= de
                    assets (AGENTS.md §6.10). Una página nueva los usa, no los copia.
                    viewer_key = identidad anónima + sal diaria caducable.

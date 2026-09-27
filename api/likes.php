@@ -40,8 +40,10 @@ if ($method === 'GET') {
     $countStmt->execute([$resourceId]);
     $likeCount = (int) $countStmt->fetchColumn();
 
+    // user_liked va por users.id: solo con cuenta de iarepo.com. Con un token
+    // de Campus sería el «Me gusta» de OTRA persona (shared/auth.php).
     $userLiked = false;
-    if ($user) {
+    if (iarepo_is_site_account($user)) {
         $likeStmt = $db->prepare("SELECT id FROM resource_likes WHERE resource_id = ? AND user_id = ?");
         $likeStmt->execute([$resourceId, $user['user_id']]);
         $userLiked = (bool) $likeStmt->fetch();
@@ -56,7 +58,7 @@ if ($method === 'GET') {
 
 // ── POST: Toggle like ─────────────────────────────────────────
 if ($method === 'POST') {
-    $user = requireAuth();
+    $user = requireSiteAccount();
     $isLearner = ($user['role'] ?? '') === 'student';
 
     $db->beginTransaction();

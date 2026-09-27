@@ -44,7 +44,8 @@ if ($method === 'GET') {
 
         // Check access: public or own
         $user = authenticate();
-        $isOwner = $user && (int) $collection['user_id'] === $user['user_id'];
+        // Las listas van por users.id: dueño solo con cuenta de iarepo.com.
+        $isOwner = iarepo_is_site_account($user) && (int) $collection['user_id'] === $user['user_id'];
         if (!$collection['is_public'] && !$isOwner)
             json_error('Collection is private', 403, 'COLLECTION_PRIVATE');
 
@@ -100,7 +101,7 @@ if ($method === 'GET') {
     }
 
     // My collections (all, including private)
-    $user = requireAuth();
+    $user = requireSiteAccount();
     $stmt = $db->prepare("
         SELECT id, title, description, is_public, item_count, created_at
         FROM collections
@@ -113,7 +114,7 @@ if ($method === 'GET') {
 
 // ── POST ──────────────────────────────────────────────────────
 if ($method === 'POST') {
-    $user = requireAuth();
+    $user = requireSiteAccount();
     $action = $_GET['action'] ?? 'create';
     $id = (int) ($_GET['id'] ?? 0);
 
@@ -204,7 +205,7 @@ if ($method === 'POST') {
 
 // ── PUT: Update collection ────────────────────────────────────
 if ($method === 'PUT') {
-    $user = requireAuth();
+    $user = requireSiteAccount();
     $id = (int) ($_GET['id'] ?? 0);
     if (!$id)
         json_error('Collection ID required', 400, 'MISSING_COLLECTION_ID');
@@ -237,7 +238,7 @@ if ($method === 'PUT') {
 
 // ── DELETE ────────────────────────────────────────────────────
 if ($method === 'DELETE') {
-    $user = requireAuth();
+    $user = requireSiteAccount();
     $id = (int) ($_GET['id'] ?? 0);
     if (!$id)
         json_error('Collection ID required', 400, 'MISSING_COLLECTION_ID');
