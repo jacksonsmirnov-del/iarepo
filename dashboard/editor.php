@@ -35,6 +35,7 @@ session_start();
 require_once __DIR__ . '/../shared/auth.php';
 require_once __DIR__ . '/../shared/db.php';
 require_once __DIR__ . '/../shared/ui.php';
+require_once __DIR__ . '/../shared/access.php';
 // h() local — NO se carga shared/helpers.php: su error_handler vuelca JSON y
 // corta la página a medias ante cualquier error (CLAUDE.md §2.1).
 if (!function_exists('h')) {
@@ -65,6 +66,21 @@ if ($editId) {
 }
 $isEdit = $resource !== null;
 $v = static fn(string $k, string $default = ''): string => $isEdit ? (string) ($resource[$k] ?? $default) : $default;
+
+// ¿Es TU VERSIÓN de otro recurso (un fork)? «Hacer mi versión» aterriza aquí
+// con el mismo título que el original, y sin decirlo no se sabe si se está
+// tocando el original ni quién lo ve. El original solo se nombra si quien
+// edita puede verlo (la misma regla que la ficha: shared/access.php).
+$isFork = $isEdit && (int) ($resource['fork_of'] ?? 0) > 0;
+$forkOf = null;
+if ($isFork) {
+    $o = $db->prepare("SELECT id, title, author_display_name, visibility, author_tenant_id, author_user_id
+                       FROM resources WHERE id = ? AND is_active = 1");
+    $o->execute([(int) $resource['fork_of']]);
+    $row = $o->fetch();
+    if ($row && canView($row, authenticate()))
+        $forkOf = $row;
+}
 
 // Materias: etiqueta traducida (shared/labels.php), ordenadas por etiqueta.
 // Se incluyen las inactivas solo si es la del recurso que se edita.
@@ -106,7 +122,7 @@ if (!isset($visibilities[$currentVis]))
 $langs = ['es' => t('Español'), 'en' => t('Inglés'), 'pt' => t('Portugués')];
 $currentLang = $v('lang', lang() === 'en' ? 'en' : 'es');
 
-$pageTitle = $isEdit ? t('Editar recurso') : t('Publicar un recurso');
+$pageTitle = $isFork ? t('Tu versión') : ($isEdit ? t('Editar recurso') : t('Publicar un recurso'));
 ?>
 <!DOCTYPE html>
 <html lang="<?= lang() ?>">
@@ -129,6 +145,9 @@ $pageTitle = $isEdit ? t('Editar recurso') : t('Publicar un recurso');
 .ed-back svg { width: 18px; height: 18px; }
 .ed-main h1 { font-size: clamp(1.7rem, 1.35rem + 1.3vw, 2.3rem); margin-bottom: 6px; }
 .ed-intro { max-width: 62ch; margin-bottom: 18px; }
+.ed-fork { display: flex; gap: 10px; align-items: flex-start; max-width: 70ch; margin-bottom: 18px; padding: 12px 14px; border: 1px solid var(--ia-line); border-left: 4px solid var(--ia-accent); border-radius: var(--ia-radius); background: var(--ia-surface); }
+.ed-fork svg { flex: none; width: 20px; height: 20px; margin-top: 2px; color: var(--ia-accent); }
+.ed-fork p { margin: 0; }
 
 .ed-layout { display: grid; gap: 20px; grid-template-columns: 1fr; }
 @media (min-width: 960px) { .ed-layout { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; } }
@@ -190,6 +209,21 @@ textarea.ed-desc { min-height: 80px; resize: vertical; line-height: 1.45; }
 <main id="main" class="ia-container ed-main">
   <a class="ed-back" href="/dashboard/"><i data-lucide="chevron-left"></i><?= h(t('Mi panel')) ?></a>
   <h1><?= h($pageTitle) ?></h1>
+  <?php if ($isFork): ?>
+    <div class="ed-fork" id="forkNote" role="note">
+      <i data-lucide="git-branch"></i>
+      <p><strong><?= h(t('Esta es tu copia: el original no se toca.')) ?></strong>
+      <?php if ($forkOf): ?>
+        <?php $origLink = '<a href="/resource/' . (int) $forkOf['id'] . '">' . h((string) $forkOf['title']) . '</a>'; ?>
+        <?= trim((string) $forkOf['author_display_name']) !== ''
+            ? sprintf(h(t('Parte de «%s», de %s.')), $origLink, h((string) $forkOf['author_display_name']))
+            : sprintf(h(t('Parte de «%s».')), $origLink) ?>
+      <?php endif; ?>
+      <?php if ($currentVis === 'draft'): ?>
+        <?= h(t('Es un borrador: solo la ves tú. Cámbiala a tu gusto y, cuando quieras compartirla, elige «Pública» en «Quién puede verlo».')) ?>
+      <?php endif; ?></p>
+    </div>
+  <?php endif; ?>
   <?php if ($isEdit): ?>
     <p class="ia-muted ed-intro"><?= h(t('Los cambios se guardan como una versión nueva: la anterior no se pierde.')) ?>
       <a href="/resource/<?= $editId ?>"><?= h(t('Ver la ficha')) ?></a></p>

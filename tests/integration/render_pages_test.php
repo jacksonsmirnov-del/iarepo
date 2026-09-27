@@ -639,6 +639,42 @@ function test_el_editor_pliega_lo_secundario_y_acredita_la_fuente(): void
     it_eq(200, $code, 'editar su propio recurso responde');
     it_true(str_contains($b, 'value="Recurso de pruebas del panel"'), 'con su título');
     it_true((bool) preg_match('#<details class="ed-more" id="more" open>#', $b), 'al editar, «Más opciones» llega abierto');
+    it_true(!str_contains($b, 'id="forkNote"'), 'un recurso propio, no una copia: sin el aviso de «tu versión»');
+}
+
+function test_el_editor_de_una_copia_dice_de_donde_sale_y_quien_la_ve(): void
+{
+    if (it_render_server() === null) {
+        echo '    SKIP render: ' . (it_render_state()['skip'] ?? '') . "\n";
+        return;
+    }
+    // El recurso del panel (un borrador) pasa a ser la versión de otro: es lo
+    // que deja «Hacer mi versión», y donde aterriza el docente al pulsarlo.
+    $db = iarepo_it_db();
+    $res = IT_RENDER_RES;
+    try {
+        $db->exec("UPDATE resources SET fork_of = 1000, root_id = 1000 WHERE id = $res");
+        [$code, $b] = it_ficha_get("/dashboard/editor.php?id=$res", 'teacher');
+        it_eq(200, $code, 'el editor de una copia responde');
+        it_true(str_contains($b, 'id="forkNote"') && str_contains($b, 'el original no se toca'), 'dice que es una copia y que el original no se toca');
+        it_true(str_contains($b, '<a href="/resource/1000">Ondas sonoras y su propagación</a>') && str_contains($b, 'Ana Docente'), 'nombra el original (público) y a su autora');
+        it_true(str_contains($b, 'Es un borrador: solo la ves tú'), 'y, como es borrador, quién la ve');
+        it_true(str_contains($b, '<h1>Tu versión</h1>'), 'el título de la página es «Tu versión»');
+
+        // El original es el borrador de OTRA persona: no se nombra.
+        $db->exec("UPDATE resources SET fork_of = 1020, root_id = 1020 WHERE id = $res");
+        [$code, $b] = it_ficha_get("/dashboard/editor.php?id=$res", 'teacher');
+        it_eq(200, $code, 'con un original que no puede ver, responde igual');
+        it_true(str_contains($b, 'id="forkNote"'), 'sigue diciendo que es una copia');
+        it_true(!str_contains($b, 'Ondas gravitacionales') && !str_contains($b, '/resource/1020'), 'pero no filtra el título ni el enlace de un borrador ajeno');
+
+        // Ya publicada: no se le dice que es un borrador.
+        $db->exec("UPDATE resources SET fork_of = 1000, root_id = 1000, visibility = 'community' WHERE id = $res");
+        [, $b] = it_ficha_get("/dashboard/editor.php?id=$res", 'teacher');
+        it_true(str_contains($b, 'id="forkNote"') && !str_contains($b, 'Es un borrador'), 'publicada: sin el aviso de borrador');
+    } finally {
+        $db->exec("UPDATE resources SET fork_of = NULL, root_id = NULL, visibility = 'draft' WHERE id = $res");
+    }
 }
 
 function test_entrar_habla_a_los_dos_publicos_y_conserva_el_guardado(): void

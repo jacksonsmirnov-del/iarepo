@@ -21,6 +21,10 @@
 //     visor. Un javascript: ahí es un XSS guardado.
 //   · Los errores de la API se traducen por CÓDIGO, y cada código que puede
 //     devolver crear/editar tiene su texto en el editor.
+//   · Tu versión de otro recurso (un fork) se DICE en el editor: «Hacer mi
+//     versión» aterriza allí con el mismo título que el original, y sin el
+//     aviso no se sabe si se toca el original ni quién lo ve. El original se
+//     nombra solo si canView() lo deja.
 //   · La bienvenida ofrece «Estoy aprendiendo (en clase o por mi cuenta)»,
 //     «Saltar» va a la portada, y un admin no se degrada con un clic.
 //
@@ -183,6 +187,21 @@ function test_el_editor_es_corto_y_pliega_lo_secundario(): void
     assert_contains('iarepo_level_options()', $src, 'curso y edad con edades');
     assert_contains('iarepo_category_label(', $src, 'materias con su nombre traducido');
     assert_not_matches("/'school'\\s*=>\\s*t\\(/", $src, 'no se OFRECE «Tu centro»: en iarepo.com el tenant es 0 para todos');
+}
+
+function test_el_editor_dice_que_es_tu_version_y_quien_la_ve(): void
+{
+    $src = acc_src('dashboard/editor.php');
+    assert_matches("/\\\$isFork\s*=\s*\\\$isEdit\s*&&\s*\(int\)\s*\(\\\$resource\['fork_of'\]/", $src, 'una copia se reconoce por fork_of');
+    assert_matches('/<\?php if \(\$isFork\): \?>\s*<div class="ed-fork" id="forkNote"/', $src, 'y lleva su aviso encima del formulario');
+    assert_contains("canView(\$row, authenticate())", $src, 'el original solo se nombra si quien edita puede verlo');
+    assert_contains("t('Esta es tu copia: el original no se toca.')", $src, 'dice que el original no se toca');
+    assert_matches("/if \\(\\\$currentVis === 'draft'\\):.*?Es un borrador: solo la ves tú/s", $src, 'y, si es borrador, quién la ve y cómo compartirla');
+
+    // La ficha, por su parte, lleva al editor de la copia (no deja al docente
+    // en la misma página con un aviso, como antes).
+    $ficha = acc_src('resource/index.php');
+    assert_matches("#location = '/dashboard/editor\.php\?id=' \+ data\.id#", $ficha, '«Hacer mi versión» abre el editor de la copia');
 }
 
 function test_el_editor_manda_la_fuente_y_traduce_errores_por_codigo(): void
