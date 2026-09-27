@@ -123,6 +123,7 @@ return [
     'Cargando…' => 'Loading…',
     'Actividad reciente' => 'Recent activity',
     'comentó en' => 'commented on',
+    'usó en clase' => 'used in class',
     'Nombre *' => 'Name *',
     'Descripción' => 'Description',
 
@@ -391,7 +392,7 @@ return [
     '¿Eliminar el recurso «%s»? Esta acción no se puede deshacer.' => 'Delete the resource “%s”? This cannot be undone.',
     'Recurso eliminado' => 'Resource deleted',
     'Lista eliminada' => 'List deleted',
-    'Aún no hay novedades. Cuando alguien comente, dé «Me gusta» o haga su versión de un recurso tuyo, aparecerá aquí.' => 'Nothing new yet. When someone comments on, likes or makes their own version of one of your resources, it will show up here.',
+    'Aún no hay novedades. Cuando alguien use en clase un recurso tuyo, haga su versión, lo comente o le dé «Me gusta», aparecerá aquí.' => 'Nothing new yet. When someone uses one of your resources in class, makes their own version of it, comments on it or likes it, it will show up here.',
     'No se pudieron cargar las novedades.' => 'Could not load what’s new.',
     'Esa lista ya no existe. Recarga la página.' => 'That list no longer exists. Reload the page.',
     'Esa lista no es tuya.' => 'That list is not yours.',

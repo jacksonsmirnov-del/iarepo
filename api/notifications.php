@@ -5,14 +5,16 @@
 // GET  /api/notifications.php          Recent activity on my resources + unread count
 // POST /api/notifications.php          Mark all as seen (updates notifications_seen_at)
 //
-// Auth: session/JWT required. "Activity" = likes/forks/comments by OTHERS
-// on resources the current user authored.
+// Auth: session/JWT required. "Activity" = likes / versions / comments /
+// «lo usé en clase» by OTHERS on resources the current user authored. The
+// sources and their rules live in shared/activity.php (shared with Mi panel).
 // ================================================================
 
 require_once __DIR__ . '/../shared/db.php';
 require_once __DIR__ . '/../shared/auth.php';
 require_once __DIR__ . '/../shared/cors.php';
 require_once __DIR__ . '/../shared/helpers.php';
+require_once __DIR__ . '/../shared/activity.php';
 
 cors();
 
@@ -20,6 +22,15 @@ $db = getResourcesDB();
 $method = request_method();
 $user = requireAuth();
 $uid = (int) $user['user_id'];
+
+// Las novedades son de las cuentas de iarepo.com (tenant 0): son las únicas
+// con fila en `users` y recursos con author_tenant_id = 0. Un docente de
+// Campus trae el user_id de SU numeración: sin este corte, el docente 5 de
+// Campus recibía las novedades de la cuenta 5 de iarepo (quién le dio «Me
+// gusta», quién comentó, quién lo usó en clase) y podía marcarlas como vistas.
+if ((int) ($user['tenant_id'] ?? 0) !== 0) {
+    json_ok($method === 'POST' ? ['seen' => true] : ['notifications' => [], 'unread' => 0]);
+}
 
 // ── POST: mark all as seen ────────────────────────────────────
 if ($method === 'POST') {
@@ -38,40 +49,13 @@ $myIds = $idsStmt->fetchAll(PDO::FETCH_COLUMN);
 if (!$myIds) {
     json_ok(['notifications' => [], 'unread' => 0]);
 }
-$in = implode(',', array_map('intval', $myIds));
 
 $seenStmt = $db->prepare("SELECT notifications_seen_at FROM users WHERE id = ?");
 $seenStmt->execute([$uid]);
 $seenAt = $seenStmt->fetchColumn() ?: '1970-01-01 00:00:00';
 
-// actor = NULL si el «Me gusta» es de alguien que está aprendiendo (rol
-// student: puede ser menor). api/likes.php ya no guarda su nombre; el JOIN
-// cubre las filas de antes. El cliente pinta «Alguien que está aprendiendo».
-$likes = $db->prepare("
-    SELECT 'like' AS type, IF(u.role = 'student', NULL, rl.user_name) AS actor, r.title AS resource_title, r.id AS resource_id, rl.created_at
-    FROM resource_likes rl JOIN resources r ON r.id = rl.resource_id
-    LEFT JOIN users u ON u.id = rl.user_id
-    WHERE rl.resource_id IN ($in) AND rl.user_id != ?
-    ORDER BY rl.created_at DESC LIMIT 15");
-$likes->execute([$uid]);
-
-$forks = $db->prepare("
-    SELECT 'fork' AS type, r2.author_display_name AS actor, r.title AS resource_title, r.id AS resource_id, r2.created_at
-    FROM resources r2 JOIN resources r ON r.id = r2.fork_of
-    WHERE r2.fork_of IN ($in) AND r2.is_active = 1 AND r2.author_user_id != ?
-    ORDER BY r2.created_at DESC LIMIT 15");
-$forks->execute([$uid]);
-
-$comments = $db->prepare("
-    SELECT 'comment' AS type, rc.user_name AS actor, r.title AS resource_title, r.id AS resource_id, rc.created_at
-    FROM resource_comments rc JOIN resources r ON r.id = rc.resource_id
-    WHERE rc.resource_id IN ($in) AND rc.is_active = 1 AND rc.user_id != ?
-    ORDER BY rc.created_at DESC LIMIT 15");
-$comments->execute([$uid]);
-
-$all = array_merge($likes->fetchAll(), $forks->fetchAll(), $comments->fetchAll());
-usort($all, fn($a, $b) => strtotime($b['created_at']) - strtotime($a['created_at']));
-$all = array_slice($all, 0, 15);
+// Quién aparece y con qué nombre (quien aprende, sin él): shared/activity.php.
+$all = iarepo_author_activity($db, $uid, $myIds, 15);
 
 $unread = 0;
 foreach ($all as $n) {

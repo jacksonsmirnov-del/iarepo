@@ -772,12 +772,30 @@ la migración de servidor de 2026-07-13 eso ya no es comprobable ni bloquea nada
 
 ### 6.6 Notificaciones y email
 
+Qué se le cuenta al autor de un recurso, y dónde [2026-09-27]:
+
+| Qué pasó | Correo (`notify.php`) | Campana y «Mi panel» (`activity.php`) |
+|---|---|---|
+| «Me gusta» | `like`: uno por persona, recurso y día | `like` (sin nombre si es de quien aprende) |
+| Hizo su versión | `fork` | `fork` |
+| Comentario | `comment`, con el texto | `comment` |
+| **«Lo usé en clase»** | `presented`: **uno por recurso y día**, lo usen cuantos lo usen | `used`, uno por uso |
+
 - **In-app:** `api/notifications.php` (GET feed + no leídos, POST marcar leído) sobre
-  `users.notifications_seen_at` (`migration_008`).
+  `users.notifications_seen_at` (`migration_008`). Las fuentes viven en
+  **`shared/activity.php`** (`iarepo_author_activity`), que usa también «Actividad
+  reciente» de Mi panel: una fuente nueva se añade ahí y aparece en los dos sitios. Solo
+  para cuentas de iarepo.com (tenant 0); con JWT de Campus el feed sale vacío (§9).
 - **Email:** `shared/mailer.php` (`sendMail`, `mailFromDefault`, `emailShell`) y
   `shared/notify.php` (`notifyResourceAuthor`). Deduplicación en `notification_log`
   (ventana 24 h, `migration_007`). Opt-out por `unsubscribe.php` con
-  `users.unsubscribe_token`.
+  `users.unsubscribe_token`. Nunca por lo que hace uno mismo: la identidad es
+  `(user_id, tenant_id)`, porque un docente de Campus trae el `user_id` de **otra
+  numeración** y coincidir en el número no lo hace autor. Textos en español y sin `t()`:
+  `t()` habla el idioma de quien hace la petición, no el de quien recibe el correo.
+- **Probar correos:** el sitio de `tests/integration/site_server.php` corre con
+  `sendmail_path` apuntando a un fichero; `it_render_mails()` devuelve lo que se habría
+  enviado. Ejemplo: `tests/integration/usage_notify_test.php`.
 - `mb_send_mail` está en `disable_functions` del hosting; se usa `mail()` [S].
 - **`iarepo.com` no tiene registro SPF ni DMARC** [V 2026-08-04: `dig +short TXT
   iarepo.com` y `_dmarc.iarepo.com` devuelven vacío; el MX apunta al parking del
@@ -1930,8 +1948,16 @@ Google para leer lo que no es de uno:
 | `api/comments.php` | comentarios de cualquier recurso; los alumnos publicaban con nombre y foto | GET sigue `canView()`; POST exige rol docente |
 | `api/collections.php?id=N` | título y descripción de un borrador (o de un `school` de otro centro) metido en una lista pública, también a anónimos | cada paso pasa por `canView()`, como la página de la lista |
 
+Y el 2026-09-27, al añadir los usos en clase a la campana (§6.6):
+
+| Endpoint | Qué entregaba | Ahora |
+|---|---|---|
+| `api/notifications.php` | a un docente de **Campus**, las novedades de la cuenta de iarepo con **su mismo `user_id`** (otra numeración): quién le dio «Me gusta», quién comentó; y podía marcarlas como vistas | con `tenant_id` ≠ 0, feed vacío y el POST no toca `users` |
+| `api/usage.php` (POST) | registraba el uso de **cualquier** recurso activo, borradores ajenos incluidos (y desde §6.6 eso manda un correo al autor) | solo si `canView()`; si no, 404 |
+
 `tests/integration/authorization_test.php` entra como «el otro» y pide lo ajeno; contra
-el código anterior, sus cuatro tests se ponen rojos. **Regla desde entonces:** un GET que
+el código anterior, sus cuatro tests se ponen rojos. Los dos del 2026-09-27 los fija
+`tests/integration/usage_notify_test.php`. **Regla desde entonces:** un GET que
 devuelva filas de otras personas lleva su test de visibilidad en ese fichero.
 
 ⚠️ Un fallo de seguridad **abierto** no se describe en ficheros versionados (este
@@ -2016,6 +2042,8 @@ con ⚠️, que cambia un comportamiento. Los tests que lo fijan están en
 | escrituras con cookie | una escritura con sesión que llega de otra web no se autentica (CSRF) | Campus entra por JWT: no le afecta |
 | ⚠️ `/view/N` en un iframe | con `Sec-Fetch-Dest: iframe` (o `window.top !== self`) no hay «Ver la ficha», y el título solo abre la ficha **en pestaña nueva** y solo si el recurso es público; un borrador ahora exige también el mismo `tenant_id` | nada navega dentro del iframe de Campus ni pierde el `?token=` |
 | `GET /api/health.php` | nuevo `errors_24h` | nada que hacer |
+| ⚠️ `POST /api/usage.php` | 404 si el recurso no es visible para el token (`canView`); un `presented` de un docente de Campus sobre un recurso de una cuenta de iarepo **le manda un correo a su autor** con el nombre del docente y su `tenant_name` | si Campus registraba usos de recursos que no puede ver, ya no cuentan |
+| ⚠️ `api/notifications.php` | con `tenant_id` ≠ 0 devuelve siempre `{notifications: [], unread: 0}` (las novedades son de cuentas de iarepo.com); tipo nuevo `used` en el feed | si Campus pintaba esta campana, lo que veía era de otra persona: ahora sale vacía |
 
 ---
 

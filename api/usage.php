@@ -46,6 +46,8 @@ require_once __DIR__ . '/../shared/db.php';
 require_once __DIR__ . '/../shared/auth.php';
 require_once __DIR__ . '/../shared/cors.php';
 require_once __DIR__ . '/../shared/helpers.php';
+require_once __DIR__ . '/../shared/access.php';
+require_once __DIR__ . '/../shared/notify.php';
 
 cors();
 
@@ -73,10 +75,15 @@ if ($method === 'POST') {
         json_error('usage_type must be: presented, sent, or endorsed');
     }
 
-    // Verify resource exists
-    $exists = $db->prepare("SELECT id FROM resources WHERE id = ? AND is_active = 1");
+    // Solo se registra el uso de lo que quien lo afirma puede ver: la misma
+    // regla que el resto de la API (shared/access.php). Un borrador ajeno
+    // responde igual que uno que no existe. Desde 2026-09 el uso avisa a su
+    // autor por correo: sin esto, cualquier docente podía mandarle correos
+    // sobre recursos que ni siquiera puede abrir.
+    $exists = $db->prepare("SELECT id, visibility, author_tenant_id, author_user_id FROM resources WHERE id = ? AND is_active = 1");
     $exists->execute([$resourceId]);
-    if (!$exists->fetch()) json_error('Resource not found', 404);
+    $target = $exists->fetch();
+    if (!$target || !canView($target, $user)) json_error('Resource not found', 404);
 
     // Prevent duplicate endorsements
     //
@@ -141,6 +148,17 @@ if ($method === 'POST') {
         $useCount = (int) $countStmt->fetchColumn();
 
         $db->commit();
+
+        // «Lo usé en clase» se le cuenta a su autor: es la señal que más dice
+        // de un recurso y hasta 2026-09 no le llegaba por ningún lado. Fuera
+        // de la transacción y best-effort (notifyResourceAuthor nunca lanza).
+        // Solo el mismo día que ocurre: un 409 de arriba no llega hasta aquí.
+        if ($usageType === 'presented') {
+            notifyResourceAuthor($db, $resourceId, (int) $user['user_id'], (string) ($user['name'] ?? ''), 'presented',
+                ['school' => (int) $user['tenant_id'] > 0 ? (string) ($user['tenant_name'] ?? '') : ''],
+                (int) $user['tenant_id']);
+        }
+
         json_ok(['message' => 'Usage recorded', 'use_count' => $useCount]);
     } catch (Throwable $e) {
         if ($db->inTransaction()) $db->rollBack();

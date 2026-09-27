@@ -41,6 +41,7 @@ session_start();
 require_once __DIR__ . '/../shared/auth.php';
 require_once __DIR__ . '/../shared/db.php';
 require_once __DIR__ . '/../shared/ui.php';
+require_once __DIR__ . '/../shared/activity.php';
 // h() local — NO se carga shared/helpers.php: su error_handler vuelca JSON y
 // corta la página a medias ante cualquier error (CLAUDE.md §2.1).
 if (!function_exists('h')) {
@@ -219,40 +220,12 @@ foreach ($resources as &$r) {
 unset($r);
 
 // ── Actividad reciente: lo que han hecho OTROS con tus recursos ──
-// Las mismas tres fuentes que la campana (api/notifications.php), también
-// excluyendo lo que hace uno mismo: darse «Me gusta» no es una novedad.
-$activity = [];
-if ($myIds) {
-    $inClause = implode(',', $myIds);   // enteros: array_map('intval') arriba
-    $act = static function (string $sql) use ($db, $uid): array {
-        $s = $db->prepare($sql);
-        $s->execute([$uid]);
-        return $s->fetchAll(PDO::FETCH_ASSOC);
-    };
-    $activity = array_merge(
-        // Un «Me gusta» de quien está aprendiendo (rol student, puede ser
-        // menor) sale sin nombre: actor NULL → «Alguien que está aprendiendo».
-        $act("SELECT 'like' AS type, IF(u.role = 'student', NULL, rl.user_name) AS actor, r.title AS resource_title, r.id AS resource_id, rl.created_at
-              FROM resource_likes rl JOIN resources r ON r.id = rl.resource_id
-              LEFT JOIN users u ON u.id = rl.user_id
-              WHERE rl.resource_id IN ($inClause) AND rl.user_id <> ?
-              ORDER BY rl.created_at DESC LIMIT 6"),
-        $act("SELECT 'fork' AS type, r2.author_display_name AS actor, r.title AS resource_title, r.id AS resource_id, r2.created_at
-              FROM resources r2 JOIN resources r ON r.id = r2.fork_of
-              WHERE r2.fork_of IN ($inClause) AND r2.is_active = 1 AND r2.author_user_id <> ?
-              ORDER BY r2.created_at DESC LIMIT 6"),
-        $act("SELECT 'comment' AS type, rc.user_name AS actor, r.title AS resource_title, r.id AS resource_id, rc.created_at
-              FROM resource_comments rc JOIN resources r ON r.id = rc.resource_id
-              WHERE rc.resource_id IN ($inClause) AND rc.is_active = 1 AND rc.user_id <> ?
-              ORDER BY rc.created_at DESC LIMIT 6")
-    );
-    usort($activity, static fn($a, $b) => strtotime((string) $b['created_at']) <=> strtotime((string) $a['created_at']));
-    $activity = array_slice($activity, 0, 6);
-}
-// Verbo e icono por tipo. El nombre y el título se escapan al pintar: vienen
-// de otras personas (antes se imprimían en crudo).
-$activityVerb = ['like' => t('le dio «Me gusta» a'), 'fork' => t('hizo su versión de'), 'comment' => t('comentó en')];
-$activityIcon = ['like' => 'heart', 'fork' => 'git-branch', 'comment' => 'message-circle'];
+// Las mismas fuentes y reglas que la campana: shared/activity.php.
+$activity = iarepo_author_activity($db, $uid, $myIds, 6);
+// Verbo por tipo. El nombre y el título se escapan al pintar: vienen de
+// otras personas (antes se imprimían en crudo).
+$activityVerb = ['like' => t('le dio «Me gusta» a'), 'fork' => t('hizo su versión de'), 'comment' => t('comentó en'), 'used' => t('usó en clase')];
+$activityIcon = IAREPO_ACTIVITY_ICONS;
 
 // ── Mis listas (tabla collections) ─────────────────────────────
 // La descripción SÍ se lee: el diálogo de edición la necesita. Antes no se
@@ -584,12 +557,13 @@ const T = {
   listDeleted: <?= json_encode(t('Lista eliminada')) ?>,
   linkCopied: <?= json_encode(t('Enlace copiado')) ?>,
   // Campana de novedades
-  notifEmpty: <?= json_encode(t('Aún no hay novedades. Cuando alguien comente, dé «Me gusta» o haga su versión de un recurso tuyo, aparecerá aquí.')) ?>,
+  notifEmpty: <?= json_encode(t('Aún no hay novedades. Cuando alguien use en clase un recurso tuyo, haga su versión, lo comente o le dé «Me gusta», aparecerá aquí.')) ?>,
   notifError: <?= json_encode(t('No se pudieron cargar las novedades.')) ?>,
   verb: {
     like: <?= json_encode(t('le dio «Me gusta» a')) ?>,
     fork: <?= json_encode(t('hizo su versión de')) ?>,
     comment: <?= json_encode(t('comentó en')) ?>,
+    used: <?= json_encode(t('usó en clase')) ?>,
   },
   now: <?= json_encode(t('ahora')) ?>,
   ago: <?= json_encode(t('hace %s')) ?>,
@@ -771,7 +745,7 @@ listForm.addEventListener('submit', async e => {
   const panel = document.getElementById('notifPanel');
   const badge = document.getElementById('notifBadge');
   const list  = document.getElementById('notifList');
-  const icon  = { like: 'heart', fork: 'git-branch', comment: 'message-circle' };
+  const icon  = <?= json_encode(IAREPO_ACTIVITY_ICONS) ?>;
 
   // created_at llega sin zona; como antes, se interpreta en UTC (la de la BD).
   function ago(dt) {

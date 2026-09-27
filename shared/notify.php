@@ -2,10 +2,16 @@
 // ================================================================
 // shared/notify.php — Author notifications
 //
-// Emails the author of a resource when someone likes / forks /
-// comments on it. Best-effort: never throws into the caller, and
-// silently no-ops when there's no email / the author opted out /
-// it's the author's own action / a duplicate within 24h.
+// Emails the author of a resource when someone likes it, makes their
+// own version of it, comments on it or marks it as used in class.
+// Best-effort: never throws into the caller, and silently no-ops when
+// there's no email / the author opted out / it's the author's own
+// action / a duplicate within 24h.
+//
+// Los textos van en español y sin t(): t() habla el idioma de quien
+// HACE la petición, no el del autor que recibe el correo. Vocabulario
+// del rediseño 2026-09: «Me gusta» y «su versión», nunca like ni fork.
+// Antirregresión: tests/integration/usage_notify_test.php.
 // ================================================================
 
 require_once __DIR__ . '/mailer.php';
@@ -13,8 +19,11 @@ require_once __DIR__ . '/mailer.php';
 /**
  * Notify the author of a resource about activity on it.
  *
- * @param string $type   'like' | 'fork' | 'comment'
- * @param array  $extra  ['body' => string]  (for comments)
+ * @param string $type           'like' | 'fork' | 'comment' | 'presented'
+ * @param array  $extra          ['body' => string] (comment) · ['school' => string] (presented)
+ * @param int    $actorTenantId  0 = cuenta de iarepo.com; >0 = docente de Campus,
+ *                               cuyo user_id es de OTRA numeración (no es el autor
+ *                               aunque coincida el número).
  */
 function notifyResourceAuthor(
     PDO $db,
@@ -22,7 +31,8 @@ function notifyResourceAuthor(
     int $actorUserId,
     string $actorName,
     string $type,
-    array $extra = []
+    array $extra = [],
+    int $actorTenantId = 0
 ): void {
     try {
         // Only Google-authored community resources have a local user record + email.
@@ -38,18 +48,23 @@ function notifyResourceAuthor(
 
         if (!$row) return;                                            // no local author
         $authorId = (int) $row['author_user_id'];
-        if ($authorId === $actorUserId) return;                      // no self-notify
+        if ($authorId === $actorUserId && $actorTenantId === 0) return; // no self-notify
         if (!(int) $row['email_notifications']) return;              // opted out
         if (!filter_var($row['email'], FILTER_VALIDATE_EMAIL)) return;
 
         // Dedup: one email per (recipient, actor, resource, type) per 24h.
+        // «Lo usaron en clase» va por recurso y día, sin mirar quién: si lo
+        // usan treinta docentes el mismo día, un correo, no treinta (el
+        // detalle está en Mi panel).
+        $perResource = $type === 'presented';
         $dedup = $db->prepare("
             SELECT 1 FROM notification_log
-            WHERE recipient_user_id = ? AND actor_user_id = ? AND resource_id = ? AND type = ?
+            WHERE recipient_user_id = ? AND resource_id = ? AND type = ?
+              " . ($perResource ? '' : 'AND actor_user_id = ?') . "
               AND created_at > NOW() - INTERVAL 1 DAY
             LIMIT 1
         ");
-        $dedup->execute([$authorId, $actorUserId, $resourceId, $type]);
+        $dedup->execute($perResource ? [$authorId, $resourceId, $type] : [$authorId, $resourceId, $type, $actorUserId]);
         if ($dedup->fetch()) return;
 
         // Ensure the author has an unsubscribe token.
@@ -67,12 +82,20 @@ function notifyResourceAuthor(
         $title = htmlspecialchars($row['title'], ENT_QUOTES, 'UTF-8');
         // Sin nombre = alguien que está aprendiendo (api/likes.php no lo pasa:
         // puede ser un menor y el correo va a cualquier docente).
-        $actor = $actorName !== '' ? htmlspecialchars($actorName, ENT_QUOTES, 'UTF-8') : 'Alguien que está aprendiendo';
+        // «Lo usé en clase» solo lo afirma un docente (api/usage.php exige el rol).
+        $actor = $actorName !== '' ? htmlspecialchars($actorName, ENT_QUOTES, 'UTF-8')
+               : ($type === 'presented' ? 'Un docente' : 'Alguien que está aprendiendo');
+
+        // El centro solo acompaña a un docente de Campus (en iarepo.com no hay).
+        $school = trim((string) ($extra['school'] ?? ''));
+        if ($type === 'presented' && $school !== '')
+            $actor .= ' (' . htmlspecialchars($school, ENT_QUOTES, 'UTF-8') . ')';
 
         $map = [
-            'like'    => ['❤️ Le dio like a tu recurso',  "<strong>{$actor}</strong> le dio like a tu recurso:"],
-            'fork'    => ['⑂ Hicieron un fork de tu recurso', "<strong>{$actor}</strong> hizo un fork de tu recurso:"],
-            'comment' => ['💬 Nuevo comentario en tu recurso', "<strong>{$actor}</strong> comentó en tu recurso:"],
+            'like'      => ['❤️ A alguien le gustó tu recurso', "<strong>{$actor}</strong> marcó «Me gusta» en tu recurso:"],
+            'fork'      => ['✏️ Hicieron su versión de tu recurso', "<strong>{$actor}</strong> hizo su propia versión de tu recurso:"],
+            'comment'   => ['💬 Nuevo comentario en tu recurso', "<strong>{$actor}</strong> comentó en tu recurso:"],
+            'presented' => ['🎓 Usaron tu recurso en clase', "<strong>{$actor}</strong> usó en clase tu recurso:"],
         ];
         [$subjPrefix, $line] = $map[$type] ?? ['Actividad en tu recurso', "{$actor} interactuó con tu recurso:"];
         $subject = $subjPrefix . ' — ' . $row['title'];
@@ -82,6 +105,13 @@ function notifyResourceAuthor(
             $body  = htmlspecialchars(mb_substr((string) $extra['body'], 0, 400), ENT_QUOTES, 'UTF-8');
             $quote = '<blockquote style="border-left:3px solid #7c3aed;margin:14px 0;padding:8px 14px;color:#475569;background:#f8fafc;border-radius:4px">'
                    . nl2br($body) . '</blockquote>';
+        }
+
+        // Por qué importa, y dónde verlo todo.
+        if ($type === 'presented') {
+            $quote = '<p style="font-size:.9rem;color:#475569;margin:14px 0 0">Es la señal que más dice de un recurso: '
+                   . 'alguien lo eligió para dar su clase. Cuántas veces se han abierto y usado tus recursos lo ves en '
+                   . '<a href="' . $base . '/dashboard/" style="color:#6d28d9">tu panel</a>.</p>';
         }
 
         $inner = '<p style="font-size:.95rem;color:#1e293b;margin:0 0 6px">' . $line . '</p>'

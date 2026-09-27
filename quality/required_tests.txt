@@ -169,3 +169,12 @@ tests/unit/smoke_markers_test.php
 # pantalla completa en iPhone, «Cerrar» muerto del visor, muro de ceros.
 tests/unit/review_fixes_test.php
 tests/integration/review_fixes_test.php
+
+# ── Reconocimiento al autor (2026-09-27) ────────────────────────
+# usage_notify_test.php: «Lo usé en clase» llega al autor (correo, campana y
+# Mi panel). Un correo por recurso y día, nunca por el uso propio ni si se
+# dio de baja; el uso solo se registra sobre lo que se puede ver (si no,
+# cualquier docente escribía al autor de un borrador ajeno); y un docente de
+# Campus con el mismo user_id que una cuenta de iarepo ni es su autor ni
+# recibe su campana.
+tests/integration/usage_notify_test.php

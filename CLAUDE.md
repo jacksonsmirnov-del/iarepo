@@ -182,7 +182,10 @@ shared/            auth jwt db cors helpers error_handler error_tracker i18n i18
                    assets (AGENTS.md §6.10). Una página nueva los usa, no los copia.
                    viewer_key = identidad anónima + sal diaria caducable.
                    NO carga helpers.php (igual que search.php)
-                   mailer notify moderation similarity · search + search_synonyms
+                   activity = lo que otros hicieron con tus recursos (campana y
+                   Mi panel, una sola fuente) · mailer notify (correos al autor,
+                   también «lo usé en clase»; AGENTS.md §6.6)
+                   moderation similarity · search + search_synonyms
                    (diccionario ES↔EN, datos puros)
 resource/ viewer/ dashboard/ profile/ collection/ favorites/ auth/ admin/ legal/
 404.php unsubscribe.php sitemap.php sw.js manifest.webmanifest

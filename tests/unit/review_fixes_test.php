@@ -109,8 +109,14 @@ function test_un_me_gusta_de_quien_aprende_no_guarda_ni_ensena_su_nombre(): void
     assert_contains("\$isLearner = (\$user['role'] ?? '') === 'student';", $likes, 'la API sabe si quien da «Me gusta» está aprendiendo');
     assert_contains("\$isLearner ? null : \$user['name']", $likes, 'y entonces no guarda su nombre');
     assert_contains("\$isLearner ? '' : (string) \$user['name']", $likes, 'ni lo manda en el correo al autor');
-    foreach (['dashboard/index.php', 'api/notifications.php'] as $f)
-        assert_contains("IF(u.role = 'student', NULL, rl.user_name) AS actor", rfx_src($f), "$f oculta también el nombre de las filas de antes");
+    // La campana y Mi panel sacan la actividad de UN sitio (shared/activity.php):
+    // la regla vive allí, y las dos pantallas tienen que pasar por él.
+    assert_contains("IF(u.role = 'student', NULL, rl.user_name) AS actor", rfx_src('shared/activity.php'),
+        'la actividad oculta también el nombre de las filas de antes');
+    foreach (['dashboard/index.php', 'api/notifications.php'] as $f) {
+        assert_contains('iarepo_author_activity($db, $uid, $myIds, ', rfx_src($f), "$f usa la actividad común");
+        assert_not_contains(' AS actor', rfx_src($f), "$f no lleva su propia copia del SQL del feed");
+    }
 }
 
 // ── Direcciones: una sola regla ──────────────────────────────────

@@ -6,7 +6,13 @@
 // versionados a un directorio temporal, les pone un .env.php que apunta a la
 // BD de integración, arranca `php -S` con un router que imita .htaccess y
 // ofrece un atajo de login por rol. La usan render_pages_test.php (cada
-// página HTML, entera) y authorization_test.php (quién ve qué en api/*.php).
+// página HTML, entera), authorization_test.php (quién ve qué en api/*.php) y
+// usage_notify_test.php (los correos al autor).
+//
+// Correo: el `php -S` corre con sendmail_path apuntando a un fichero de la
+// copia temporal (it_render_outbox()). Así mail() no sale a ningún sitio y un
+// test puede leer lo que se habría enviado, sin un «modo test» en el código
+// de producción.
 //
 // Nada de esto vive en el árbol servido: .env.php, router y atajo de login
 // se escriben SOLO en la copia temporal. Con push = producción, un login de
@@ -25,6 +31,33 @@ function &it_render_state(): array
     static $s = ['tried' => false, 'base' => null, 'dir' => null, 'proc' => null,
                  'login' => null, 'skip' => null, 'error' => null, 'coll' => 0, 'jwt_secret' => null];
     return $s;
+}
+
+/** Fichero donde acaba lo que el sitio de pruebas envía con mail(). */
+function it_render_outbox(): string
+{
+    return (string) it_render_state()['dir'] . '/outbox.eml';
+}
+
+/**
+ * Correos capturados, en orden: [['to' => ..., 'subject' => ..., 'body' => ...]].
+ * mail() escribe «To:», «Subject:» (RFC 2047, base64) y cabeceras antes del cuerpo.
+ */
+function it_render_mails(): array
+{
+    $raw = @file_get_contents(it_render_outbox());
+    if (!is_string($raw) || $raw === '')
+        return [];
+    $out = [];
+    foreach (preg_split('/^(?=To: )/m', $raw, -1, PREG_SPLIT_NO_EMPTY) as $msg) {
+        preg_match('/^To: (.*)$/m', $msg, $to);
+        preg_match('/^Subject: (.*)$/m', $msg, $subj);
+        $subject = trim($subj[1] ?? '');
+        if (preg_match('/^=\?UTF-8\?B\?(.*)\?=$/', $subject, $b))
+            $subject = (string) base64_decode($b[1]);
+        $out[] = ['to' => trim($to[1] ?? ''), 'subject' => $subject, 'body' => $msg];
+    }
+    return $out;
 }
 
 function it_render_rrmdir(string $dir): void
@@ -207,6 +240,7 @@ http_response_code(404); chdir($root); require "$root/404.php"; return true;');
     $httpPort = (int) substr((string) strrchr($addr, ':'), 1);
 
     $cmd = [PHP_BINARY, '-d', 'display_errors=1', '-d', 'error_reporting=' . E_ALL,
+            '-d', 'sendmail_path=cat >> ' . escapeshellarg(it_render_outbox()),
             '-S', "127.0.0.1:$httpPort", '-t', $site, "$dir/router.php"];
     $s['proc'] = proc_open($cmd, [0 => ['pipe', 'r'], 1 => ['file', "$dir/server.log", 'a'],
                                   2 => ['file', "$dir/server.log", 'a']], $pipes, $site);
