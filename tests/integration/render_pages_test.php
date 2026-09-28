@@ -751,7 +751,9 @@ function test_la_ficha_y_el_visor_mantienen_los_enlaces_dentro_del_recurso(): vo
     foreach (['/resource/' . IT_RENDER_RES, '/view/' . IT_RENDER_RES] as $path) {
         [$code, $b] = it_ficha_get($path, 'teacher');
         it_eq(200, $code, "$path responde");
-        it_true((bool) preg_match('/<iframe[^>]*srcdoc="[^"]*data-iarepo=&quot;almacen&quot;[^"]*&lt;p&gt;demo&lt;\/p&gt;[^"]*data-iarepo=&quot;anclas&quot;/', $b),
+        it_true((bool) preg_match('/<iframe[^>]*data-srcdoc="[^"]*data-iarepo=&quot;almacen&quot;[^"]*&lt;p&gt;demo&lt;\/p&gt;[^"]*data-iarepo=&quot;anclas&quot;/', $b),
             "$path: el iframe lleva el almacén de respaldo delante del HTML del autor y el script de anclas detrás");
+        it_true(!preg_match('/<iframe[^>]*\ssrcdoc="/', $b) && str_contains($b, 'iarepoLoadDeferred();'),
+            "$path: sin srcdoc directo; lo carga iarepoLoadDeferred() cuando el iframe tiene tamaño");
     }
 }

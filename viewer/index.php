@@ -265,7 +265,7 @@ $openName  = $sourceLabel ?: t('su web');
 
     <?php if ($resource['code_type'] === 'html'): ?>
         <iframe class="viewer-frame"
-                srcdoc="<?= h(iarepo_srcdoc((string) $resource['code_content'])) ?>"
+                data-srcdoc="<?= h(iarepo_srcdoc((string) $resource['code_content'])) ?>"
                 sandbox="allow-scripts allow-modals allow-popups"
                 title="<?= h($resource['title']) ?>">
         </iframe>
@@ -317,11 +317,15 @@ $openName  = $sourceLabel ?: t('su web');
         <?php endif; ?>
     <?php elseif ($resource['code_type'] === 'embed'): ?>
         <iframe class="viewer-frame"
-                srcdoc="<?= h(iarepo_srcdoc((string) $resource['code_content'])) ?>"
+                data-srcdoc="<?= h(iarepo_srcdoc((string) $resource['code_content'])) ?>"
                 sandbox="allow-scripts allow-modals allow-popups allow-forms"
                 title="<?= h($resource['title']) ?>">
         </iframe>
-    <?php else: ?>
+    <?php endif; ?>
+    <?php if (in_array($resource['code_type'], ['html', 'embed'], true)): ?>
+    <script><?= iarepo_srcdoc_loader_js() ?>iarepoLoadDeferred();</script>
+    <?php endif; ?>
+    <?php if (!in_array($resource['code_type'], ['html', 'url', 'embed'], true)): ?>
         <pre class="viewer-frame" style="overflow:auto;background:#1e1e2e;color:#cdd6f4;padding:20px;font-size:14px;font-family:ui-monospace,Menlo,Consolas,monospace;white-space:pre-wrap"><?= h($resource['code_content']) ?></pre>
     <?php endif; ?>
 

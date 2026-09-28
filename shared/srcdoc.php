@@ -30,6 +30,18 @@
 // Va justo detrás de <head> (o del <!doctype>, o al principio si no hay
 // ninguno): delante del <!doctype> pondría la página en modo quirks.
 //
+// ── 3. El recurso arranca cuando el iframe YA tiene tamaño [2026-09-28] ──
+// Con srcdoc="…" en el HTML, el documento del recurso empieza a ejecutarse
+// mientras la página que lo contiene aún se está construyendo: el iframe
+// mide 0×0 (medido en la ficha real, 5 de 5 veces). Una simulación mide su
+// canvas al arrancar —lo normal en las hechas con IA—, divide por ese 0, sus
+// posiciones quedan en NaN y el primer fotograma revienta: el bucle de
+// animación muere y «no carga nada» (recurso 626). Suelto nunca pasa: la
+// ventana tiene tamaño desde el primer instante. Arreglo: las páginas ponen
+// el HTML en data-srcdoc y iarepoSetSrcdoc() lo carga cuando el iframe mide
+// más de 0 (ResizeObserver). También vale para un iframe oculto al principio
+// y para el visor dentro de Campus. Ver iarepo_srcdoc_loader_js().
+//
 // ── 1. Enlaces internos ────────────────────────────────────────
 // El arreglo es un script mínimo que se AÑADE al final del HTML del autor:
 //   · href="#id"  → desplaza hasta #id (o [name=id]) dentro del recurso;
@@ -113,9 +125,31 @@ function iarepo_srcdoc(string $html): string
 }
 
 /**
+ * Carga diferida (punto 3 de la cabecera). Define:
+ *   iarepoSetSrcdoc(iframe, html)  pone el srcdoc cuando el iframe mide >0;
+ *                                  si se vuelve a llamar antes, gana la última;
+ *   iarepoLoadDeferred()           hace eso con cada iframe[data-srcdoc].
+ * Las páginas ponen el HTML en el atributo data-srcdoc del iframe (con
+ * h(iarepo_srcdoc(…))) y, justo después de sus iframes, un script en línea con
+ * iarepo_srcdoc_loader_js() seguido de «iarepoLoadDeferred();».
+ */
+function iarepo_srcdoc_loader_js(): string
+{
+    return 'function iarepoSetSrcdoc(f,h){var t=f._iaTok=(f._iaTok||0)+1;'
+        . 'function ok(){var r=f.getBoundingClientRect();return r.width>0&&r.height>0}'
+        . 'function go(){if(f._iaTok===t)f.srcdoc=h}'
+        . 'if(ok())return go();'
+        . 'if(window.ResizeObserver){var o=new ResizeObserver(function(){if(f._iaTok!==t||ok()){o.disconnect();go()}});o.observe(f)}'
+        . 'else{(function w(){if(f._iaTok!==t)return;ok()?go():requestAnimationFrame(w)})()}}'
+        . 'function iarepoLoadDeferred(){[].forEach.call(document.querySelectorAll("iframe[data-srcdoc]"),function(f){'
+        .   'var h=f.getAttribute("data-srcdoc");f.removeAttribute("data-srcdoc");iarepoSetSrcdoc(f,h)})}';
+}
+
+/**
  * Lo mismo para las vistas previas que montan el srcdoc en JavaScript (editor
  * y admin): define iarepoSrcdoc(code), con los mismos scripts y las mismas
- * expresiones. tests/unit/srcdoc_test.php compara su salida con la de PHP.
+ * expresiones, más iarepoSetSrcdoc() para cargarlo con tamaño.
+ * tests/unit/srcdoc_test.php compara su salida con la de PHP.
  */
 function iarepo_srcdoc_js(): string
 {
@@ -125,5 +159,6 @@ function iarepo_srcdoc_js(): string
         . 'var E=' . json_encode(iarepo_srcdoc_storage(), $f) . ',L=' . json_encode("\n" . iarepo_srcdoc_shim(), $f) . ';'
         . 'var m=' . IAREPO_SRCDOC_HEAD_RE . '.exec(c)||' . IAREPO_SRCDOC_DOCTYPE_RE . '.exec(c);'
         . 'var i=m?m.index+m[0].length:0;'
-        . 'return c.slice(0,i)+E+c.slice(i)+L}';
+        . 'return c.slice(0,i)+E+c.slice(i)+L}'
+        . iarepo_srcdoc_loader_js();
 }

@@ -788,7 +788,7 @@ $metaDesc = mb_substr($metaDesc . ' — iarepo', 0, 160);
        frontera entre el código del autor y la sesión de quien lo mira. -->
   <section class="rf-stage" id="stage" aria-label="<?= h(t('El recurso')) ?>"<?= $embedBlocked ? ' data-blocked="1"' : '' ?>>
     <?php if ($r['code_type'] === 'html'): ?>
-      <iframe class="rf-frame" srcdoc="<?= h(iarepo_srcdoc((string) $r['code_content'])) ?>" sandbox="allow-scripts allow-modals allow-popups" title="<?= h($titleText) ?>"></iframe>
+      <iframe class="rf-frame" data-srcdoc="<?= h(iarepo_srcdoc((string) $r['code_content'])) ?>" sandbox="allow-scripts allow-modals allow-popups" title="<?= h($titleText) ?>"></iframe>
     <?php elseif ($r['code_type'] === 'url'): ?>
       <?php if ($embedBlocked): ?>
         <div class="rf-fallback">
@@ -805,9 +805,12 @@ $metaDesc = mb_substr($metaDesc . ' — iarepo', 0, 160);
         </div>
       <?php endif; ?>
     <?php elseif ($r['code_type'] === 'embed'): ?>
-      <iframe class="rf-frame" srcdoc="<?= h(iarepo_srcdoc((string) $r['code_content'])) ?>" sandbox="allow-scripts allow-modals allow-popups allow-forms" title="<?= h($titleText) ?>"></iframe>
+      <iframe class="rf-frame" data-srcdoc="<?= h(iarepo_srcdoc((string) $r['code_content'])) ?>" sandbox="allow-scripts allow-modals allow-popups allow-forms" title="<?= h($titleText) ?>"></iframe>
     <?php else: ?>
       <pre class="rf-code"><?= h((string) $r['code_content']) ?></pre>
+    <?php endif; ?>
+    <?php if (in_array($r['code_type'], ['html', 'embed'], true)): ?>
+    <script><?= iarepo_srcdoc_loader_js() ?>iarepoLoadDeferred();</script>
     <?php endif; ?>
     <button type="button" class="rf-exit" id="stageExit"><i data-lucide="minimize-2"></i><?= h(t('Salir de pantalla completa')) ?></button>
   </section>

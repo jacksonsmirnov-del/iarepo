@@ -509,7 +509,7 @@ function updatePreview() {
   $('previewEmpty').hidden = show;
   if (!show) { frame.removeAttribute('srcdoc'); frame.removeAttribute('src'); return; }
   if (t === 'url') { frame.removeAttribute('srcdoc'); frame.src = code; }
-  else if (t === 'html' || t === 'embed') frame.srcdoc = iarepoSrcdoc(code);   // shared/srcdoc.php
+  else if (t === 'html' || t === 'embed') iarepoSetSrcdoc(frame, iarepoSrcdoc(code));   // shared/srcdoc.php
   else frame.srcdoc = '<pre style="padding:16px;font:13px/1.5 monospace;white-space:pre-wrap">' + code.replace(/&/g, '&amp;').replace(/</g, '&lt;') + '</pre>';
 }
 let previewTimer;

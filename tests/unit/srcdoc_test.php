@@ -198,20 +198,72 @@ function test_toda_incrustacion_srcdoc_pasa_por_iarepo_srcdoc(): void
         if (str_starts_with($rel, 'tests/') || $rel === 'shared/srcdoc.php')
             continue;
         $src = (string) file_get_contents(IAREPO_ROOT . '/' . $rel);
-        // Atributos en PHP: srcdoc="<?= … ?…" siempre con iarepo_srcdoc().
-        preg_match_all('/srcdoc="<\?=\s*([^"]*)"/', $src, $m);
+        // Nadie escribe srcdoc="…" directo en el HTML: el recurso arrancaría
+        // con el iframe a 0×0 (recurso 626). Va en data-srcdoc…
+        assert_not_matches('/(?<![\w-])srcdoc="<\?=/', $src, "$rel: srcdoc directo en el HTML → el recurso arranca con el iframe a 0×0");
+        preg_match_all('/data-srcdoc="<\?=\s*([^"]*)"/', $src, $m);
         foreach ($m[1] as $expr) {
             $n++;
-            assert_contains('iarepo_srcdoc(', $expr, "$rel: srcdoc sin iarepo_srcdoc() → sus enlaces #… sacan del recurso");
+            assert_contains('iarepo_srcdoc(', $expr, "$rel: data-srcdoc sin iarepo_srcdoc() → enlaces #… y localStorage rotos");
         }
-        // Vistas previas en JS: toda asignación a .srcdoc que no sea un
-        // literal (el editor pinta como TEXTO los tipos que no son HTML) pasa
-        // por iarepoSrcdoc(), la gemela de iarepo_srcdoc().
+        // …y la misma página lo carga con iarepoLoadDeferred() DESPUÉS de sus iframes.
+        if ($m[1]) {
+            $lastFrame = strrpos($src, 'data-srcdoc="');
+            $loader    = strpos($src, 'iarepoLoadDeferred();', (int) $lastFrame);
+            assert_true($loader !== false && str_contains($src, '<?= iarepo_srcdoc_loader_js() ?>'),
+                "$rel: carga sus iframes con iarepo_srcdoc_loader_js() + iarepoLoadDeferred(), detrás de ellos");
+        }
+        // Vistas previas en JS: ninguna asignación directa a .srcdoc que no sea
+        // un literal (el editor pinta como TEXTO los tipos que no son HTML)…
         preg_match_all('/\.srcdoc\s*=\s*+(?![\'"])([^;\n]*)/', $src, $j);
-        foreach ($j[1] as $rhs) {
-            $n++;
-            assert_matches('/^iarepoSrcdoc\(/', trim($rhs), "$rel: la vista previa monta el srcdoc con iarepoSrcdoc()");
-        }
+        foreach ($j[1] as $rhs)
+            assert_eq('', trim($rhs), "$rel: la vista previa asigna .srcdoc a mano; usa iarepoSetSrcdoc(frame, iarepoSrcdoc(code))");
+        // …sino iarepoSetSrcdoc(frame, iarepoSrcdoc(code)).
+        $n += preg_match_all('/iarepoSetSrcdoc\(\s*\w+\s*,\s*iarepoSrcdoc\(/', $src);
     }
     assert_eq(6, $n, 'ficha ×2, visor ×2, editor y admin (si cambia, revisa que la nueva pase por aquí)');
+}
+
+/** Ejecuta el cargador diferido en Node con un iframe de mentira. */
+function sd_loader(string $scenario): ?string
+{
+    exec('command -v node 2>/dev/null', $o, $rc);
+    if ($rc !== 0)
+        return null;
+    $js = iarepo_srcdoc_loader_js();
+    $sc = json_encode($scenario);
+    $prog = <<<JS
+const scenario = $sc;
+let observer = null;
+global.window = { ResizeObserver: function (cb) { observer = { cb, disconnected: false }; this.observe = () => {}; this.disconnect = () => { observer.disconnected = true; }; } };
+global.ResizeObserver = window.ResizeObserver;
+const f = { w: 0, h: 0, srcdoc: null, getBoundingClientRect() { return { width: this.w, height: this.h }; } };
+$js
+const log = [];
+if (scenario === 'ya-tiene-tamano') { f.w = 800; f.h = 500; iarepoSetSrcdoc(f, 'A'); log.push(f.srcdoc); }
+if (scenario === 'espera-al-tamano') {
+  iarepoSetSrcdoc(f, 'A'); log.push(f.srcdoc);          // 0×0: todavía no
+  f.w = 800; observer.cb(); log.push(f.srcdoc);         // solo ancho: todavía no
+  f.h = 500; observer.cb(); log.push(f.srcdoc, observer.disconnected);
+}
+if (scenario === 'gana-la-ultima') {
+  iarepoSetSrcdoc(f, 'VIEJO'); const first = observer;
+  iarepoSetSrcdoc(f, 'NUEVO');
+  f.w = 800; f.h = 500; first.cb(); observer.cb(); log.push(f.srcdoc);
+}
+process.stdout.write(JSON.stringify(log));
+JS;
+    return trim((string) shell_exec('node -e ' . escapeshellarg($prog) . ' 2>&1'));
+}
+
+function test_el_recurso_solo_arranca_cuando_el_iframe_tiene_tamano(): void
+{
+    if (($r = sd_loader('ya-tiene-tamano')) === null) {
+        echo "    SKIP node no está instalado\n";
+        return;
+    }
+    assert_eq('["A"]', $r, 'si el iframe ya mide, se carga en el acto');
+    assert_eq('[null,null,"A",true]', sd_loader('espera-al-tamano'),
+        'a 0×0 espera (sin ancho Y alto no carga) y, al tener tamaño, carga y deja de observar');
+    assert_eq('["NUEVO"]', sd_loader('gana-la-ultima'), 'si se pide dos veces (la vista previa), gana la última');
 }

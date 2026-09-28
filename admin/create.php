@@ -258,7 +258,7 @@ function previewCode() {
   const frame = document.getElementById('preview');
   frame.style.display = frame.style.display === 'none' ? 'block' : 'none';
   if (frame.style.display === 'block') {
-    frame.srcdoc = iarepoSrcdoc(code);   // shared/srcdoc.php
+    iarepoSetSrcdoc(frame, iarepoSrcdoc(code));   // shared/srcdoc.php
   }
 }
 </script>
