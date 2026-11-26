@@ -65,6 +65,11 @@ if ($user) {
 }
 
 // ── Start session ──
+// Id de sesión NUEVO al entrar (el viejo se borra): ningún id anterior
+// hereda la cuenta.
+session_regenerate_id(true);
+// 'source' => 'google' es la marca que exige iarepo_session_user_raw()
+// (shared/auth.php): sin ella la sesión no vale. No la quites.
 $_SESSION['user'] = [
     'id'         => (int) $user['id'],
     'email'      => $email,

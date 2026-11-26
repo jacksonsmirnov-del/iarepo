@@ -106,8 +106,12 @@ var IAREPO_PWA_TXT = (document.currentScript && document.currentScript.dataset) 
       try { localStorage.removeItem(KEY); } catch (e) {}
 
       // ¿Volver al recurso donde estaba? Solo rutas locales y si no estamos ya ahí.
+      // La misma regla que iarepo_is_local_path() (shared/local_path.php): sin
+      // «//» ni «/\» al principio (el navegador los lee como otro host), sin
+      // barras invertidas ni caracteres de control.
       var ret = p && p.ret;
-      if (ret && /^\/[^\/]/.test(ret) && ret.split('?')[0] !== location.pathname) {
+      if (typeof ret === 'string' && /^\/(?![\/\\])[^\x00-\x1F\x7F\\]*$/.test(ret)
+          && ret.split('?')[0] !== location.pathname) {
         location.href = ret;
         return;
       }

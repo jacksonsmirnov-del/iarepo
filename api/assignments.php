@@ -14,6 +14,7 @@
 
 require_once __DIR__ . '/../shared/db.php';
 require_once __DIR__ . '/../shared/auth.php';
+require_once __DIR__ . '/../shared/access.php';
 require_once __DIR__ . '/../shared/cors.php';
 require_once __DIR__ . '/../shared/helpers.php';
 
@@ -38,10 +39,15 @@ if ($method === 'POST') {
     if (!$resourceId) json_error('resource_id required');
     if (!$classroomId) json_error('classroom_id required');
 
-    // Verify resource exists and user has access
-    $exists = $db->prepare("SELECT id FROM resources WHERE id = ? AND is_active = 1");
+    // El recurso debe existir y poder verlo quien lo asigna (canView). Sin
+    // esto, asignar un id a ciegas y listar luego las asignaciones revelaba
+    // título y descripción de borradores ajenos y de recursos de otro centro.
+    // Lo que no puedes ver responde igual que lo que no existe (404).
+    $exists = $db->prepare("SELECT id, visibility, author_tenant_id, author_user_id
+                            FROM resources WHERE id = ? AND is_active = 1");
     $exists->execute([$resourceId]);
-    if (!$exists->fetch()) json_error('Resource not found', 404);
+    $resource = $exists->fetch();
+    if (!$resource || !canView($resource, $user)) json_error('Resource not found', 404);
 
     // Check for duplicate assignment
     $dup = $db->prepare("
@@ -128,6 +134,7 @@ if ($method === 'GET') {
         $stmt = $db->prepare("
             SELECT ra.id AS assignment_id, r.id, r.title, r.description, r.code_type,
                    r.subject_area, r.topic_tag, r.author_display_name,
+                   r.visibility, r.author_tenant_id, r.author_user_id,
                    ra.assigned_by_name, ra.available_from, ra.available_until
             FROM resource_assignments ra
             JOIN resources r ON r.id = ra.resource_id AND r.is_active = 1
@@ -137,35 +144,41 @@ if ($method === 'GET') {
             ORDER BY ra.created_at DESC
         ");
         $stmt->execute([$tenantId, $classroomId]);
-        json_ok(['assignments' => $stmt->fetchAll()]);
+        json_ok(['assignments' => assignments_visible($stmt->fetchAll(), $user)]);
     }
 
     // Default: all my assignments (as teacher)
     $stmt = $db->prepare("
         SELECT ra.id, ra.resource_id, r.title, ra.classroom_name,
-               ra.available_from, ra.available_until, ra.created_at
+               ra.available_from, ra.available_until, ra.created_at,
+               r.visibility, r.author_tenant_id, r.author_user_id
         FROM resource_assignments ra
-        JOIN resources r ON r.id = ra.resource_id
+        JOIN resources r ON r.id = ra.resource_id AND r.is_active = 1
         WHERE ra.assigned_by_user_id = ? AND ra.tenant_id = ? AND ra.is_active = 1
         ORDER BY ra.created_at DESC
         LIMIT 100
     ");
     $stmt->execute([$user['user_id'], $user['tenant_id']]);
-    json_ok(['assignments' => $stmt->fetchAll()]);
+    json_ok(['assignments' => assignments_visible($stmt->fetchAll(), $user)]);
 }
 
 // ── DELETE: Remove assignment ─────────────────────────────────
 if ($method === 'DELETE') {
     $user = requireAuth();
+    requireRole($user, ['teacher', 'admin', 'superadmin']);
     $id = (int)($_GET['id'] ?? 0);
     if (!$id) json_error('Missing assignment ID');
 
-    // Only the assigner or admin can remove
+    // Solo quien la asignó, EN SU CENTRO (o un superadmin). El user_id solo no
+    // basta: cada centro de Campus numera a sus usuarios desde 1 y las cuentas
+    // de iarepo (tenant 0) son otra numeración, así que el «7» de un centro
+    // borraba las asignaciones del «7» de todos los demás.
     $check = $db->prepare("
         SELECT id FROM resource_assignments
-        WHERE id = ? AND (assigned_by_user_id = ? OR ? = 'superadmin') AND is_active = 1
+        WHERE id = ? AND is_active = 1
+          AND ((assigned_by_user_id = ? AND tenant_id = ?) OR ? = 'superadmin')
     ");
-    $check->execute([$id, $user['user_id'], $user['role'] ?? '']);
+    $check->execute([$id, (int)$user['user_id'], (int)$user['tenant_id'], $user['role'] ?? '']);
     if (!$check->fetch()) json_error('Not found or not authorized', 404);
 
     $db->prepare("UPDATE resource_assignments SET is_active = 0 WHERE id = ?")->execute([$id]);
@@ -173,3 +186,19 @@ if ($method === 'DELETE') {
 }
 
 json_error('Method not allowed', 405);
+
+/**
+ * Las filas cuyo recurso puede ver $user (canView), sin los tres campos que
+ * solo sirven para decidirlo. Un recurso asignado cuando era visible puede ser
+ * hoy un borrador: entonces deja de listarse.
+ */
+function assignments_visible(array $rows, array $user): array {
+    $out = [];
+    foreach ($rows as $row) {
+        if (!canView($row, $user))
+            continue;
+        unset($row['visibility'], $row['author_tenant_id'], $row['author_user_id']);
+        $out[] = $row;
+    }
+    return $out;
+}

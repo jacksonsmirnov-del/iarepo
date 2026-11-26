@@ -132,7 +132,8 @@ function authenticateSession(): ?array {
         session_start();
     }
 
-    if (empty($_SESSION['user']['id']))
+    $u = iarepo_session_user_raw();
+    if ($u === null)
         return null;
 
     if (iarepo_is_cross_site_write()) {
@@ -144,7 +145,6 @@ function authenticateSession(): ?array {
         return null;
     }
 
-    $u = $_SESSION['user'];
     return [
         'user_id'     => (int) $u['id'],
         'name'        => $u['name'] ?? '',
@@ -226,5 +226,20 @@ function getSessionUser(): ?array {
     if (session_status() === PHP_SESSION_NONE)
         session_start();
 
-    return $_SESSION['user'] ?? null;
+    return iarepo_session_user_raw();
+}
+
+/**
+ * $_SESSION['user'], pero SOLO si la escribió el login de iarepo.
+ *
+ * auth/google.php marca la sesión con source='google'. Una sesión sin esa
+ * marca no es de iarepo, aunque traiga un 'id': no cuenta como cuenta del
+ * sitio. Todo lo que lee la sesión (authenticateSession, getSessionUser)
+ * pasa por aquí. No quites la comprobación ni leas $_SESSION['user'] directo.
+ */
+function iarepo_session_user_raw(): ?array {
+    $u = $_SESSION['user'] ?? null;
+    if (!is_array($u) || empty($u['id']) || ($u['source'] ?? null) !== 'google')
+        return null;
+    return $u;
 }

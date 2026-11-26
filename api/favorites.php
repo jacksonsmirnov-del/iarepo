@@ -15,6 +15,7 @@
 
 require_once __DIR__ . '/../shared/db.php';
 require_once __DIR__ . '/../shared/auth.php';
+require_once __DIR__ . '/../shared/access.php';
 require_once __DIR__ . '/../shared/cors.php';
 require_once __DIR__ . '/../shared/helpers.php';
 
@@ -35,6 +36,7 @@ if ($method === 'GET') {
         SELECT r.id, r.title, r.description, r.code_type, r.subject_area, r.level,
                r.view_count, r.like_count, r.fork_count, r.lang,
                r.author_user_id, r.author_display_name, r.source_name, r.source_url,
+               r.visibility, r.author_tenant_id,
                c.name AS category_name, c.icon AS category_icon,
                rf.created_at AS favorited_at
         FROM resource_favorites rf
@@ -44,7 +46,18 @@ if ($method === 'GET') {
         ORDER BY rf.created_at DESC
     ");
     $stmt->execute([$user['user_id']]);
-    $favorites = $stmt->fetchAll();
+
+    // Cada guardado pasa por canView(), como en favorites/index.php y en las
+    // listas: un recurso guardado cuando era público puede ser hoy un
+    // borrador, y lo que no puedes ver no sale (ni su título ni su
+    // descripción). Los dos campos extra solo sirven para decidir.
+    $favorites = [];
+    foreach ($stmt->fetchAll() as $row) {
+        if (!canView($row, $user))
+            continue;
+        unset($row['visibility'], $row['author_tenant_id']);
+        $favorites[] = $row;
+    }
 
     json_ok([
         'favorites'    => $favorites,
@@ -60,15 +73,23 @@ if ($method === 'POST') {
     if (!$resourceId)
         json_error('Resource ID required', 400, 'MISSING_RESOURCE_ID');
 
-    // El recurso debe existir y estar activo.
-    $exists = $db->prepare("SELECT id FROM resources WHERE id = ? AND is_active = 1");
+    // El recurso debe existir, estar activo y poder verlo quien lo guarda.
+    // Sin canView(), guardar ids a ciegas y leer luego la lista revelaba el
+    // título y la descripción de borradores ajenos y de recursos de centro.
+    // Lo que no puedes ver responde igual que lo que no existe (404).
+    $exists = $db->prepare("SELECT id, visibility, author_tenant_id, author_user_id
+                            FROM resources WHERE id = ? AND is_active = 1");
     $exists->execute([$resourceId]);
-    if (!$exists->fetch())
+    $resource = $exists->fetch();
+    if (!$resource)
         json_error('Resource not found', 404, 'RESOURCE_NOT_FOUND');
+    $visible = canView($resource, $user);
 
     // Add idempotente (para aplicar una intención guardada antes del login,
     // sin riesgo de que un toggle lo QUITE si ya estaba guardado).
     if (($_GET['action'] ?? '') === 'add') {
+        if (!$visible)
+            json_error('Resource not found', 404, 'RESOURCE_NOT_FOUND');
         $db->prepare("INSERT IGNORE INTO resource_favorites (user_id, resource_id) VALUES (?, ?)")
            ->execute([$user['user_id'], $resourceId]);
         json_ok(['action' => 'added', 'favorited' => true]);
@@ -79,10 +100,14 @@ if ($method === 'POST') {
     $check->execute([$user['user_id'], $resourceId]);
     $existing = $check->fetch();
 
+    // Quitar sí se puede aunque ya no se vea: no revela nada y limpia la lista.
     if ($existing) {
         $db->prepare("DELETE FROM resource_favorites WHERE id = ?")->execute([$existing['id']]);
         json_ok(['action' => 'removed', 'favorited' => false]);
     }
+
+    if (!$visible)
+        json_error('Resource not found', 404, 'RESOURCE_NOT_FOUND');
 
     $db->prepare("INSERT INTO resource_favorites (user_id, resource_id) VALUES (?, ?)")
        ->execute([$user['user_id'], $resourceId]);

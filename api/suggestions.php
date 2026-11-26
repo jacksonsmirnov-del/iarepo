@@ -66,7 +66,16 @@ if ($method === 'GET') {
     $resourceId = (int)($_GET['resource_id'] ?? 0);
 
     if ($resourceId) {
-        // Suggestions for a specific resource
+        // Las de UN recurso solo las lee su autor (o superadmin): son
+        // privadas, y traen nombre y centro de quien las escribe. Sin esto,
+        // cualquier sesión —un alumno incluido— las leía recorriendo ?resource_id=.
+        // Lo ajeno responde igual que lo que no existe (404).
+        $own = $db->prepare("SELECT 1 FROM resources
+                             WHERE id = ? AND author_user_id = ? AND author_tenant_id = ?");
+        $own->execute([$resourceId, (int) $user['user_id'], (int) $user['tenant_id']]);
+        if (!$own->fetch() && ($user['role'] ?? '') !== 'superadmin')
+            json_error('Resource not found', 404);
+
         $stmt = $db->prepare("
             SELECT id, user_display_name, tenant_name, suggestion, is_read, created_at
             FROM resource_suggestions

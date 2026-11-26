@@ -11,6 +11,7 @@
 require_once __DIR__ . '/../shared/page_errors.php';
 
 require_once __DIR__ . '/../shared/db.php';
+require_once __DIR__ . '/../shared/auth.php';     // CSRF: iarepo_csrf_*, iarepo_is_cross_site_write (solo carga jwt.php)
 require_once __DIR__ . '/../shared/srcdoc.php';
 // h() local — NO se carga shared/helpers.php: su error_handler vuelca JSON y
 // corta la página a medias ante cualquier error (CLAUDE.md §2.1).
@@ -30,6 +31,7 @@ session_start();
 // Login — fail closed if ADMIN_PASS is not configured, constant-time compare
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['admin_pass'])) {
     if ($ADMIN_PASS !== '' && hash_equals($ADMIN_PASS, (string) $_POST['admin_pass'])) {
+        session_regenerate_id(true);   // id nuevo al entrar como admin
         $_SESSION['admin'] = true;
         header('Location: create.php');
         exit;
@@ -59,6 +61,13 @@ $cats = $db->query("SELECT id, name, icon FROM categories ORDER BY name")->fetch
 $success = null;
 $error = null;
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['title'])) {
+    // Publica como la cuenta oficial «iarepo», ya aprobado: que un formulario
+    // de otra web no pueda hacerlo con la sesión de admin abierta (CSRF).
+    // Doble barrera: el navegador dice de dónde viene y el token del form.
+    if (iarepo_is_cross_site_write() || !iarepo_csrf_valid($_POST['csrf'] ?? null)) {
+        http_response_code(403);
+        exit('Petición rechazada (CSRF). Recarga la página e inténtalo de nuevo.');
+    }
     $title = trim($_POST['title'] ?? '');
     $description = trim($_POST['description'] ?? '');
     $code = $_POST['code_content'] ?? '';
@@ -169,6 +178,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:#7c3aed;box-sh
 <?php if ($error): ?><div class="alert err"><?= $error ?></div><?php endif; ?>
 
 <form method="POST">
+<input type="hidden" name="csrf" value="<?= h(iarepo_csrf_token()) ?>">
 <div class="form-grid">
   <div class="full">
     <label>Título *</label>

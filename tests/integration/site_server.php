@@ -212,8 +212,11 @@ function it_render_boot(): ?string
     $login = '__it_login_' . bin2hex(random_bytes(6)) . '.php';
     file_put_contents("$site/$login", '<?php
 session_start();
-$_SESSION["user"] = ["id" => (int) $_GET["id"], "role" => (string) $_GET["role"],
-                     "name" => "Usuario de pruebas", "email" => "it@example.test", "avatar_url" => ""];
+$u = ["id" => (int) $_GET["id"], "role" => (string) $_GET["role"],
+      "name" => "Usuario de pruebas", "email" => "it@example.test", "avatar_url" => ""];
+// &foreign=1: una sesión con la forma de otra app (sin la marca de iarepo).
+if (empty($_GET["foreign"])) $u["source"] = "google";
+$_SESSION["user"] = $u;
 echo "ok";');
     $s['login'] = $login;
 
@@ -295,14 +298,17 @@ function it_render_request(string $method, string $url, ?string $cookie = null, 
     return [$code, $hdrs, (string) $body];
 }
 
-/** Cookie de sesión para un rol ('' = anónimo); $id elige otro usuario. */
-function it_render_cookie(string $role, ?int $id = null): ?string
+/**
+ * Cookie de sesión para un rol ('' = anónimo); $id elige otro usuario.
+ * $foreign: la sesión no lleva la marca de iarepo (source='google').
+ */
+function it_render_cookie(string $role, ?int $id = null, bool $foreign = false): ?string
 {
     if ($role === '')
         return null;
     $s  = &it_render_state();
     $id ??= $role === 'student' ? IT_RENDER_STUDENT : IT_RENDER_TEACHER;
-    [$code, $hdrs] = it_render_get($s['base'] . '/' . $s['login'] . "?id=$id&role=$role");
+    [$code, $hdrs] = it_render_get($s['base'] . '/' . $s['login'] . "?id=$id&role=$role" . ($foreign ? '&foreign=1' : ''));
     it_eq(200, $code, "el atajo de login de pruebas responde ($role)");
     foreach ($hdrs as $h)
         if (preg_match('/^Set-Cookie:\s*(PHPSESSID=[^;]+)/i', $h, $m))

@@ -162,3 +162,21 @@ function iarepo_srcdoc_js(): string
         . 'return c.slice(0,i)+E+c.slice(i)+L}'
         . iarepo_srcdoc_loader_js();
 }
+
+/**
+ * Quita ?token= de la barra de direcciones, sin recargar.
+ *
+ * Campus abre /view/N con su JWT en la URL. Un documento srcdoc hereda la URL
+ * de la página que lo contiene (document.baseURI, el Referer de lo que pide),
+ * así que el script del recurso veía el token. Las páginas que pintan un
+ * recurso ponen esto como PRIMER script del <head>: el servidor ya usó el
+ * token para decidir el acceso, y cuando el iframe recibe su srcdoc (más
+ * tarde, iarepo_srcdoc_loader_js) la URL ya no lo lleva.
+ * Antirregresión: tests/unit/srcdoc_test.php.
+ */
+function iarepo_strip_token_js(): string
+{
+    return '(function(){try{var u=new URL(location.href);'
+        . 'if(!u.searchParams.has("token"))return;u.searchParams.delete("token");'
+        . 'history.replaceState(history.state,"",u.pathname+u.search+u.hash)}catch(e){}})();';
+}

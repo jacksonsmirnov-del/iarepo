@@ -365,3 +365,158 @@ function test_un_token_de_campus_no_es_la_cuenta_de_iarepo_con_su_numero(): void
         it_authz_cleanup($db);
     }
 }
+
+// ================================================================
+// Revisión de seguridad 2026-11-26
+// ================================================================
+
+/**
+ * Guardar un id a ciegas no revela nada: api/favorites.php pasa por canView()
+ * al guardar y al listar. Antes, guardar el id de un borrador ajeno y pedir
+ * la lista devolvía su título y su descripción.
+ */
+function test_favoritos_no_revelan_borradores_ajenos(): void
+{
+    if (!($db = it_authz_ready()))
+        return;
+    $o    = IT_AUTHZ_OTHER;
+    $r    = IT_RENDER_RES;   // borrador del 9001
+    $base = it_render_state()['base'];
+    try {
+        $other = it_render_cookie('teacher', $o);
+        foreach (["?id=$r&action=add", "?id=$r"] as $q) {
+            [$code] = it_render_request('POST', "$base/api/favorites.php$q", $other, []);
+            it_eq(404, $code, "otro profesor no guarda un borrador ajeno ($q)");
+        }
+        it_eq(0, (int) $db->query("SELECT COUNT(*) FROM resource_favorites WHERE user_id = $o AND resource_id = $r")->fetchColumn(),
+            'y no queda guardado');
+
+        // Un guardado de cuando era visible (o metido a mano) tampoco sale.
+        $db->exec("INSERT IGNORE INTO resource_favorites (user_id, resource_id) VALUES ($o, $r), ($o, 1000)");
+        [$code, , $body] = it_render_request('GET', "$base/api/favorites.php", $other, []);
+        it_eq(200, $code, 'la lista responde');
+        it_true(!str_contains($body, 'Recurso de pruebas del panel'), 'sin el título del borrador ajeno');
+        it_eq([1000], it_authz_json($body)['favorite_ids'] ?? null, 'solo lo que puede ver');
+        it_true(!str_contains($body, 'author_tenant_id') && !str_contains($body, '"visibility"'),
+            'sin campos internos en el contrato');
+
+        [$code] = it_render_request('POST', "$base/api/favorites.php?id=$r", $other, []);
+        it_eq(200, $code, 'quitar un guardado que ya no ve sí se puede');
+
+        [$code] = it_render_request('POST', "$base/api/favorites.php?id=$r&action=add", it_render_cookie('teacher'), []);
+        it_eq(200, $code, 'su autor sí guarda su propio borrador');
+    } finally {
+        $db->exec("DELETE FROM resource_favorites WHERE resource_id = $r OR user_id = $o");
+        it_authz_cleanup($db);
+    }
+}
+
+/** Las sugerencias de un recurso solo las lee su autor. */
+function test_sugerencias_solo_las_lee_el_autor_del_recurso(): void
+{
+    if (!($db = it_authz_ready()))
+        return;
+    $r   = IT_RENDER_RES;
+    $url = it_render_state()['base'] . "/api/suggestions.php?resource_id=$r";
+    try {
+        $db->exec("INSERT INTO resource_suggestions (resource_id, user_id, user_display_name, tenant_name, suggestion)
+                   VALUES ($r, 77, 'Docente Ajena', 'Colegio Ajeno', 'SUGERENCIA-PRIVADA')");
+        $who = ['otro profesor' => [it_render_cookie('teacher', IT_AUTHZ_OTHER), []],
+                'alumno'        => [it_render_cookie('student'), []],
+                'Campus mismo número, otro centro' => [null, ['Authorization' => 'Bearer ' . it_campus_jwt(IT_RENDER_TEACHER, 7)]]];
+        foreach ($who as $label => [$cookie, $hdr]) {
+            [$code, , $body] = it_render_request('GET', $url, $cookie, [], $hdr);
+            it_eq(404, $code, "$label no lee las sugerencias");
+            it_true(!str_contains($body, 'SUGERENCIA-PRIVADA'), "$label: el texto no sale");
+        }
+        [$code, , $body] = it_render_request('GET', $url, it_render_cookie('teacher'), []);
+        it_eq(200, $code, 'su autor sí');
+        it_true(str_contains($body, 'SUGERENCIA-PRIVADA'), 'y recibe el texto');
+    } finally {
+        $db->exec("DELETE FROM resource_suggestions WHERE resource_id = $r");
+        it_authz_cleanup($db);
+    }
+}
+
+/**
+ * Asignar exige poder ver el recurso, y quitar una asignación exige ser quien
+ * la hizo EN SU CENTRO: el user_id solo se repite entre centros.
+ */
+function test_asignaciones_exigen_ver_el_recurso_y_el_mismo_centro(): void
+{
+    if (!($db = it_authz_ready()))
+        return;
+    $base = it_render_state()['base'];
+    $r    = IT_RENDER_RES;
+    try {
+        [$code] = it_render_request('POST', "$base/api/assignments.php", it_render_cookie('teacher', IT_AUTHZ_OTHER),
+            ['resource_id' => $r, 'classroom_id' => 1]);
+        it_eq(404, $code, 'no se asigna un borrador ajeno');
+        it_eq(0, (int) $db->query("SELECT COUNT(*) FROM resource_assignments WHERE resource_id = $r")->fetchColumn(),
+            'y no queda nada guardado');
+
+        // La sembrada: recurso 1000, centro 5, asignada por el 77.
+        $aid = (int) $db->query("SELECT id FROM resource_assignments WHERE resource_id = 1000 AND tenant_id = 5")->fetchColumn();
+        [$code] = it_render_request('DELETE', "$base/api/assignments.php?id=$aid", null, null,
+            ['Authorization' => 'Bearer ' . it_campus_jwt(77, 6)]);
+        it_eq(404, $code, 'el 77 de OTRO centro no la quita');
+        it_eq(1, (int) $db->query("SELECT is_active FROM resource_assignments WHERE id = $aid")->fetchColumn(), 'sigue activa');
+
+        [$code] = it_render_request('DELETE', "$base/api/assignments.php?id=$aid", null, null,
+            ['Authorization' => 'Bearer ' . it_campus_jwt(77, 5, 'student')]);
+        it_eq(403, $code, 'un alumno no quita asignaciones');
+
+        [$code] = it_render_request('DELETE', "$base/api/assignments.php?id=$aid", null, null,
+            ['Authorization' => 'Bearer ' . it_campus_jwt(77, 5)]);
+        it_eq(200, $code, 'quien la hizo, en su centro, sí');
+    } finally {
+        $db->exec("DELETE FROM resource_assignments WHERE resource_id = $r");
+        it_authz_cleanup($db);
+    }
+}
+
+/** Una sesión sin la marca de iarepo (source='google') no es una cuenta del sitio. */
+function test_una_sesion_sin_la_marca_de_iarepo_no_vale(): void
+{
+    if (!($db = it_authz_ready()))
+        return;
+    $base = it_render_state()['base'];
+    try {
+        $foreign = it_render_cookie('student', null, true);
+        [$code, , $body] = it_render_request('GET', "$base/api/favorites.php", $foreign, []);
+        it_eq(401, $code, 'la API la trata como anónima');
+        it_true(!str_contains($body, 'Ondas sonoras'), 'sin los Guardados de la cuenta con ese número');
+
+        [$code] = it_render_request('GET', "$base/favorites/", $foreign);
+        it_eq(302, $code, 'la página de Guardados manda a entrar');
+
+        [$code] = it_render_request('GET', "$base/api/favorites.php", it_render_cookie('student'), []);
+        it_eq(200, $code, 'con la marca, la misma cuenta sí entra');
+    } finally {
+        it_authz_cleanup($db);
+    }
+}
+
+/**
+ * El visor quita ?token= de la URL ANTES de dar al iframe su srcdoc: el
+ * documento del recurso hereda la URL de la página (document.baseURI).
+ */
+function test_el_visor_quita_el_token_antes_de_cargar_el_recurso(): void
+{
+    if (!($db = it_authz_ready()))
+        return;
+    try {
+        $base = it_render_state()['base'];
+        $tok  = it_campus_jwt(IT_RENDER_TEACHER, 0);
+        foreach (['/view/' . IT_RENDER_RES . "?mode=present&token=$tok", "/resource/1000?token=$tok"] as $path) {
+            [$code, , $body] = it_render_request('GET', $base . $path);
+            it_eq(200, $code, "responde $path");
+            $strip  = strpos($body, 'searchParams.delete("token")');
+            $iframe = strpos($body, '<iframe');
+            it_true($strip !== false, "$path: lleva el script que quita el token");
+            it_true($iframe === false || $strip < $iframe, "$path: el script va antes del primer iframe");
+        }
+    } finally {
+        it_authz_cleanup($db);
+    }
+}

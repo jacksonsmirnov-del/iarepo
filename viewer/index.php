@@ -134,6 +134,7 @@ $openName  = $sourceLabel ?: t('su web');
 <html lang="<?= lang() ?>">
 <head>
     <meta charset="UTF-8">
+    <script><?= iarepo_strip_token_js() ?></script><?php /* el JWT de Campus fuera de la URL antes de cargar el recurso: shared/srcdoc.php */ ?>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title><?= h($resource['title']) ?> — iarepo</title>
     <meta name="robots" content="noindex, nofollow">
